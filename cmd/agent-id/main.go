@@ -1,4 +1,4 @@
-// Command aidentity gives AI coding agents their own GitHub identity for one
+// Command agent-id gives AI coding agents their own GitHub identity for one
 // process and its descendants, without changing the developer's Git or gh
 // configuration.
 //
@@ -18,27 +18,26 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Exit codes of aidentity.
+// Exit codes of agent-id.
 const (
 	exitOK      = 0
 	exitFailure = 1
 )
 
-// commandName is the working name of the binary (brief §14: the name
-// aidentity versus agent-id is an open decision of the owner).
-const commandName = "aidentity"
+// commandName is the name of the binary (ARCHITECTURE.md, Key decisions).
+const commandName = "agent-id"
 
 func main() {
 	os.Exit(run(context.Background(), newRoot(), os.Args[1:], os.Stdout, os.Stderr))
 }
 
-// newRoot returns the root command of aidentity. Slices add their commands
+// newRoot returns the root command of agent-id. Slices add their commands
 // here as they are implemented.
 func newRoot() *cobra.Command {
 	root := &cobra.Command{
 		Use:           commandName,
 		Short:         "Run AI agents under their own GitHub App identity",
-		Long:          "aidentity binds an agent profile to Git identity, Git transport credentials, and GitHub API credentials for one process and its descendants. Personal Git and gh configuration is never modified.",
+		Long:          "agent-id binds an agent profile to Git identity, Git transport credentials, and GitHub API credentials for one process and its descendants. Personal Git and gh configuration is never modified.",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Args:          cobra.NoArgs,
