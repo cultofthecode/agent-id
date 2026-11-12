@@ -9,7 +9,7 @@
 // HTTP request that leaves 127.0.0.1 to a guard that fails the test.
 //
 // On top of Isolate, the package provides the fakes and process helpers that
-// end-to-end tests need: NewFakeGitHub for the API, NewGitServer for Git over
+// end-to-end tests need: NewFakeAPI for a host API, NewGitServer for Git over
 // HTTPS, NewBareRepository and Clone for repositories, BuildBinary for
 // executables, NewHTTPClient for in-process clients, and Main for the check
 // that a test run left the developer's configuration unchanged. Only test
@@ -45,7 +45,7 @@ var inheritedVariables = []string{
 
 // inheritedPrefixes are variable name prefixes removed from the environment
 // of an isolated test.
-var inheritedPrefixes = []string{"AIDENTITY_", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "GHAPP_"}
+var inheritedPrefixes = []string{"AGENT_ID_", "AIDENTITY_", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "GHAPP_"}
 
 // Env describes the isolated environment of one test.
 type Env struct {

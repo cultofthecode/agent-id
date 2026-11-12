@@ -12,7 +12,7 @@ import (
 
 // seedIdentity is the author and committer of the first commit of a bare
 // repository: test data, never a real person.
-var seedIdentity = []string{"-c", "user.name=aidentity test", "-c", "user.email=test@aidentity.invalid"}
+var seedIdentity = []string{"-c", "user.name=agent-id test", "-c", "user.email=test@agent-id.invalid"}
 
 // Git runs git with args in dir, in the environment of the test, and returns
 // its standard output without the trailing newline. It fails the test with

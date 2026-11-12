@@ -115,7 +115,7 @@ func TestGitServerChallengesARequestWithoutCredentials(t *testing.T) {
 }
 
 // useCredentials gives git in this test a credential helper, configured
-// through GIT_CONFIG_COUNT like aidentity does, that answers with username
+// through GIT_CONFIG_COUNT like agent-id does, that answers with username
 // and password.
 func useCredentials(t *testing.T, username, password string) {
 	t.Helper()
