@@ -47,6 +47,8 @@ Apply the recorded name decision: the binary, the composition root package, the 
 
 ## Progress
 
+PR: #39
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Code
@@ -56,9 +58,9 @@ Apply the recorded name decision: the binary, the composition root package, the 
 
 ### Phase 2: Docs and configuration
 
-- [ ] 2.1 Rename non-historical references in docs, .ai/, and .gitignore
-- [ ] 2.2 Record the name decision as active in ARCHITECTURE.md
+- [x] 2.1 Rename non-historical references in docs, .ai/, and .gitignore — 9fdf6d3
+- [x] 2.2 Record the name decision as active in ARCHITECTURE.md — 7393a09
 
 ### Phase 3: Validation
 
-- [ ] 3.1 Run the full gate in an isolated environment
+- [x] 3.1 Run the full gate in an isolated environment — 7393a09 (gate green)
