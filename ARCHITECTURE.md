@@ -44,7 +44,7 @@ internal/
     providertest/          fake provider and the contract suite every adapter must pass
     github/                adapter: GitHub App JWT, installation tokens, bot identity, gh (planned)
       githubtest/          deterministic fake responses built on testenv.FakeGitHub
-  token/                   module: token cache per host/app/installation/scope, refresh  (planned)
+  token/                   module: token cache per provider/host/app/installation/scope, refresh (planned)
   activation/              module: child environment of exec and env (pure), activation  (planned)
     exec/  env/            slices: aidentity exec, aidentity env
   gitint/                  module: Git identity, process-scoped Git config, credential helper (planned)
