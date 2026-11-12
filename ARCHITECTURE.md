@@ -85,7 +85,7 @@ internal/
 4. `kernel` imports nothing from this repository.
 5. A security decision is a pure function in a module, not logic in a handler or a command: the child environment, the credential helper's answer for a request, the token cache key, the conflict checks of `doctor`, redaction. Handlers load, call the function, and act on the result.
 6. Only test files import `internal/testenv`.
-7. No GitHub-specific import outside `internal/provider/github`: GitHub types, API clients and libraries, hostnames such as `github.com` and `api.github.com`, App JWT and installation-token details, and `gh` wiring live in the adapter. Every other package uses the `internal/provider` interface. Exceptions: `cmd/aidentity` constructs the adapter (rule 1), and test files may use `internal/testenv`'s fake GitHub.
+7. No GitHub-specific import outside `internal/provider/github`: GitHub types, API clients and libraries, hostnames such as `github.com` and `api.github.com`, App JWT and installation-token details, and `gh` wiring live in the adapter. Every other package uses the `internal/provider` interface. Exceptions: `cmd/aidentity` constructs the adapter (rule 1), and test files may use `internal/testenv`'s fake GitHub. A Go import path that merely lives on GitHub, such as this repository's own module path `github.com/cultofthecode/agent-id`, is not GitHub-specific.
 
 depguard (`.golangci.yml`) enforces rule 6 today. Rules 1, 2, 4, and 7 get depguard rules when the packages they name exist; the compiler enforces rule 3. Until then, review enforces rule 7 (`CODE_REVIEW.md`).
 
