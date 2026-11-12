@@ -51,8 +51,8 @@ Apply the recorded name decision: the binary, the composition root package, the 
 
 ### Phase 1: Code
 
-- [ ] 1.1 Move cmd/aidentity to cmd/agent-id and rename the binary
-- [ ] 1.2 Rename the scrubbed environment prefix in internal/testenv
+- [x] 1.1 Move cmd/aidentity to cmd/agent-id and rename the binary — fe2ba90
+- [x] 1.2 Rename the scrubbed environment prefix in internal/testenv — 386118e
 
 ### Phase 2: Docs and configuration
 
