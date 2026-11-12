@@ -48,15 +48,15 @@ A reproducible, tested matrix of how inherited Git configuration and shell start
 
 ### Phase 1: Experiments
 
-- [ ] 1.1 Write the experiment script
-- [ ] 1.2 Run on macOS and Ubuntu 24.04 and record results
+- [x] 1.1 Write the experiment script — 08d0524
+- [x] 1.2 Run on macOS and Ubuntu 24.04 and record results — 672ab4a
 
 ### Phase 2: Analysis
 
-- [ ] 2.1 Write the matrix document
-- [ ] 2.2 Derive the recommended GIT_CONFIG set and doctor checks
+- [x] 2.1 Write the matrix document — 672ab4a
+- [x] 2.2 Derive the recommended GIT_CONFIG set and doctor checks — 672ab4a
 
 ### Phase 3: Delivery
 
-- [ ] 3.1 Run the validation gate
+- [x] 3.1 Run the validation gate — gate green on 672ab4a (isolated env)
 - [ ] 3.2 Open the PR, review pass, summary comment
