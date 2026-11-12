@@ -35,7 +35,7 @@ The child environment is the only activation mechanism: agent-id never writes to
 The layout follows orbit: a vertical slice architecture adjusted to Go. A **module** is a bounded context under `internal/`. A **slice** is one user-visible operation: one Go package that holds its contract, handler, CLI command, and tests.
 
 ```text
-cmd/agent-id/             composition root: build adapters, wire slices, run            (exists)
+cmd/agent-id/              composition root: build adapters, wire slices, run            (exists)
 internal/
   testenv/                 test isolation: temporary HOME/XDG/Git/gh config, fake GitHub (exists)
   profile/                 module: profile config (non-secret metadata, key references) (planned)
@@ -49,7 +49,7 @@ internal/
     credentialhelper/      slice: agent-id git-credential (the helper protocol)
   ghint/                   module: gh token injection, recursion guard, host selection   (planned)
   diagnose/                module: whoami, doctor (no secrets in output)                 (planned)
-  setup/                   slice module: agent-id setup github                          (planned)
+  setup/                   slice module: agent-id setup github                           (planned)
   integration/claude/      Claude Code SessionStart integration                          (planned)
   kernel/                  shared kernel: only what three or more modules need
 ```
