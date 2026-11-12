@@ -52,3 +52,7 @@ PR: #31
 ### Phase 2: Deliver
 
 - [x] 2.1 Validation gate, review, and PR finalization — 60d4693
+
+### Phase 3: Owner decisions
+
+- [x] 3.1 Record the owner decisions in the audit, ARCHITECTURE.md, and the CODE_REVIEW.md provenance rule — 45a4217
