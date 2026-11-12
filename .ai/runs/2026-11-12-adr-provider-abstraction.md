@@ -40,14 +40,16 @@ Record the owner's decision (Jacob, 12 November 2026, 22:41 Europe/Warsaw) that 
 
 ## Progress
 
+PR: #38
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Record the decision
 
-- [ ] 1.1 Add the provider-abstraction ADR to ARCHITECTURE.md
-- [ ] 1.2 Add the import rule to AGENTS.md and CODE_REVIEW.md
+- [x] 1.1 Add the provider-abstraction ADR to ARCHITECTURE.md — d79483b, 7256908
+- [x] 1.2 Add the import rule to AGENTS.md and CODE_REVIEW.md — e19260f
 
 ### Phase 2: Verify
 
-- [ ] 2.1 Run the validation gate and re-read the diff
-- [ ] 2.2 Open the PR, label it, and review it
+- [x] 2.1 Run the validation gate and re-read the diff — 7256908
+- [x] 2.2 Open the PR, label it, and review it — #38
