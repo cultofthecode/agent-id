@@ -57,7 +57,7 @@ aidentity exists to change which identity Git and `gh` use. A test that leaks in
 - **Ports.** agent-id listens only on `127.0.0.1` with a port in **18000–18999** (`testenv.Listen`). Ports **19000–19999 belong to orbit**; never bind them.
 - **Docker and OrbStack.** A container, network, volume, image tag, or OrbStack machine that agent-id creates carries the prefix **`aid-`**, never `orbit-`. Never restart OrbStack, never stop or delete machines or containers that agent-id did not create, and never delete all machines (`orb delete --all`, `docker system prune`, or similar) without telling the owner first.
 - **Worktrees.** Parallel work uses `git worktree add ~/Projects/agent-id-wt/<name>`; never another location, and never a worktree of another repository.
-- **Agents on the shared machine.** hc agents of this project are named with the prefix **`aid-`**. Agents of orbit work in `~/Projects/orbit*`: do not touch their directories, branches, worktrees, machines, or processes. Never type into, close, or reuse the terminals **t1** and **t40**; they belong to the owner.
+- **Agents on the shared machine.** hc agents of this project are named with the prefix **`aid-`**. Agents of orbit work in `~/Projects/orbit*`: do not touch their directories, branches, worktrees, machines, or processes. Never type into, close, or reuse the terminals **t1** and **t40**; they belong to the owner. Start new agents only with `~/Projects/.agent-id-env/launch-agent.sh` (see below).
 
 A manual run of the gate in an isolated environment, from the repository root:
 
@@ -70,11 +70,34 @@ env -u GH_TOKEN -u GITHUB_TOKEN -u SSH_AUTH_SOCK \
   sh -c 'test -z "$(gofmt -l .)" && go vet ./... && golangci-lint run && go test ./... && go build ./...'
 ```
 
+
+## Calling GitHub from an agent (mandatory)
+
+Start new hc agents of this project only with:
+
+```sh
+~/Projects/.agent-id-env/launch-agent.sh <nr-slug> <worktree> <issue> [task prompt...]
+```
+
+The script sets `GH_CONFIG_DIR` to the empty, write-protected directory `~/Projects/.agent-id-env/gh-empty` and puts `~/Projects/.agent-id-env/bin` first on `PATH`. It does **not** set `GIT_CONFIG_GLOBAL`: the ghapp credential helper must stay visible so `git push` works. It does not export a standing `GH_TOKEN`: installation tokens expire, so mint a fresh one per command.
+
+`GH_CONFIG_DIR` alone is not enough. In gh 2.103.3, `AuthConfig.ActiveToken` still does an unkeyed keychain lookup for service `gh:github.com` even when `hosts.yml` is missing. An empty `GH_TOKEN` is treated as unset and can hit that fallback if the developer later signs in with `gh auth login`. The wrapper `~/Projects/.agent-id-env/bin/gh` therefore refuses to run unless `GH_TOKEN` or `GITHUB_TOKEN` is non-empty.
+
+Every `gh` command must be:
+
+```sh
+GH_TOKEN=$(ghapp token) gh ...
+```
+
+Never call `gh` without that token. Never run `gh auth login`, `gh auth logout`, or `gh auth switch`. Do not write to `~/Library/Application Support/gh/`, `~/.config/gh`, or the OS keychain.
+
+An already running agent's process environment cannot be changed in place. Until that agent is relaunched with `launch-agent.sh`, prefix every `gh` command with `GH_CONFIG_DIR="$HOME/Projects/.agent-id-env/gh-empty" GH_TOKEN=$(ghapp token)`.
+
 ## Always / Ask first / Never
 
-- **Always:** work on a branch, never directly on `main`. Run the validation gate in an isolated environment before you open a PR. Label a change to credentials, identity, or the child environment `risk-high`. Fail closed when an agent credential cannot be obtained.
+- **Always:** work on a branch, never directly on `main`. Run the validation gate in an isolated environment before you open a PR. Label a change to credentials, identity, or the child environment `risk-high`. Fail closed when an agent credential cannot be obtained. Start new `aid-` agents with `~/Projects/.agent-id-env/launch-agent.sh`. Call `gh` only as `GH_TOKEN=$(ghapp token) gh ...`.
 - **Ask first:** before you add a Go module dependency (a keyring library, a YAML parser, a file-lock library); before you change the profile config format or the environment that `exec` and `env` emit; before you copy code from GHAPP (only after the provenance and license audit, with its notices); before you resolve an open decision of the brief.
-- **Never:** commit secrets, tokens, private keys, or `.env` content. Never print a token, even in debug output or errors. Never fall back to the developer's personal credentials in agent mode. Never modify the developer's global Git configuration, `gh` configuration, ghapp configuration, shell startup files, or keychain from aidentity code or from a test. Never claim that local mode isolates the agent, or that App-authenticated pushes produce verified commits. Never delete, rename, or recolor existing tracker labels. Never apply `qa-approved`, `automerge`, or `do-not-merge` from an authoring task.
+- **Never:** commit secrets, tokens, private keys, or `.env` content. Never print a token, even in debug output or errors. Never fall back to the developer's personal credentials in agent mode. Never call `gh` without a non-empty `GH_TOKEN` from `$(ghapp token)`. Never modify the developer's global Git configuration, `gh` configuration, ghapp configuration, shell startup files, or keychain from aidentity code or from a test. Never claim that local mode isolates the agent, or that App-authenticated pushes produce verified commits. Never delete, rename, or recolor existing tracker labels. Never apply `qa-approved`, `automerge`, or `do-not-merge` from an authoring task.
 
 ## Related documents
 
