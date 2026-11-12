@@ -59,7 +59,7 @@ A ticket is ready for implementation when the answers below are on the ticket or
 
 For a bug, ready means reproducible: `om-verify-in-repo` is that gate, and the list above applies only to its ticket-level items. Enforcement: `om-prepare-issue` files tickets with these sections; `om-auto-manage-issues` records `READY_STATUS` per issue and posts a not-ready comment naming what is missing; `om-auto-fix-issue`'s feature route stops on a ticket that fails the ticket-level tier instead of speccing around the gap, the way `om-verify-in-repo` stops on a bug that is not real. Spec-level gaps are not a stop — the spec is authored. A maintainer may waive an item by saying so on the ticket.
 
-For aidentity, the ticket-level answers come from `PRODUCT_BRIEF.md` (sections 4, 5, 8, 10, and 13) and from the owner. A ticket that depends on an open decision of the brief (§14) carries `needs-decision` and the line `Blocked by: decision of the owner — <decision>`; it is not ready until the owner records the answer on the ticket. Every backlog ticket also names its goal, scope, acceptance criteria, code area, risk, priority, and `Blocked by #N` for each ticket it waits for.
+For agent-id, the ticket-level answers come from `PRODUCT_BRIEF.md` (sections 4, 5, 8, 10, and 13) and from the owner. A ticket that depends on an open decision of the brief (§14) carries `needs-decision` and the line `Blocked by: decision of the owner — <decision>`; it is not ready until the owner records the answer on the ticket. Every backlog ticket also names its goal, scope, acceptance criteria, code area, risk, priority, and `Blocked by #N` for each ticket it waits for.
 
 ## Label state machine
 
@@ -90,7 +90,7 @@ When an item has no priority label, infer one:
 
 When an item has no risk label, infer one:
 
-- `risk-high` — credential handling (GitHub App private keys, installation tokens, the token cache, the Git credential helper, the `gh` token injection), identity selection (which profile, which bot, which author and committer), the process-scoped Git and `gh` configuration that aidentity builds, the fail-closed path, anything that could touch the personal Git or `gh` configuration of the developer, authentication and login sessions, shared contract surfaces (CLI flags, output that scripts parse, the profile config format, the environment that `exec` and `env` emit), or broad cross-cutting edits.
+- `risk-high` — credential handling (GitHub App private keys, installation tokens, the token cache, the Git credential helper, the `gh` token injection), identity selection (which profile, which bot, which author and committer), the process-scoped Git and `gh` configuration that agent-id builds, the fail-closed path, anything that could touch the personal Git or `gh` configuration of the developer, authentication and login sessions, shared contract surfaces (CLI flags, output that scripts parse, the profile config format, the environment that `exec` and `env` emit), or broad cross-cutting edits.
 - `risk-medium` — an ordinary single-area change that ships with tests. This is also the default reading when the label is unset.
 - `risk-low` — docs-only, test-only, typo, or isolated cosmetic changes.
 
@@ -152,7 +152,7 @@ This process has one hard rule. **A PR that carries `needs-qa` must not merge un
 
 - Apply `needs-qa` to UI changes, new features, and other user-facing behavior that needs manual testing.
 - For a UI change, QA covers more than "it works". The state matrix is part of the pass/fail result: default, empty, loading, error, no-permission, long content, and narrow viewport. Conformance to the design contract in `.uxproof/` is also part of it, when the repository has that contract. A missing state fails QA. `om-ux-review-pr` stays the advisory design review. QA runs its objective checks.
-- aidentity is a CLI and has no web UI. For aidentity, "user-facing" means commands, flags, output, exit codes, the environment that a child process gets, and which identity Git and `gh` use in it. QA evidence is a terminal transcript of the tested commands, run in an isolated environment (`AGENTS.md`, Test isolation) against the fake GitHub or a disposable GitHub repository, with every token redacted, not a browser screenshot. The browser skills and the Design stage apply only if aidentity gets a UI.
+- agent-id is a CLI and has no web UI. For agent-id, "user-facing" means commands, flags, output, exit codes, the environment that a child process gets, and which identity Git and `gh` use in it. QA evidence is a terminal transcript of the tested commands, run in an isolated environment (`AGENTS.md`, Test isolation) against the fake GitHub or a disposable GitHub repository, with every token redacted, not a browser screenshot. The browser skills and the Design stage apply only if agent-id gets a UI.
 - `skip-qa` is the explicit opt-out for docs-only, dependency-only, CI-only, test-only, and similar low-risk changes that are not user-facing. Never combine it with `needs-qa`.
 - `qa-failed`, `do-not-merge`, and `blocked` are hard blocks, whatever the other signals say. An active `qa` pipeline label means that a tester works on the PR now. Never merge while a tester is active.
 - A QA reviewer satisfies the gate when they test the PR and apply `qa-approved`.

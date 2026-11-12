@@ -13,7 +13,7 @@ Parents are linked as GitHub sub-issues; each epic carries a checklist. Mileston
 | E03 | [#3](https://github.com/cultofthecode/agent-id/issues/3) | Phase 2 — Multi-agent identities: named profiles, concurrent sessions, Codex and generic launchers | — | E02 (#2) | no |
 | E04 | [#4](https://github.com/cultofthecode/agent-id/issues/4) | Phase 3 — Hardened runtime: credential broker, isolation, policy and audit | — | E03 (#3) | no |
 | E05 | [#5](https://github.com/cultofthecode/agent-id/issues/5) | Phase 4 — Provider expansion (optional): evaluate GitLab, Bitbucket, Azure DevOps on demand | — | E02 (#2) | no |
-| E01-T01 | [#6](https://github.com/cultofthecode/agent-id/issues/6) | Decide and record the product name, binary name, config directory and environment prefix (aidentity vs agent-id) | #1 | — | yes |
+| E01-T01 | [#6](https://github.com/cultofthecode/agent-id/issues/6) | Decide and record the product name, binary name, config directory and environment prefix (decided: `agent-id`) | #1 | — | no (decided 2026-11-12) |
 | E01-T02 | [#7](https://github.com/cultofthecode/agent-id/issues/7) | Audit GHAPP for provenance, license obligations and reuse vs rewrite | #1 | — | no |
 | E01-T03 | [#8](https://github.com/cultofthecode/agent-id/issues/8) | Choose the license of agent-id and add LICENSE and required notices | #1 | E01-T02 (#7) | yes |
 | E01-T04 | [#9](https://github.com/cultofthecode/agent-id/issues/9) | Spec the profile configuration v1: location, format, schema, key references and identity cache | #1 | — | no |
@@ -26,12 +26,12 @@ Parents are linked as GitHub sub-issues; each epic carries a checklist. Mileston
 | E02-S02 | [#16](https://github.com/cultofthecode/agent-id/issues/16) | Credential source: load the App private key from a protected file, keyring behind an interface | #2 | E01-T04 (#9) | no |
 | E02-S03 | [#17](https://github.com/cultofthecode/agent-id/issues/17) | Profile store: read, validate and write profile configuration v1 | #2 | E01-T04 (#9) | no |
 | E02-S04 | [#18](https://github.com/cultofthecode/agent-id/issues/18) | Token manager: cache installation tokens safely and refresh them before expiry | #2 | E02-S01 (#15) | no |
-| E02-S05 | [#19](https://github.com/cultofthecode/agent-id/issues/19) | The developer can run `aidentity setup github --profile <name>` for an existing App and sees the resolved bot | #2 | E02-S01 (#15), E02-S02 (#16), E02-S03 (#17) | no |
-| E02-S06 | [#20](https://github.com/cultofthecode/agent-id/issues/20) | The developer can run `aidentity exec --profile <name> -- <cmd>` and only that process tree is in agent mode | #2 | E02-S03 (#17) | no |
+| E02-S05 | [#19](https://github.com/cultofthecode/agent-id/issues/19) | The developer can run `agent-id setup github --profile <name>` for an existing App and sees the resolved bot | #2 | E02-S01 (#15), E02-S02 (#16), E02-S03 (#17) | no |
+| E02-S06 | [#20](https://github.com/cultofthecode/agent-id/issues/20) | The developer can run `agent-id exec --profile <name> -- <cmd>` and only that process tree is in agent mode | #2 | E02-S03 (#17) | no |
 | E02-S07 | [#21](https://github.com/cultofthecode/agent-id/issues/21) | In agent mode, `git commit` uses the bot as author and committer, with personal signing turned off | #2 | E02-S06 (#20) | no |
 | E02-S08 | [#22](https://github.com/cultofthecode/agent-id/issues/22) | In agent mode, HTTPS Git operations authenticate as the App, SSH remotes are rewritten, and nothing else gets a token | #2 | E02-S04 (#18), E02-S07 (#21), E02-T01 (#13) | no |
 | E02-S09 | [#23](https://github.com/cultofthecode/agent-id/issues/23) | In agent mode, ordinary `gh` commands use a fresh App token without touching the personal gh account | #2 | E02-S04 (#18), E02-S06 (#20), E02-T02 (#14) | no |
-| E02-S10 | [#24](https://github.com/cultofthecode/agent-id/issues/24) | The developer can run `aidentity whoami` and `aidentity doctor` and sees identity, credential source and conflicts without secrets | #2 | E02-S08 (#22), E02-S09 (#23) | no |
+| E02-S10 | [#24](https://github.com/cultofthecode/agent-id/issues/24) | The developer can run `agent-id whoami` and `agent-id doctor` and sees identity, credential source and conflicts without secrets | #2 | E02-S08 (#22), E02-S09 (#23) | no |
 | E02-S11 | [#25](https://github.com/cultofthecode/agent-id/issues/25) | Fail-closed suite: missing, invalid, expired and denied App credentials never fall back to personal credentials | #2 | E02-S05 (#19), E02-S08 (#22), E02-S09 (#23) | no |
 | E02-S12 | [#26](https://github.com/cultofthecode/agent-id/issues/26) | The developer can launch Claude Code normally and a SessionStart hook activates the agent profile | #2 | E02-S07 (#21), E02-S08 (#22), E02-S09 (#23) | no |
 | E02-S13 | [#27](https://github.com/cultofthecode/agent-id/issues/27) | End-to-end validation: a bot and the developer work side by side in a disposable GitHub repository | #2 | E02-S10 (#24), E02-S11 (#25), E02-S12 (#26) | no |
