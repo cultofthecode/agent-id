@@ -13,6 +13,15 @@ linters:
             - "$all"
             - "!$test"
             - "!**/internal/testenv/**"
+            - "!**/internal/github/githubtest/**"
           deny:
             - pkg: github.com/cultofthecode/agent-id/internal/testenv$
-              desc: only test files import the test isolation helpers (AGENTS.md, Test isolation)
+              desc: only test files and the test helper packages import the test isolation helpers (AGENTS.md, Test isolation)
+        githubtest-only-in-tests:
+          list-mode: lax
+          files:
+            - "$all"
+            - "!$test"
+          deny:
+            - pkg: github.com/cultofthecode/agent-id/internal/github/githubtest$
+              desc: only test files import the fake GitHub App (AGENTS.md, Test isolation)
