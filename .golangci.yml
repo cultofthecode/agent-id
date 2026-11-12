@@ -13,15 +13,27 @@ linters:
             - "$all"
             - "!$test"
             - "!**/internal/testenv/**"
-            - "!**/internal/github/githubtest/**"
+            - "!**/internal/provider/providertest/**"
+            - "!**/internal/provider/github/githubtest/**"
           deny:
             - pkg: github.com/cultofthecode/agent-id/internal/testenv$
               desc: only test files and the test helper packages import the test isolation helpers (AGENTS.md, Test isolation)
-        githubtest-only-in-tests:
+        test-helpers-only-in-tests:
           list-mode: lax
           files:
             - "$all"
             - "!$test"
           deny:
-            - pkg: github.com/cultofthecode/agent-id/internal/github/githubtest$
+            - pkg: github.com/cultofthecode/agent-id/internal/provider/providertest$
+              desc: only test files import the provider contract and fake (AGENTS.md, Test isolation)
+            - pkg: github.com/cultofthecode/agent-id/internal/provider/github/githubtest$
               desc: only test files import the fake GitHub App (AGENTS.md, Test isolation)
+        github-only-in-its-adapter:
+          list-mode: lax
+          files:
+            - "$all"
+            - "!**/internal/provider/github/**"
+            - "!**/cmd/aidentity/main.go"
+          deny:
+            - pkg: github.com/cultofthecode/agent-id/internal/provider/github
+              desc: core depends on internal/provider only; GitHub code stays in its adapter, and only the composition root wires it (ADR #35)

@@ -1,6 +1,6 @@
 # Architecture — agent-id (aidentity)
 
-The code so far is the composition root in `cmd/aidentity` (root command and `--version`) and the test helpers in `internal/testenv` and `internal/github/githubtest`. Every other module below is **planned**. This file records the target structure so that new code follows it. Rows marked **OPEN** are undecided: they mirror `PRODUCT_BRIEF.md` §14 and the design questions of §9.4, and code must not assume an answer. Keep this file current as the system changes; agents read it (through `AGENTS.md`) before structural changes.
+The code so far is the composition root in `cmd/aidentity` (root command and `--version`) and the test helpers in `internal/testenv`, `internal/provider/providertest`, and `internal/provider/github/githubtest`, with the provisional provider interface in `internal/provider`. Every other module below is **planned**. This file records the target structure so that new code follows it. Rows marked **OPEN** are undecided: they mirror `PRODUCT_BRIEF.md` §14 and the design questions of §9.4, and code must not assume an answer. Keep this file current as the system changes; agents read it (through `AGENTS.md`) before structural changes.
 
 ## Purpose and scope
 
@@ -37,11 +37,13 @@ The layout follows orbit: a vertical slice architecture adjusted to Go. A **modu
 ```text
 cmd/aidentity/             composition root: build adapters, wire slices, run            (exists)
 internal/
-  testenv/                 test isolation: temporary HOME/XDG/Git/gh config, network guard, fake GitHub, HTTPS Git server, bare repositories (exists)
+  testenv/                 test isolation: temporary HOME/XDG/Git/gh config, network guard, fake host API, HTTPS Git server, bare repositories (exists)
   profile/                 module: profile config (non-secret metadata, key references) (planned)
   credential/              module: private key sources: protected file; keyring OPEN     (planned)
-  github/                  adapter: GitHub App JWT, installation tokens, bot identity     (planned)
-    githubtest/            fake GitHub App built on testenv.FakeGitHub: JWT check, installation tokens, bot user (exists)
+  provider/                code-host boundary (ADR #35): Provider interface, provider errors (exists, provisional)
+    providertest/          provider contract (RunContract) and a provider-neutral Fake for core tests (exists)
+    github/                adapter: GitHub App JWT, installation tokens, bot identity, gh  (planned, #15)
+      githubtest/          fake GitHub App on testenv.FakeAPI, also behind provider.Provider (exists)
   token/                   module: token cache per host/app/installation/scope, refresh  (planned)
   activation/              module: child environment of exec and env (pure), activation  (planned)
     exec/  env/            slices: aidentity exec, aidentity env
@@ -58,10 +60,12 @@ internal/
 |---|---|---|---|
 | Composition root | `cmd/aidentity` | Builds the adapters, adds the cobra command of every slice, prints errors, sets the exit code. No behavior. | every module |
 | Test isolation | `internal/testenv` | Isolated environment, network guard, fake GitHub, HTTPS Git server, bare repositories, binary builds, port allocation in 18000–18999, check that a run left the personal configuration unchanged. Test files and test helper packages only. | — |
-| Fake GitHub App | `internal/github/githubtest` | The App, installation-token, installation-repository, and bot-user endpoints with a per-test key and controllable expiry and failures. Test files only. | `testenv` |
+| Provider interface | `internal/provider` | The boundary between core and a code host (ADR #35): tokens, commit identity, the per-host Git credential, CLI integration, host. Provisional until the GitHub adapter (#15) settles it. | — |
+| Provider contract | `internal/provider/providertest` | `RunContract`, which every provider passes, and `Fake`, the provider that core tests use. Test files only. | `provider`, `testenv` |
+| Fake GitHub App | `internal/provider/github/githubtest` | The App, installation-token, installation-repository, and bot-user endpoints with a per-test key and controllable expiry and failures; `App.Provider` puts it behind `provider.Provider`. Tests of the GitHub adapter only. | `provider`, `testenv` |
 | Profile store | `internal/profile` | Persist non-secret metadata and references to securely stored credentials; resolve the active profile. | `kernel` |
 | Credential source | `internal/credential` | Load the App private key from its reference; check file permissions; keyring backend behind an interface. | `kernel` |
-| GitHub provider | `internal/github` | Sign the App JWT, mint installation tokens, resolve the bot login, numeric id and noreply email, validate repository access. | `kernel` |
+| GitHub provider | `internal/provider/github` | Sign the App JWT, mint installation tokens, resolve the bot login, numeric id and noreply email, validate repository access. | `kernel` |
 | Token manager | `internal/token` | Cache tokens with restrictive permissions, atomic writes and a cross-process lock; refresh ahead of expiry; never expose a token. | `github` (through a port), `kernel` |
 | Context runtime | `internal/activation` | Build the child environment as a pure function, start the child, preserve exit status and signals, detect nesting. | `profile`, `gitint`, `ghint`, `kernel` |
 | Git integration | `internal/gitint` | Author and committer variables, `GIT_CONFIG_COUNT` entries (credential helper ordering, `useHttpPath`, SSH→HTTPS rewrites, signing off), and the credential helper protocol with host, protocol and path validation. | `token`, `kernel` |
@@ -77,14 +81,14 @@ internal/
 
 ### Dependency rules
 
-1. Nothing imports `cmd/aidentity`. Only `cmd/aidentity` imports an adapter (`internal/github`).
+1. Nothing imports `cmd/aidentity`. Only `cmd/aidentity` imports an adapter (`internal/provider/github`); everything else depends on `internal/provider` (ADR #35).
 2. A slice imports the root package of its own module, the `internal/` of its own module, port packages, and `kernel`. A slice never imports another slice.
 3. A module uses another module only through that module's root package.
 4. `kernel` imports nothing from this repository.
 5. A security decision is a pure function in a module, not logic in a handler or a command: the child environment, the credential helper's answer for a request, the token cache key, the conflict checks of `doctor`, redaction. Handlers load, call the function, and act on the result.
-6. Only test files import `internal/testenv` and `internal/github/githubtest`; `githubtest` is the one non-test package that imports `testenv`.
+6. Only test files import `internal/testenv`, `internal/provider/providertest`, and `internal/provider/github/githubtest`; those helper packages are the only non-test packages that import `testenv`. Core tests use `providertest.Fake`, never `githubtest`.
 
-depguard (`.golangci.yml`) enforces rule 6 today. Rules 1, 2, and 4 get depguard rules when the packages they name exist; the compiler enforces rule 3.
+depguard (`.golangci.yml`) enforces rule 6 and the GitHub half of rule 1 (`github-only-in-its-adapter`, which also covers test files) today. Rules 1, 2, and 4 get depguard rules when the packages they name exist; the compiler enforces rule 3.
 
 ## Git integration (brief §9.3)
 
@@ -119,8 +123,8 @@ aidentity has no database.
 - **Errors:** wrapped with `%w`, matched with `errors.Is`. Only `cmd/aidentity` prints errors and sets exit codes; `exec` returns the child's exit status unchanged. No `panic` for expected failures. Output goes to stdout, diagnostics to stderr.
 - **Testing strategy:**
   - Unit tests for every pure security function, with hostile input: look-alike hosts, other protocols, unrelated repository paths, inherited personal tokens and helpers, `GIT_CONFIG_COUNT` already set, expired tokens, unreadable or world-readable keys.
-  - Handler tests against `testenv.NewFakeGitHub` in an isolated environment (`testenv.Isolate`). `go test ./...` never reaches the network and never needs a GitHub account.
-  - Process tests that run real `git` and `gh` binaries do so only in an isolated environment with a fake GitHub and a local bare repository: `testenv.NewGitServer` serves bare repositories over HTTPS and records the credentials of every push, `testenv.BuildBinary` builds aidentity into the test root, and the network guard of `testenv.Isolate` fails a test whose child process tries to reach the network. Each such package calls `testenv.Main` from `TestMain`, which fails the run when `~/.gitconfig`, `~/.config/git`, or the `gh` configuration changed.
+  - Core handler tests against `providertest.Fake` in an isolated environment (`testenv.Isolate`); every provider adapter runs `providertest.RunContract`, and the GitHub adapter is tested against `githubtest.NewApp` on `testenv.NewFakeAPI`. `go test ./...` never reaches the network and never needs a GitHub account.
+  - Process tests that run real `git` and `gh` binaries do so only in an isolated environment with a fake GitHub and a local bare repository: `testenv.NewGitServer` serves bare repositories over HTTPS and records the credentials of every push, `testenv.BuildBinary` builds the agent-id binary into the test root, and the network guard of `testenv.Isolate` fails a test whose child process tries to reach the network. Each such package calls `testenv.Main` from `TestMain`, which fails the run when `~/.gitconfig`, `~/.config/git`, or the `gh` configuration changed.
   - End-to-end tests against a disposable GitHub repository and a dedicated test App carry the `e2e` build tag and run by hand (`SDLC.md`, Validation gate).
   - CI runs the gate on `ubuntu-24.04` and the darwin lint, vet, and build; `darwin.yml` runs the unit tests on `macos-26`.
 
@@ -139,7 +143,7 @@ Derived from `PRODUCT_BRIEF.md`; the brief is the record. Rows with status **OPE
 | 2026-11-12 | Turn off inherited personal signing in agent mode; never claim verified commits | brief §9.3 | active |
 | 2026-11-12 | Start with existing GitHub Apps; guided or manifest registration is evaluated later | brief §14 onboarding | active |
 | 2026-11-12 | No runtime dependency on GHAPP and no requirement to install it | brief §1, §13 Phase 0 | active |
-| 2026-11-12 | Test harness: `internal/github/githubtest` (fake App, standard library only) builds on `internal/testenv`; `testenv.Isolate` blocks the network of child processes through a guard proxy; Git over HTTPS is tested against `git http-backend` | #10 | active |
+| 2026-11-12 | Test harness: the fake GitHub App (`internal/provider/github/githubtest`, standard library only) sits behind the provisional `provider.Provider` and builds on `internal/testenv`; `providertest` holds the contract and a neutral fake; `testenv.Isolate` blocks the network of child processes through a guard proxy; Git over HTTPS is tested against `git http-backend` | #10 | active |
 | — | Product and binary name: `aidentity` (working) vs `agent-id`; config directory and env prefix follow it | brief §14 | **OPEN** |
 | — | Code provenance and license of agent-id; which GHAPP code is reused and with which notices | brief §14 | **OPEN** |
 | — | Distribution and commercial model (license, hosting, release channel) | brief §14 | **OPEN** |
