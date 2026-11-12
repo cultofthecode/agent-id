@@ -213,7 +213,7 @@ func TestInstallationRepositoriesRejectsTokensItDidNotIssue(t *testing.T) {
 func TestAppReportsARealLookingToken(t *testing.T) {
 	testenv.Isolate(t)
 	rec := testenv.NewRecorder(t)
-	fake := testenv.NewFakeGitHub(t)
+	fake := testenv.NewFakeAPI(t)
 	app := NewApp(rec, fake)
 	app.AddInstallation(installationID)
 	client := testenv.NewHTTPClient(t)
@@ -287,7 +287,7 @@ func TestVerifyJWTErrors(t *testing.T) {
 func newApp(t *testing.T) (*App, *http.Client) {
 	t.Helper()
 	testenv.Isolate(t)
-	return NewApp(t, testenv.NewFakeGitHub(t)), testenv.NewHTTPClient(t)
+	return NewApp(t, testenv.NewFakeAPI(t)), testenv.NewHTTPClient(t)
 }
 
 // tokenURL returns the access token endpoint of installation id.

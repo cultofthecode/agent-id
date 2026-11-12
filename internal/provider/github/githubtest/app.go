@@ -1,8 +1,14 @@
-// Package githubtest is a fake GitHub App on top of testenv.FakeGitHub: the
-// App, installation, and bot endpoints that aidentity calls, with a private
-// key generated per test, controllable token lifetimes, and controllable
-// failures. It never talks to GitHub and issues only fake tokens
-// (testenv.FakeToken). Only test files import this package.
+// Package githubtest is the fake GitHub of the test harness, on the GitHub
+// side of the provider boundary (ADR #35). It serves the App,
+// installation-token, installation-repository, and bot-user endpoints on a
+// testenv.FakeAPI for the tests of the GitHub adapter, with a private key
+// generated per test, controllable token lifetimes, and controllable
+// failures. App.Provider puts the same fake behind provider.Provider, so the
+// provider contract (providertest.RunContract) runs against it. It never talks
+// to GitHub and issues only fake tokens (testenv.FakeToken).
+//
+// Only tests of internal/provider/github import this package; core tests use
+// providertest.Fake (depguard).
 package githubtest
 
 import (
@@ -39,7 +45,7 @@ const (
 	defaultTTL = time.Hour
 )
 
-// App is a fake GitHub App registered on a testenv.FakeGitHub.
+// App is a fake GitHub App registered on a testenv.FakeAPI.
 type App struct {
 	// PrivateKeyPEM is the PKCS#1 PEM private key of the App, generated for
 	// the test, in the format GitHub issues.
@@ -67,7 +73,7 @@ type Token struct {
 // NewApp registers the App endpoints on fake and returns the App. It
 // generates a new private key for the test. Tokens live one hour unless
 // SetTokenLifetime says otherwise.
-func NewApp(t testing.TB, fake *testenv.FakeGitHub) *App {
+func NewApp(t testing.TB, fake *testenv.FakeAPI) *App {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, keyBits)
 	if err != nil {
