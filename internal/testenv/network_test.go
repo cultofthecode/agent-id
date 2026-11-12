@@ -53,7 +53,7 @@ func TestCheckFakeToken(t *testing.T) {
 
 func TestNewHTTPClientReachesTheFakes(t *testing.T) {
 	Isolate(t)
-	fake := NewFakeGitHub(t)
+	fake := NewFakeAPI(t)
 	fake.Handle("GET /app", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `{}`)
 	})
@@ -106,11 +106,11 @@ func TestIsolateBlocksGitFromReachingTheNetwork(t *testing.T) {
 }
 
 func TestIsolateBlocksGHFromReachingTheNetwork(t *testing.T) {
-	gh := lookPath(t, "gh")
+	lookPath(t, "gh")
 	rec := NewRecorder(t)
 	Isolate(rec)
 	t.Setenv("GH_TOKEN", FakeToken("gh"))
-	out, err := exec.Command(gh, "api", "/app").CombinedOutput()
+	out, err := GH(rec, "api", "/app")
 	if err == nil {
 		t.Fatalf("gh api reached GitHub: %s", out)
 	}
@@ -132,6 +132,31 @@ func TestIsolateSetsTheProxyGuard(t *testing.T) {
 		if got := os.Getenv(name); got != "127.0.0.1,localhost" {
 			t.Errorf("%s = %q, want 127.0.0.1,localhost", name, got)
 		}
+	}
+}
+
+func TestGHRefusesToRunWithoutAFakeToken(t *testing.T) {
+	lookPath(t, "gh")
+	tests := []struct {
+		name  string
+		token string
+	}{
+		{"unset", ""},
+		{"real-looking", "gho_" + "realLookingToken"},
+		{"not a token", "password"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			Isolate(t)
+			t.Setenv("GH_TOKEN", tt.token)
+			rec := NewRecorder(t)
+			if _, err := GH(rec, "api", "/app"); !errors.Is(err, errGHWithoutFakeToken) {
+				t.Errorf("GH with GH_TOKEN %s: error %v, want errGHWithoutFakeToken", tt.name, err)
+			}
+			if !rec.Reported("GH_TOKEN holds no fake token") {
+				t.Errorf("reported %q, want the refusal", rec.Errors())
+			}
+		})
 	}
 }
 
