@@ -43,9 +43,9 @@ Write `.ai/analysis/2026-11-12-ghapp-reuse-audit.md`: the exact GHAPP source rev
 
 ### Phase 1: Audit
 
-- [ ] 1.1 Identify and confirm the upstream revision
-- [ ] 1.2 Record license and notice obligations
-- [ ] 1.3 Write the component reuse-or-rewrite analysis
+- [x] 1.1 Identify and confirm the upstream revision — 96735af
+- [x] 1.2 Record license and notice obligations — 96735af
+- [x] 1.3 Write the component reuse-or-rewrite analysis — 96735af
 
 ### Phase 2: Deliver
 
