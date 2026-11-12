@@ -44,6 +44,8 @@ A reproducible, tested matrix of how inherited Git configuration and shell start
 
 ## Progress
 
+PR: #30
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Experiments
@@ -59,4 +61,4 @@ A reproducible, tested matrix of how inherited Git configuration and shell start
 ### Phase 3: Delivery
 
 - [x] 3.1 Run the validation gate — gate green on 672ab4a (isolated env)
-- [ ] 3.2 Open the PR, review pass, summary comment
+- [x] 3.2 Open the PR, review pass, summary comment — 04d73c6
