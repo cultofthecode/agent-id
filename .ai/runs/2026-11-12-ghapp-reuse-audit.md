@@ -39,6 +39,8 @@ Write `.ai/analysis/2026-11-12-ghapp-reuse-audit.md`: the exact GHAPP source rev
 
 ## Progress
 
+PR: #31
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Audit
@@ -49,4 +51,4 @@ Write `.ai/analysis/2026-11-12-ghapp-reuse-audit.md`: the exact GHAPP source rev
 
 ### Phase 2: Deliver
 
-- [ ] 2.1 Validation gate, review, and PR finalization
+- [x] 2.1 Validation gate, review, and PR finalization — 60d4693
