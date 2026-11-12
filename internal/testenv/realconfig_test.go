@@ -23,7 +23,7 @@ func TestPersonalConfigPaths(t *testing.T) {
 		{
 			"XDG and overrides",
 			map[string]string{"HOME": "/home/dev", "XDG_CONFIG_HOME": "/xdg", "GIT_CONFIG_GLOBAL": "/etc/dev.gitconfig", "GH_CONFIG_DIR": "/gh"},
-			[]string{"/etc/dev.gitconfig", "/gh", "/home/dev/.config/gh", "/home/dev/.gitconfig", "/xdg/git"},
+			[]string{"/etc/dev.gitconfig", "/gh", "/home/dev/.config/gh", "/home/dev/.gitconfig", "/xdg/gh", "/xdg/git"},
 		},
 		{
 			"override equal to a default",

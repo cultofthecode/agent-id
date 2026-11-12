@@ -43,6 +43,7 @@ func personalConfigPaths(getenv func(string) string) []string {
 	paths := []string{
 		filepath.Join(home, ".gitconfig"),
 		filepath.Join(configHome, "git"),
+		filepath.Join(configHome, "gh"),
 		filepath.Join(home, ".config", "gh"),
 	}
 	for _, name := range []string{"GIT_CONFIG_GLOBAL", "GH_CONFIG_DIR"} {

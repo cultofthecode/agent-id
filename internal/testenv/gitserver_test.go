@@ -106,8 +106,11 @@ func TestGitServerChallengesARequestWithoutCredentials(t *testing.T) {
 		t.Fatalf("git ls-remote succeeded without credentials: %s", out)
 	}
 	requests := server.Requests()
-	if len(requests) == 0 || requests[0].Username != "" || requests[0].Service != "git-upload-pack" {
-		t.Errorf("requests = %+v, want an unauthenticated git-upload-pack request", requests)
+	if len(requests) == 0 {
+		t.Fatal("the server recorded no request")
+	}
+	if first := requests[0]; first.Username != "" || first.Password != "" || first.Service != "git-upload-pack" {
+		t.Errorf("first request: service %q, username %q, password set %v; want git-upload-pack without credentials", first.Service, first.Username, first.Password != "")
 	}
 }
 
