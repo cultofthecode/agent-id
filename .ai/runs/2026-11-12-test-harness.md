@@ -49,6 +49,16 @@ On top of `internal/testenv` (`Isolate`, `NewFakeGitHub`, `Listen`, `FakeToken`)
 
 - 4.1 depguard, `ARCHITECTURE.md`, `AGENTS.md`, package `AGENTS.md` files.
 
+### Phase 5: provider abstraction (owner decision, ADR #35, 12.11.2026 22:41)
+
+The owner decided that GitHub sits behind a provider interface. The fake GitHub App becomes a test adapter behind `internal/provider`, the contract runs against a fake provider, and core never imports GitHub-only types. Per the name decision on this PR, new text says `agent-id` and `Isolate` also strips `AGENT_ID_*`; the repo-wide rename stays in #6.
+
+- 5.1 Provider-neutral `testenv.FakeAPI` (was `FakeGitHub`); strip `AGENT_ID_*`.
+- 5.2 Provisional `internal/provider` interface; `providertest.RunContract` and `providertest.Fake`.
+- 5.3 Move the fake App to `internal/provider/github/githubtest`; `App.Provider` passes the contract.
+- 5.4 `testenv.GH` refuses to run `gh` without a fake `GH_TOKEN` (keychain fallback).
+- 5.5 depguard `github-only-in-its-adapter`; docs.
+
 ## Risks
 
 - `git http-backend` location differs between macOS and Linux: resolve it with `git --exec-path`.
@@ -79,3 +89,11 @@ PR: #32
 ### Phase 4: rules and docs
 
 - [x] 4.1 depguard, ARCHITECTURE.md, AGENTS.md files — 7ddcebe (review fixes: f78b222)
+
+### Phase 5: provider abstraction
+
+- [x] 5.1 Provider-neutral FakeAPI and AGENT_ID_ variables — 0d93bda
+- [x] 5.2 Provider interface, contract, and neutral fake — c6b2627
+- [x] 5.3 Fake GitHub App behind the provider interface — a536e85
+- [x] 5.4 gh only with a fake GH_TOKEN — 246d6be
+- [x] 5.5 depguard and docs — 5f5f3d3
