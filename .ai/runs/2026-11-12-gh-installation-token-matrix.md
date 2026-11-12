@@ -35,11 +35,13 @@ Record, for a GitHub App installation token in `GH_TOKEN`, which common `gh` com
 
 ## Progress
 
+PR: #34
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Research and write-up
 
-- [ ] 1.1 Read the gh source for token, host, and viewer use
-- [ ] 1.2 Run the offline precedence experiment
-- [ ] 1.3 Write the analysis document
-- [ ] 1.4 Run the validation gate and re-read the diff
+- [x] 1.1 Read the gh source for token, host, and viewer use — e022629
+- [x] 1.2 Run the offline precedence experiment — e022629
+- [x] 1.3 Write the analysis document — e022629
+- [x] 1.4 Run the validation gate and re-read the diff — e022629
