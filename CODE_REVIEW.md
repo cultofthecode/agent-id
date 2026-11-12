@@ -21,6 +21,7 @@ These rules come from `ARCHITECTURE.md`, `AGENTS.md`, and `PRODUCT_BRIEF.md`.
 - **Secrets.** A token, private key, or JWT in output, errors, logs, test fixtures, golden files, or generated shell code is a blocker. Fake tokens use `testenv.FakeToken`.
 - **Credential helper.** It answers only for the expected protocol, host, and (where configured) repository path; table tests include look-alike hosts and other protocols.
 - **Honest claims.** Text that says local mode isolates the agent, or that App pushes produce verified commits, is a major finding (brief §9.3, §10).
+- **Provenance.** Code copied or closely adapted from GHAPP (`operator-kit/ghapp-cli`, `cultofthecode/ghapp-cli`) without its MIT license notice is a **blocker**. The notice text is in `.ai/analysis/2026-11-12-ghapp-reuse-audit.md` §2. The owner decided on 2026-11-12 that agent-id rewrites GHAPP-related code and reuses none of it, so copied code needs a new owner decision even when it carries the notice.
 - **Open decisions.** Code that hard-wires an answer to an OPEN row of `ARCHITECTURE.md` (name, license, distribution, config format, keyring, signing, auto-detection) without the owner's recorded decision is a major finding.
 - **Slices and modules.** One operation is one package with `contract.go`, `handler.go`, `command.go`, and `handler_test.go`. Commands hold no decisions. A slice does not import another slice. Only `cmd/aidentity` imports an adapter. Only tests import `internal/testenv`.
 - **Security decisions are pure functions** with table tests that include hostile input.

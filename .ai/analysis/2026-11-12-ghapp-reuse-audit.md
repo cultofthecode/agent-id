@@ -2,14 +2,14 @@
 
 - **Issue:** #7 (E01-T02), epic #1, Phase 0
 - **Date:** 2026-11-12
-- **Status:** recommendation. The owner confirms it on #7 or on the PR. #8 (E01-T03, license of agent-id) depends on it.
+- **Status:** decided. The owner recorded the decisions on 2026-11-12 in [PR #31](https://github.com/cultofthecode/agent-id/pull/31#issuecomment-6836685825); see §5. #8 (E01-T03, license of agent-id) depends on this audit.
 - **Method:** read the source only. The repositories were cloned anonymously into `$TMPDIR/agent-id/ghapp-audit/` with a temporary `HOME` and Git configuration, then deleted. Nothing ran that changes the ghapp, `gh`, or Git configuration. The only `ghapp` command used was `ghapp version`, and `go version -m` read the build information of the binary.
 
 ## Summary
 
 1. The installed `ghapp` was built from commit `6cf72fc22665368ba067cca6f84989177316eaef` of **`github.com/cultofthecode/ghapp-cli`** (tag `v0.1.2`). That commit is **not** in `github.com/operator-kit/ghapp-cli`. It is one commit on top of the upstream head `3a5e67686a26d4916d6bf5c60cb7a8b065ab4502` ("Add license"). The commit changes only the installer, the release configuration, the README, and the self-update URL. Every component this audit evaluates is byte-identical at `6cf72fc` and at upstream `3a5e676`.
 2. License: **MIT**, `Copyright (c) 2026 Ross Morsali`, from the `LICENSE` file that upstream added in `3a5e676`. The repository has no `NOTICE` or `AUTHORS` file and no per-file copyright or SPDX headers. Code is reusable only from `3a5e676` or later. The upstream tags `v0.1.0` (`4506227`) and `v0.1.1` (`d6a85d9`) predate the `LICENSE` file.
-3. Recommendation: **rewrite all six components; copy no GHAPP code.** No component meets aidentity's requirements as it is: fail closed, process scope only, a configurable API base URL for the fake GitHub, a keyed and locked token cache under XDG directories, and validation of the request path. Each component is small (46–134 lines), so a rewrite costs little. With no copied code, agent-id needs no GHAPP notice, and #8 can choose any license. The license does not force this choice: MIT would allow reuse with the notice below.
+3. Decision (owner, 2026-11-12): **rewrite all six components from scratch; reuse no GHAPP code.** App JWT signing uses the Go standard library, not `go-githubauth`. Code copied from GHAPP without the license notice is a review blocker (`CODE_REVIEW.md`). The audit's reasons: no component meets aidentity's requirements as it is: fail closed, process scope only, a configurable API base URL for the fake GitHub, a keyed and locked token cache under XDG directories, and validation of the request path. Each component is small (46–134 lines), so a rewrite costs little. With no copied code, agent-id needs no GHAPP notice, and #8 can choose any license. The license does not force this choice: MIT would allow reuse with the notice below.
 4. No runtime dependency on GHAPP is proposed. aidentity does not read GHAPP's configuration, its token cache, or its keyring entry, and it does not call the `ghapp` binary (brief §1, §13 Phase 0).
 
 ## 1. Upstream identification
@@ -42,9 +42,9 @@ Upstream history at `3a5e676` has seven commits from 2026-02-13 to 2026-02-23, a
 
 The only condition is that "the above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software". MIT does not constrain the license of agent-id. It is compatible with any choice for #8, open source or proprietary.
 
-### Exact notice text to keep if any component is reused
+### Exact notice text (reference for the review rule)
 
-The owner may overrule the recommendation for a component. If they do, the PR that copies or closely adapts GHAPP code must ship this text verbatim, for example as `third_party/ghapp-cli/LICENSE`, and must include it in every source or binary distribution, which matters for #11 (release archives):
+Under decision 1 (§5), no component is reused. The text stays here because the `CODE_REVIEW.md` blocker refers to it. Any code copied or closely adapted from GHAPP must ship this text verbatim, for example as `third_party/ghapp-cli/LICENSE`, and must include it in every source or binary distribution, which matters for #11 (release archives):
 
 ```text
 MIT License
@@ -99,7 +99,7 @@ Paths are at `cultofthecode/ghapp-cli@6cf72fc`, which equals `operator-kit/ghapp
 
 | Component | Upstream path (lines) | Decision | Reason | Obligations | Implemented in |
 |---|---|---|---|---|---|
-| JWT signing | none in GHAPP. `internal/auth/token.go:52` and `internal/auth/appinfo.go:23` call `githubauth.NewApplicationTokenSource` from the go-githubauth library | **Rewrite** in `internal/github` | GHAPP has no JWT code of its own, so there is nothing to reuse. The choice is between Go's standard library (RS256 with `crypto/rsa` and `crypto/sha256`, about 60 lines, no new dependency) and adopting go-githubauth and golang-jwt as dependencies. That choice is a question for the owner (§5). | none from GHAPP; library notices only if the owner adopts the libraries | #15 |
+| JWT signing | none in GHAPP. `internal/auth/token.go:52` and `internal/auth/appinfo.go:23` call `githubauth.NewApplicationTokenSource` from the go-githubauth library | **Rewrite** in `internal/github` | GHAPP has no JWT code of its own, so there is nothing to reuse. The choice is between Go's standard library (RS256 with `crypto/rsa` and `crypto/sha256`, about 60 lines, no new dependency) and adopting go-githubauth and golang-jwt as dependencies. The owner chose the standard library (§5, decision 2). | none | #15 |
 | Installation token client | `internal/auth/token.go` (1–68) | **Rewrite** in `internal/github` | The API URL is fixed to the library default `https://api.github.com/`, so tests cannot reach `testenv.NewFakeGitHub`. No `context`, no HTTP client timeout, no repository or permission scoping (`InstallationTokenOptions` is unused), and only token and expiry are returned. | none | #15 |
 | Bot identity (slug, user id, noreply email) | `internal/auth/appinfo.go` (1–95); email format at `internal/cmd/auth.go:75-76` | **Rewrite** in `internal/github` | Same fixed `https://api.github.com` URLs and `http.DefaultClient` without a timeout. Error messages embed the raw response body (`appinfo.go:48`, `:82`). `<id>+<slug>[bot]@users.noreply.github.com` is GitHub's documented convention, not GHAPP expression. | none | #15 |
 | Token cache | `internal/tokencache/cache.go` (1–92) | **Rewrite** in `internal/token` | It is one file at a predictable path in the shared temporary directory (`$TMPDIR` or `/tmp` + `ghapp-token-cache`), not the XDG cache in a `0700` directory. It is keyed only by installation id, not by host, App, installation, and scope, so two profiles overwrite each other. There is no cross-process lock, the temporary name `path + ".tmp"` is predictable, and `os.WriteFile` keeps the mode of a file that already exists. Unreadable files are silently ignored. Sharing its path would also couple aidentity to GHAPP's cache at run time. | none | #18 |
@@ -120,13 +120,13 @@ Paths are at `cultofthecode/ghapp-cli@6cf72fc`, which equals `operator-kit/ghapp
 ## 4. Rules for the Phase 1 implementers
 
 1. Implement from the GitHub REST documentation, the `gitcredentials(7)` and `git-credential(1)` protocol, `gh` environment documentation, and the aidentity specs. Do not copy GHAPP code. Because the license is MIT, reading GHAPP is not a problem, but copied or closely adapted code needs the notice.
-2. A PR that copies or closely adapts GHAPP code says so in its body, adds the §2 notice and the per-file provenance line, and gets the owner's yes first (`AGENTS.md`, Ask first).
+2. Decision 1 forbids reusing GHAPP code. Copied or closely adapted GHAPP code without the §2 notice is a blocker in review (`CODE_REVIEW.md`, Provenance). Copied code with the notice still needs a new owner decision, because it reverses decision 1.
 3. aidentity never reads `~/.config/ghapp/`, `$TMPDIR/ghapp-token-cache`, or the keyring service `ghapp-cli`, and never runs `ghapp`. An "import from ghapp" convenience would be a runtime dependency on GHAPP. It is not proposed, and adding it would need a product decision.
 
-## 5. Questions for the owner
+## 5. Owner decisions
 
-None of these blocks this audit. Each is posted on the PR and decided by the owner.
+The owner recorded these decisions on 2026-11-12 in [PR #31](https://github.com/cultofthecode/agent-id/pull/31#issuecomment-6836685825), answering the three questions this audit raised:
 
-1. **Rewrite everything (recommended), or reuse some components with attribution?** This is the issue's non-blocking question. The recommendation is to rewrite all, which keeps provenance simple and leaves #8 unconstrained.
-2. **Sign the App JWT and call the token API with the standard library (recommended, no new dependency), or adopt `github.com/jferrl/go-githubauth` (MIT, which pulls in `golang-jwt/jwt/v5` and `golang.org/x/oauth2`)?** The library supports `WithEnterpriseURL` and `WithHTTPClient`, so it could work against the fake GitHub. It adds three modules and their notices in place of about 100 lines of standard-library code. This decides #15.
-3. **Should a provenance rule go into `CODE_REVIEW.md`** ("code copied from GHAPP without the §2 notice is a blocker")? The audit does not add it. The rule matters only if the answer to question 1 allows reuse.
+1. **Rewrite GHAPP-related code from scratch. Do not reuse GHAPP code.** This applies to all six components in §3. agent-id therefore needs no GHAPP notice, and #8 can choose any license.
+2. **GitHub App JWT signing uses the Go standard library, not `go-githubauth`.** #15 implements RS256 signing and the installation-token call with `crypto/rsa`, `crypto/sha256`, and `net/http`, with no new module dependency.
+3. **Code copied from GHAPP without a license note is a blocker.** The rule is in `CODE_REVIEW.md` (Repo-specific checks, Provenance).
