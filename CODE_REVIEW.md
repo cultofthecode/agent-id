@@ -1,0 +1,41 @@
+# Code review rules — agent-id (aidentity)
+
+`om-code-review` (and so `om-auto-review-pr`) applies this file automatically, in addition to its built-in checklist. The code so far is the CLI skeleton in `cmd/aidentity` and the test helpers in `internal/testenv`, so the repo-specific section is still short. Add rules as conventions appear, and cite the files that set them.
+
+## Review priorities
+
+In order:
+
+1. **Correctness** — the change does what the ticket or spec asks. The code handles edge cases: empty, null, error, concurrent, and large input. Tests cover the new behavior and the regression that the change fixes.
+2. **Security** — the code validates input from users, the network, files, and the environment before use. Code, logs, and fixtures contain no secrets. Credentials are obtained fail-closed.
+3. **Contracts** — CLI flags, output that scripts parse, the profile config format, and the environment that `exec` and `env` emit change only deliberately. A change that affects consumers includes a migration note.
+4. **Maintainability** — the change follows existing patterns and does not add a parallel one. Names explain intent. There is no dead code and no commented-out block.
+
+## Repo-specific checks
+
+These rules come from `ARCHITECTURE.md`, `AGENTS.md`, and `PRODUCT_BRIEF.md`.
+
+- **Test isolation.** A test that runs aidentity code, `git`, or `gh` without `testenv.Isolate(t)`, reads or writes the real `HOME`, `~/.gitconfig`, `~/.config/gh`, the ghapp configuration, or a keychain, uses a real token or reaches `api.github.com`, binds a port outside 18000–18999, or installs anything globally is a **blocker**.
+- **No personal configuration changes.** Code that writes to the global or system Git configuration, the `gh` configuration, shell startup files, or the keychain of the developer is a blocker (brief §10).
+- **Fail closed.** A path on which an agent operation can silently use the developer's credentials (an inherited `GH_TOKEN`, a personal credential helper, an SSH remote, a cached personal token) is a blocker (brief §8).
+- **Secrets.** A token, private key, or JWT in output, errors, logs, test fixtures, golden files, or generated shell code is a blocker. Fake tokens use `testenv.FakeToken`.
+- **Credential helper.** It answers only for the expected protocol, host, and (where configured) repository path; table tests include look-alike hosts and other protocols.
+- **Honest claims.** Text that says local mode isolates the agent, or that App pushes produce verified commits, is a major finding (brief §9.3, §10).
+- **Open decisions.** Code that hard-wires an answer to an OPEN row of `ARCHITECTURE.md` (name, license, distribution, config format, keyring, signing, auto-detection) without the owner's recorded decision is a major finding.
+- **Slices and modules.** One operation is one package with `contract.go`, `handler.go`, `command.go`, and `handler_test.go`. Commands hold no decisions. A slice does not import another slice. Only `cmd/aidentity` imports an adapter. Only tests import `internal/testenv`.
+- **Security decisions are pure functions** with table tests that include hostile input.
+- **Errors** are wrapped with `%w` and matched with `errors.Is`. Only `cmd/aidentity` prints errors and sets exit codes; `exec` preserves the child's exit status.
+- **Style.** `gofmt`. Doc comments on packages and exported identifiers; no comments inside function bodies. No abstraction for single-use code. A new Go module dependency needs a stated reason and the owner's yes.
+
+## Validation gate
+
+The gate is `validation.commands` in `.ai/agentic.config.json`. Reviewers run it in an isolated environment (`AGENTS.md`) and state the result in the review.
+
+## Severity guidance
+
+- **Blocker** — incorrect behavior, a leaked secret, a write to personal configuration, a fallback to personal credentials, a broken contract without a migration path, or failing validation or required CI. A blocker stops approval.
+- **Major** — missing tests for new behavior, unhandled error paths, or a `risk-high` change without the evidence that `SDLC.md` requires. Fix it before the merge.
+- **Minor** — readability, naming, or small duplication. Fix it or file a follow-up issue.
+- **Nit** — style preference. A nit never blocks.
+
+Report a failing required check or a merge conflict as a blocker finding together with the full review, never instead of it (see `SDLC.md`).

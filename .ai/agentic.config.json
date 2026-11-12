@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "baseBranch": "auto",
+  "tracker": "github",
+  "browser": { "provider": "agent-browser" },
+  "validation": {
+    "commands": [
+      "test -z \"$(gofmt -l .)\"",
+      "go vet ./...",
+      "golangci-lint run",
+      "go test ./...",
+      "go build ./..."
+    ]
+  },
+  "labels": {
+    "enabled": true,
+    "pipeline": ["review", "changes-requested", "qa", "qa-failed", "merge-queue", "blocked", "do-not-merge"],
+    "category": ["bug", "feature", "refactor", "security", "dependencies", "documentation"],
+    "meta": ["needs-qa", "skip-qa", "qa-approved", "qa-self-verified", "in-progress", "ci-monitoring", "claim-reset"],
+    "priority": ["priority-low", "priority-medium", "priority-high", "priority-extreme"],
+    "risk": ["risk-low", "risk-medium", "risk-high"]
+  },
+  "qaGate": true,
+  "ci": { "maxWaitMinutes": 40 },
+  "autofix": {
+    "label": "cez-autofix",
+    "eligibility": { "lookbackDays": 30, "analyzeLimit": 100, "limit": 20, "excludeLabels": ["blocked", "do-not-fix"] }
+  },
+  "automerge": {
+    "label": "automerge",
+    "mode": "prepare-and-merge",
+    "requireIndependentReview": false,
+    "defaultToHumanQa": false,
+    "humanOnlyLabels": [],
+    "humanOnlyAuthors": [],
+    "complexQa": "always",
+    "windowMinutes": 120,
+    "maxAttempts": 3,
+    "eligibility": {
+      "tiers": [["qa-approved"], ["ai-judgment"], ["security", "small"], ["trusted-author"], ["fixes-issue"]],
+      "aiJudgment": { "staleAfterDays": 7 },
+      "smallPrFileLimit": 10,
+      "securityLabels": ["security"],
+      "trustedAuthors": [],
+      "excludeAuthorAssociations": ["first-time-contributor", "outside-collaborator", "none"],
+      "excludeLabels": ["do-not-merge", "blocked", "qa-failed"],
+      "lookbackDays": 30,
+      "analyzeLimit": 100,
+      "limit": 20
+    }
+  },
+  "engine": { "loopStepThreshold": 20, "executorTier": "standard", "stepReview": "final" },
+  "reviewSweep": { "maxParallel": 1, "coordinationRoot": null },
+  "paths": {
+    "runs": ".ai/runs",
+    "analysis": ".ai/analysis",
+    "specs": ".ai/specs",
+    "dataModel": ".ai/data-model",
+    "prototypes": ".ai/prototypes",
+    "scripts": ".ai/scripts",
+    "qa": ".ai/qa"
+  },
+  "designTokens": null,
+  "reviewChecklist": null,
+  "agentHarness": null,
+  "closeKeywords": [],
+  "dependencyAudit": { "minSeverity": "high", "ignore": [] },
+  "prTitleTemplate": "{prefix}({area}): {summary}{issueRef}",
+  "ticketKeyPattern": ""
+}
