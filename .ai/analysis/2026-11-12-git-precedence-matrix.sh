@@ -45,7 +45,7 @@ isolate() {
 		BASH_ENV ENV ZDOTDIR CLAUDE_ENV_FILE; do
 		unset "$v"
 	done
-	for v in $(env | awk -F= '/^(AIDENTITY_|GHAPP_|GIT_CONFIG_KEY_|GIT_CONFIG_VALUE_)/ {print $1}'); do
+	for v in $(env | awk -F= '/^(AGENT_ID_|GHAPP_|GIT_CONFIG_KEY_|GIT_CONFIG_VALUE_)/ {print $1}'); do
 		unset "$v"
 	done
 	export HOME="$root/home"
@@ -276,7 +276,7 @@ credential_helpers() {
 		use_system
 		newrepo
 		sysset credential.helper "$(helper osxkeychain-sim)"
-		row C1 "system helper (Apple Git: osxkeychain), no aidentity" "$(fill)"
+		row C1 "system helper (Apple Git: osxkeychain), no agent-id" "$(fill)"
 		(aid_generic && row C2 "system helper + aid generic reset" "$(fill)")
 		(aid_scoped && row C3 "system helper + aid github.com-scoped reset" "$(fill)")
 	)
@@ -285,7 +285,7 @@ credential_helpers() {
 		newrepo
 		gset credential.helper "$(helper personal-global)"
 		git config credential.helper "$(helper personal-repo)"
-		row C4 "global + repo-local generic helpers, no aidentity" "$(fill)"
+		row C4 "global + repo-local generic helpers, no agent-id" "$(fill)"
 		(aid_generic && row C5 "global + repo-local generic helpers + aid generic reset" "$(fill)")
 		(aid_scoped && row C6 "global + repo-local generic helpers + aid scoped reset" "$(fill)")
 	)
@@ -311,7 +311,7 @@ credential_helpers() {
 		newrepo
 		gset "includeIf.gitdir:$(pwd -P)/.path" "$HOME/.gitconfig-inc"
 		git config --file "$HOME/.gitconfig-inc" credential.https://github.com.helper "$(helper personal-include)"
-		row C13 "includeIf gitdir: adds a scoped helper, no aidentity" "$(fill)"
+		row C13 "includeIf gitdir: adds a scoped helper, no agent-id" "$(fill)"
 		(aid_both && row C14 "  + aid both resets" "$(fill)")
 	)
 	(
@@ -319,14 +319,14 @@ credential_helpers() {
 		newrepo
 		gset "includeIf.hasconfig:remote.*.url:https://github.com/**.path" "$HOME/.gitconfig-inc"
 		git config --file "$HOME/.gitconfig-inc" credential.helper "$(helper personal-hasconfig)"
-		row C15 "includeIf hasconfig:remote.*.url adds a helper, no aidentity" "$(fill)"
+		row C15 "includeIf hasconfig:remote.*.url adds a helper, no agent-id" "$(fill)"
 		(aid_both && row C16 "  + aid both resets" "$(fill)")
 	)
 	(
 		reset_case
 		newrepo
 		cfg_append credential.https://github.com.helper "$(helper inherited-count)"
-		row C17 "inherited GIT_CONFIG_COUNT helper, no aidentity" "$(fill)"
+		row C17 "inherited GIT_CONFIG_COUNT helper, no agent-id" "$(fill)"
 		aid_both
 		row C18 "  + aid both resets appended after it" "$(fill)"
 	)
@@ -443,7 +443,7 @@ rewrites() {
 		reset_case
 		newrepo https://github.com/o/r.git
 		gset url.git@github.com:.insteadOf https://github.com/
-		row U2 "personal https->ssh insteadOf, https remote, no aidentity" "$(urls)"
+		row U2 "personal https->ssh insteadOf, https remote, no agent-id" "$(urls)"
 		aid_rewrite
 		row U3 "  + aid ssh->https rewrites" "$(urls)"
 		cfg_append url.https://github.com/.insteadOf https://github.com/
@@ -461,7 +461,7 @@ rewrites() {
 		reset_case
 		newrepo https://github.com/o/r.git
 		gset url.git@github.com:.pushInsteadOf https://github.com/
-		row U6 "personal pushInsteadOf https->ssh, no aidentity" "$(urls)"
+		row U6 "personal pushInsteadOf https->ssh, no agent-id" "$(urls)"
 		aid_rewrite
 		row U7 "  + aid ssh->https insteadOf rewrites" "$(urls)"
 		cfg_append url.https://github.com/.pushInsteadOf https://github.com/
@@ -471,7 +471,7 @@ rewrites() {
 		reset_case
 		newrepo https://github.com/o/r.git
 		git config remote.origin.pushurl git@github.com:o/r.git
-		row U9 "repo remote.origin.pushurl=git@github.com:, no aidentity" "$(urls)"
+		row U9 "repo remote.origin.pushurl=git@github.com:, no agent-id" "$(urls)"
 		aid_rewrite
 		row U10 "  + aid ssh->https insteadOf rewrites" "$(urls)"
 	)
@@ -524,7 +524,7 @@ ssh_transport() {
 		git commit -q --allow-empty -m x
 		gset core.sshCommand "$root/bin/ssh-personal"
 		git push -q origin HEAD 2>/dev/null
-		row K2 "remote git@github.com:o/r, core.sshCommand personal, no aidentity" "ran: $(awk '{print $1, $2}' "$AIDTEST_LOG" | head -1)"
+		row K2 "remote git@github.com:o/r, core.sshCommand personal, no agent-id" "ran: $(awk '{print $1, $2}' "$AIDTEST_LOG" | head -1)"
 	)
 	(
 		reset_case
@@ -552,7 +552,7 @@ headers() {
 		reset_case
 		newrepo "$srv/o/r.git"
 		gset http.extraHeader "Authorization: Bearer ghs_aidtest_personal-global"
-		row H1 "global http.extraHeader Authorization, no aidentity" "$(probe)"
+		row H1 "global http.extraHeader Authorization, no agent-id" "$(probe)"
 		cfg_append http.extraHeader ""
 		row H2 "  + aid http.extraHeader= (generic reset)" "$(probe)"
 	)
@@ -567,7 +567,7 @@ headers() {
 		reset_case
 		newrepo "$srv/o/r.git"
 		git config "http.$srv/.extraheader" "AUTHORIZATION: basic $(printf 'x-access-token:ghs_aidtest_checkout' | base64)"
-		row H3 "repo http.<url>.extraheader (actions/checkout), no aidentity" "$(probe)"
+		row H3 "repo http.<url>.extraheader (actions/checkout), no agent-id" "$(probe)"
 		cfg_append http.extraHeader ""
 		row H4 "  + aid generic http.extraHeader= reset" "$(probe)"
 		cfg_append "http.$srv/.extraHeader" ""
@@ -613,7 +613,7 @@ identity() {
 		newrepo
 		gset user.useConfigOnly true
 		git commit -q --allow-empty -m x 2>/dev/null
-		row I5 "user.useConfigOnly=true, no user.email, no aidentity" "commit exit=$?"
+		row I5 "user.useConfigOnly=true, no user.email, no agent-id" "commit exit=$?"
 		aid_identity
 		git commit -q --allow-empty -m x 2>/dev/null
 		row I6 "user.useConfigOnly=true, no user.email + aid variables" "commit exit=$? $(who)"
@@ -631,7 +631,7 @@ signing() {
 		gset gpg.ssh.program "$root/bin/signer"
 		gset commit.gpgSign true
 		git commit -q --allow-empty -m x 2>/dev/null
-		row S1 "global commit.gpgSign=true, gpg.format=ssh, no aidentity" "commit exit=$? $(signed)"
+		row S1 "global commit.gpgSign=true, gpg.format=ssh, no agent-id" "commit exit=$? $(signed)"
 		cfg_append commit.gpgSign false
 		: >"$AIDTEST_LOG"
 		git commit -q --allow-empty -m x 2>/dev/null
@@ -653,7 +653,7 @@ signing() {
 		gset tag.gpgSign true
 		: >"$AIDTEST_LOG"
 		git tag -a -m x v1 2>/dev/null
-		row S5 "global tag.gpgSign=true (openpgp), no aidentity" "tag exit=$? $(signed)"
+		row S5 "global tag.gpgSign=true (openpgp), no agent-id" "tag exit=$? $(signed)"
 		cfg_append tag.gpgSign false
 		: >"$AIDTEST_LOG"
 		git tag -a -m x v2 2>/dev/null

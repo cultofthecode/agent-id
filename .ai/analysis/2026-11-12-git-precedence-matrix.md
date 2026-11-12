@@ -8,15 +8,15 @@
 
 ## 1. Summary
 
-aidentity can neutralize most inherited configuration that would make an agent use the developer's credentials or identity, but only if its `GIT_CONFIG_*` entries are **scoped to the GitHub URL** and **appended after** inherited entries. The findings below come from the experiment (row ids refer to section 4):
+agent-id can neutralize most inherited configuration that would make an agent use the developer's credentials or identity, but only if its `GIT_CONFIG_*` entries are **scoped to the GitHub URL** and **appended after** inherited entries. The findings below come from the experiment (row ids refer to section 4):
 
-1. **Order of sources.** `GIT_CONFIG_COUNT` entries come after system, global, `includeIf`, and repository configuration, and before `GIT_CONFIG_PARAMETERS` and `git -c` (P1–P3). An inherited `GIT_CONFIG_PARAMETERS` therefore overrides aidentity (C19b), and an agent's own `git -c` always can (C20b).
+1. **Order of sources.** `GIT_CONFIG_COUNT` entries come after system, global, `includeIf`, and repository configuration, and before `GIT_CONFIG_PARAMETERS` and `git -c` (P1–P3). An inherited `GIT_CONFIG_PARAMETERS` therefore overrides agent-id (C19b), and an agent's own `git -c` always can (C20b).
 2. **`credential.*` follows config order, not URL specificity.** A `credential.https://github.com.helper=` reset clears every helper collected before it for that host, including generic helpers, Apple Git's system `osxkeychain`, `includeIf` helpers, and path-scoped helpers (C3, C6, C9, C11, C14, C16). A generic reset is not needed, and it would also remove the developer's helpers for other hosts.
-3. **`http.*` follows URL specificity.** A generic `http.extraHeader=` does not clear a host-scoped header (H4). A host-scoped reset clears generic and host-scoped headers (H5, H8) but not a path-scoped header (H7). So aidentity neutralizes the `actions/checkout` style header but can only *detect* a path-scoped one.
-4. **URL rewrites use the longest matching prefix (the inherited rule wins a tie) and are applied once.** aidentity's SSH→HTTPS rewrites fix SSH remotes and SSH `pushurl`s (U1, U10, U13). A personal `insteadOf` or `pushInsteadOf` that rewrites `https://github.com/` to SSH wins against anything aidentity can add (U2–U8). The agent then pushes over SSH with the developer's key (K1, K2). This is the largest gap: it can be detected but not neutralized through Git configuration.
-5. **When the aidentity helper refuses, Git falls back to askpass.** If the helper answers nothing, Git asks `GIT_ASKPASS`, `core.askPass`, or `SSH_ASKPASS`. An IDE's askpass can then supply the developer's session (A1, A2, A4). A helper that refuses with `quit=1` stops this on both Git versions (A5, X5). `credential.interactive=false` does **not** stop it on Git 2.43 (A6).
+3. **`http.*` follows URL specificity.** A generic `http.extraHeader=` does not clear a host-scoped header (H4). A host-scoped reset clears generic and host-scoped headers (H5, H8) but not a path-scoped header (H7). So agent-id neutralizes the `actions/checkout` style header but can only *detect* a path-scoped one.
+4. **URL rewrites use the longest matching prefix (the inherited rule wins a tie) and are applied once.** agent-id's SSH→HTTPS rewrites fix SSH remotes and SSH `pushurl`s (U1, U10, U13). A personal `insteadOf` or `pushInsteadOf` that rewrites `https://github.com/` to SSH wins against anything agent-id can add (U2–U8). The agent then pushes over SSH with the developer's key (K1, K2). This is the largest gap: it can be detected but not neutralized through Git configuration.
+5. **When the agent-id helper refuses, Git falls back to askpass.** If the helper answers nothing, Git asks `GIT_ASKPASS`, `core.askPass`, or `SSH_ASKPASS`. An IDE's askpass can then supply the developer's session (A1, A2, A4). A helper that refuses with `quit=1` stops this on both Git versions (A5, X5). `credential.interactive=false` does **not** stop it on Git 2.43 (A6).
 6. **Identity and signing are fully neutralized** by the author and committer variables and `commit.gpgSign`/`tag.gpgSign`/`tag.forceSignAnnotated=false` (I1–I3, I6, S2, S4, S6–S8). The exceptions are the agent's own `--author` and `-S` (I4, S3).
-7. **Shell startup files run after aidentity.** `zsh -c` always reads `~/.zshenv`. Interactive and login shells read more files (R1–R7). Any of them can unset the entries or shadow `git`/`gh` with a function (R8–R10). A shell function `gh` that injects another token exists on the machine where this research ran.
+7. **Shell startup files run after agent-id.** `zsh -c` always reads `~/.zshenv`. Interactive and login shells read more files (R1–R7). Any of them can unset the entries or shadow `git`/`gh` with a function (R8–R10). A shell function `gh` that injects another token exists on the machine where this research ran.
 8. **`gh auth git-credential` as a helper** returns `GH_TOKEN` when the variable is set (GH1). Without it, the helper returns the personal token from `hosts.yml` (GH2). The scoped reset removes this helper (C9), so it matters only if the agent adds it again.
 
 The complete recommended set (section 5) was run against one combined hostile configuration and held on both platforms (X1–X6).
@@ -69,7 +69,7 @@ What the experiment established, as rules that `internal/gitint` and `doctor` ca
 - **Doctor** — Git configuration cannot neutralize it; the proposed `doctor` check of section 6 detects it.
 - **Bypass** — a documented known bypass: the agent's own action, or a mechanism outside Git configuration. Where a doctor check also helps, the row says so.
 
-"aid" in a row means the aidentity entries under test. The aid helper is a fake that answers `username=aid`.
+"aid" in a row means the agent-id entries under test. The aid helper is a fake that answers `username=aid`.
 
 ### P — precedence
 
@@ -91,7 +91,7 @@ What the experiment established, as rules that `internal/gitint` and `doctor` ca
 | C15–C16 | `includeIf "hasconfig:remote.*.url:https://github.com/**"` file with a helper | it answers (C15) | aid (C16) | Neutralized |
 | C17–C18 | inherited `GIT_CONFIG_COUNT` entry with a helper | it answers (C17) | aid appended after it → aid (C18) | Neutralized |
 | C19 | inherited `GIT_CONFIG_PARAMETERS` that adds a helper | — | aid answers first (C19) | Neutralized |
-| C19b | inherited `GIT_CONFIG_PARAMETERS` that resets and adds a helper | — | **inherited helper answers** | Doctor; aidentity's handling is owner decision O2 |
+| C19b | inherited `GIT_CONFIG_PARAMETERS` that resets and adds a helper | — | **inherited helper answers** | Doctor; agent-id's handling is owner decision O2 |
 | C20 | agent runs `git -c credential.helper=X` | — | aid answers first | Neutralized |
 | C20b | agent runs `git -c credential.https://github.com.helper= -c …helper=X` | — | **X answers** | Bypass (agent's action) |
 | C21 | URL with embedded `user:token` | — | **embedded credentials used; no helper is called** | Doctor (D2) |
@@ -131,7 +131,7 @@ aid rewrites in U1–U12: `url.https://github.com/.insteadOf` = `git@github.com:
 | K1 | remote `github.com:o/r` not rewritten; personal `core.sshCommand` | personal SSH command runs | Neutralized by the extended rewrites; otherwise Doctor (D1) |
 | K2 | remote `git@github.com:o/r`, no aid | personal SSH command runs | Neutralized by the rewrites |
 | K3 | aid `core.sshCommand=false` | SSH blocked, push fails (exit 128) | Possible fail-closed option; it would block SSH to every host (O3) |
-| K4 | K3 + inherited `GIT_SSH_COMMAND` | **personal SSH command runs**; the variable wins | Bypass unless aidentity also handles the variable (O3) |
+| K4 | K3 + inherited `GIT_SSH_COMMAND` | **personal SSH command runs**; the variable wins | Bypass unless agent-id also handles the variable (O3) |
 
 ### H — HTTP headers on a real transport
 
@@ -174,7 +174,7 @@ aid sets `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, `GIT_COMMI
 | Row | Configuration | Observed | Class |
 |---|---|---|---|
 | G1 | inherited `GIT_CONFIG_COUNT=2`; aid appends from index 2 (count 5) | inherited entries kept; aid helper answers | Neutralized (append, never replace) |
-| G2 | `COUNT=2`, `KEY_1` missing | `error: missing config key GIT_CONFIG_KEY_1` | aidentity must refuse a malformed inherited set (fail closed) |
+| G2 | `COUNT=2`, `KEY_1` missing | `error: missing config key GIT_CONFIG_KEY_1` | agent-id must refuse a malformed inherited set (fail closed) |
 | G3 | `COUNT=1`, `VALUE_0` missing | `error: missing config value GIT_CONFIG_VALUE_0` | same |
 | G4 | `COUNT=x` | `error: bogus count in GIT_CONFIG_COUNT` | same |
 | G5 | `git -c` with `COUNT` set: what a child (alias, hook) sees | both `COUNT` and `-c` entries | — |
@@ -219,12 +219,12 @@ Hostile configuration: system `osxkeychain-sim`; global generic, host-scoped, an
 
 ## 5. Recommended `GIT_CONFIG_*` set
 
-aidentity appends these entries after any inherited, well-formed `GIT_CONFIG_COUNT` entries and sets `GIT_CONFIG_COUNT` to the new total (G1). `<host>` is the profile's host, `https://github.com` for the MVP. The helper command line is owned by E02-S08 and is shown only as a placeholder.
+agent-id appends these entries after any inherited, well-formed `GIT_CONFIG_COUNT` entries and sets `GIT_CONFIG_COUNT` to the new total (G1). `<host>` is the profile's host, `https://github.com` for the MVP. The helper command line is owned by E02-S08 and is shown only as a placeholder.
 
 | # | Key | Value | Why | Rows |
 |---|---|---|---|---|
 | 1 | `credential.https://github.com.helper` | *(empty)* | Resets every helper collected so far for the host: system `osxkeychain`, global, `includeIf`, repository, path-scoped, inherited `COUNT`. It leaves other hosts alone. | C3, C6, C9, C11, C14, C16, C18 |
-| 2 | `credential.https://github.com.helper` | `!<absolute path to aidentity> git-credential` *(E02-S08)* | The only helper for the host. | X1, H6 |
+| 2 | `credential.https://github.com.helper` | `!<absolute path to agent-id> git-credential` *(E02-S08)* | The only helper for the host. | X1, H6 |
 | 3 | `credential.https://github.com.useHttpPath` | `true` | The helper sees the repository path and can check repository scope. It must come after any inherited value. | C22–C25 |
 | 4 | `http.https://github.com/.extraHeader` | *(empty)* | Clears generic and host-scoped `Authorization` headers, including the one `actions/checkout` writes. A path-scoped header remains (D3). | H5, H8, X6 |
 | 5–11 | `url.https://github.com/.insteadOf` | `git@github.com:`, `ssh://git@github.com/`, `github.com:`, `ssh://github.com/`, `ssh://git@ssh.github.com:443/`, `git+ssh://git@github.com/`, `ssh+git://git@github.com/` (one entry each) | Moves every SSH form of a GitHub remote, including an explicit SSH `pushurl`, to HTTPS, where the helper decides. | U1, U10, U13, X2 |
@@ -237,7 +237,7 @@ With the identity variables `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTE
 
 **Requirements on the helper (E02-S08).** For a request for the profile's host that it refuses or cannot serve, the helper answers `quit=1`. If it answered nothing, Git would fall back to `GIT_ASKPASS`, `core.askPass`, or `SSH_ASKPASS` (A1, A2, A4), which can be an IDE that holds the developer's session. `quit=1` works on Git 2.43 and 2.54 (A5); `credential.interactive=false` does not work on 2.43 (A6).
 
-**Requirements on `aidentity exec` and `env`.**
+**Requirements on `agent-id exec` and `env`.**
 
 - Append, never replace (G1).
 - Refuse a malformed inherited `GIT_CONFIG_COUNT` with a clear error, instead of starting a child in which every Git command fails (G2–G4).
@@ -260,7 +260,7 @@ These rows cannot be neutralized through Git configuration. Each check follows t
 | D1 | For each remote, the effective fetch and push URLs (`git ls-remote --get-url`, `git remote get-url --push`) must be `https://<host>/…`. A URL that resolves to GitHub over SSH fails: host `github.com` or `ssh.github.com`, or an SSH alias whose `ssh -G <alias>` hostname is one of them. The check names the `insteadOf`/`pushInsteadOf` rule responsible. | U2–U8, U12, K1 |
 | D2 | A remote URL or `pushurl` with credentials in the user-info part fails. | C21, U11 |
 | D3 | `git config --get-urlmatch http.extraheader <remote URL>` returns an `Authorization` header that survives the set. | H7 |
-| D4 | `GIT_CONFIG_PARAMETERS` is present in the environment, or the helper list computed for `https://<host>/<repo>` is not exactly the aidentity helper. | C19b |
+| D4 | `GIT_CONFIG_PARAMETERS` is present in the environment, or the helper list computed for `https://<host>/<repo>` is not exactly the agent-id helper. | C19b |
 | D5 | `GIT_SSH_COMMAND` or `core.sshCommand` is set while a GitHub remote is not HTTPS (informational once D1 passes). | K1, K4 |
 | D6 | Run inside the agent's context: the expected `GIT_CONFIG_*` entries and identity variables are present and unchanged. Catches a startup file that unsets or overrides them. | R8 |
 | D7 | `GIT_ASKPASS`, `SSH_ASKPASS`, or `core.askPass` is set (informational; `quit=1` covers it). | A1–A4 |
@@ -270,7 +270,7 @@ These rows cannot be neutralized through Git configuration. Each check follows t
 None of these can be prevented in local mode. They match brief §10: local mode is attribution and convenience, not containment.
 
 - The agent changes Git's configuration for its own command: `git -c credential.<host>.helper= -c …` (C20b), `git commit --author` (I4), `git commit -S` (S3), `git push` to a URL with embedded credentials (C21).
-- A personal `insteadOf`/`pushInsteadOf` or an SSH host alias sends GitHub traffic over SSH with the developer's key (U2–U8, U12). `doctor` detects it (D1); whether aidentity blocks it is O3.
+- A personal `insteadOf`/`pushInsteadOf` or an SSH host alias sends GitHub traffic over SSH with the developer's key (U2–U8, U12). `doctor` detects it (D1); whether agent-id blocks it is O3.
 - A path-scoped `http.<url>.extraHeader` (H7). `doctor` detects it (D3).
 - Shell startup files and shell functions of the agent's own shell: `~/.zshenv` for every `zsh -c`, `.bashrc`/`.zshrc` for interactive shells, `BASH_ENV` (R1–R10). They can unset the entries, export another `GH_TOKEN`, or wrap `git` and `gh`.
 - Any process that removes the environment entirely (`env -i`) or calls a different `git` binary.
@@ -279,11 +279,11 @@ None of these can be prevented in local mode. They match brief §10: local mode 
 
 These are not decided here. Each needs the owner's answer on the follow-up ticket before code depends on it.
 
-- **O1 — SSH remotes outside the rewrite set.** Section 5 rewrites seven SSH forms. Should aidentity cover only these, or also refuse (in `exec`) a repository whose GitHub remote still resolves to SSH after the set? The latter would turn D1 from a warning into a fail-closed start.
-- **O2 — inherited `GIT_CONFIG_PARAMETERS`.** It overrides aidentity (C19b). The options are to refuse to start, to remove the variable from the child environment, or to report it only in `doctor`. The first two change the environment that `exec` and `env` emit, which needs the owner's yes (`AGENTS.md`, Ask first). Recommendation: refuse to start when the variable contains a `credential`, `url`, `http`, or signing key; otherwise keep it and report it.
+- **O1 — SSH remotes outside the rewrite set.** Section 5 rewrites seven SSH forms. Should agent-id cover only these, or also refuse (in `exec`) a repository whose GitHub remote still resolves to SSH after the set? The latter would turn D1 from a warning into a fail-closed start.
+- **O2 — inherited `GIT_CONFIG_PARAMETERS`.** It overrides agent-id (C19b). The options are to refuse to start, to remove the variable from the child environment, or to report it only in `doctor`. The first two change the environment that `exec` and `env` emit, which needs the owner's yes (`AGENTS.md`, Ask first). Recommendation: refuse to start when the variable contains a `credential`, `url`, `http`, or signing key; otherwise keep it and report it.
 - **O3 — SSH fallback after a personal rewrite.** Git configuration cannot win against a personal `https://github.com/` → SSH rule (U2–U8). The options are:
   - (a) document it and detect it in `doctor` (D1);
-  - (b) set `GIT_SSH_COMMAND` to an aidentity shim that refuses GitHub hosts and runs the developer's SSH command for every other host. This would need handling of an inherited `GIT_SSH_COMMAND` (K4);
+  - (b) set `GIT_SSH_COMMAND` to an agent-id shim that refuses GitHub hosts and runs the developer's SSH command for every other host. This would need handling of an inherited `GIT_SSH_COMMAND` (K4);
   - (c) `core.sshCommand=false`, which blocks SSH to every host (K3).
 
   Recommendation: (a) for the MVP, with (b) evaluated as part of hardening.

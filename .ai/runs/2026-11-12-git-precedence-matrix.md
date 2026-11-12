@@ -6,7 +6,7 @@ Engine: om-auto-create-pr (steps: 6, --loop: no)
 
 ## Goal
 
-A reproducible, tested matrix of how inherited Git configuration and shell startup files change the effective Git behavior of a process that gets aidentity's `GIT_CONFIG_COUNT` entries, with each personal-credential leak classified as neutralized, detected by `doctor`, or a documented bypass, and a recommended `GIT_CONFIG_*` set for `internal/gitint`.
+A reproducible, tested matrix of how inherited Git configuration and shell startup files change the effective Git behavior of a process that gets agent-id's `GIT_CONFIG_COUNT` entries, with each personal-credential leak classified as neutralized, detected by `doctor`, or a documented bypass, and a recommended `GIT_CONFIG_*` set for `internal/gitint`.
 
 ## Scope
 
