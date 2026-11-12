@@ -61,19 +61,19 @@ On top of `internal/testenv` (`Isolate`, `NewFakeGitHub`, `Listen`, `FakeToken`)
 
 ### Phase 1: testenv network and token guards
 
-- [ ] 1.1 Guard proxy, NewHTTPClient, CheckFakeToken
-- [ ] 1.2 Main real-configuration guard
+- [x] 1.1 Guard proxy, NewHTTPClient, CheckFakeToken — d684364
+- [x] 1.2 Main real-configuration guard — e3dd0ee
 
 ### Phase 2: Git process helpers
 
-- [ ] 2.1 Bare repository, clone, and git runner helpers
-- [ ] 2.2 HTTPS Git server recording credentials
-- [ ] 2.3 BuildBinary and gh process test
+- [x] 2.1 Bare repository, clone, and git runner helpers — f0cd079
+- [x] 2.2 HTTPS Git server recording credentials — f0cd079
+- [x] 2.3 BuildBinary and gh process test — afa1c6f (gh process test in d684364)
 
 ### Phase 3: fake GitHub App
 
-- [ ] 3.1 githubtest fake App endpoints and tests
+- [x] 3.1 githubtest fake App endpoints and tests — 42b5607
 
 ### Phase 4: rules and docs
 
-- [ ] 4.1 depguard, ARCHITECTURE.md, AGENTS.md files
+- [x] 4.1 depguard, ARCHITECTURE.md, AGENTS.md files — 7ddcebe
