@@ -57,6 +57,8 @@ On top of `internal/testenv` (`Isolate`, `NewFakeGitHub`, `Listen`, `FakeToken`)
 
 ## Progress
 
+PR: #32
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: testenv network and token guards
@@ -76,4 +78,4 @@ On top of `internal/testenv` (`Isolate`, `NewFakeGitHub`, `Listen`, `FakeToken`)
 
 ### Phase 4: rules and docs
 
-- [x] 4.1 depguard, ARCHITECTURE.md, AGENTS.md files — 7ddcebe
+- [x] 4.1 depguard, ARCHITECTURE.md, AGENTS.md files — 7ddcebe (review fixes: f78b222)
