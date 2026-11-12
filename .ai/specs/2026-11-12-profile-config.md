@@ -6,7 +6,7 @@ Issue: #9 (E01-T04). Implemented by #17 (E02-S03, profile store) and #16 (E02-S0
 
 aidentity needs one file that says which GitHub App each agent profile uses, where its private key is, and which bot identity the profile resolved to. Today only the illustrative YAML of `PRODUCT_BRIEF.md` §9.4 exists, so the profile store (#17) cannot start. This spec proposes the v1 contract: the file location, the format, every field with its type, validation rule and error message, the private-key reference syntax, the identity cache, explicit profile selection, and the rule for future versions.
 
-The proposed format is **JSON read with the Go standard library** (no new dependency). That choice waits for the owner: see [Resolved assumptions](#resolved-assumptions-autonomous-defaults), A1.
+The format is **JSON read with the Go standard library `encoding/json`**, with no YAML or TOML dependency: the owner's decision of 2026-11-12 (Jacob, on #9 and #33).
 
 ## 📝 Problem Statement
 
@@ -29,8 +29,8 @@ One file per user, read strictly, written only by aidentity:
 
 | Option | For | Against | Verdict |
 |---|---|---|---|
-| **JSON, `encoding/json`** | No new dependency (`AGENTS.md`, Ask first). Strict types: `"123"` is not a number, `no` is not `false`. Unknown and duplicate members are detectable with the standard decoder. The file is written by `setup`, so hand editing is rare. | No comments. Less pleasant to edit by hand than YAML. Differs from the brief's example. | **Proposed default** (A1, needs the owner) |
-| YAML (`go.yaml.in/yaml/v3`, the maintained successor of `gopkg.in/yaml.v3`) | Matches brief §9.4. Comments. Familiar from CI files. | New dependency (owner's yes needed). Implicit typing (`on`, `0700`, `1e3`) and anchors/aliases need extra guards. The original `gopkg.in/yaml.v3` is unmaintained. | Good second choice; the schema below is unchanged, only the decoder and the file name (`config.yaml`) change. |
+| **JSON, `encoding/json`** | No new dependency (`AGENTS.md`, Ask first). Strict types: `"123"` is not a number, `no` is not `false`. Unknown and duplicate members are detectable with the standard decoder. The file is written by `setup`, so hand editing is rare. | No comments. Less pleasant to edit by hand than YAML. Differs from the brief's example. | **Chosen** (owner's decision, 2026-11-12) |
+| YAML (`go.yaml.in/yaml/v3`, the maintained successor of `gopkg.in/yaml.v3`) | Matches brief §9.4. Comments. Familiar from CI files. | New dependency (owner's yes needed). Implicit typing (`on`, `0700`, `1e3`) and anchors/aliases need extra guards. The original `gopkg.in/yaml.v3` is unmaintained. | Rejected by the owner (2026-11-12): no YAML dependency. |
 | TOML (`github.com/pelletier/go-toml/v2` or `BurntSushi/toml`) | Comments, strict types, made for config. | New dependency. Nested `profiles.<name>.identity` tables read less naturally. Nobody asked for it. | Rejected. |
 | One file per profile (`profiles/<name>.json`) | Concurrent `setup` of two profiles never conflicts. | Two places to look, harder `doctor` output, a directory listing becomes part of the contract. | Rejected for v1; a lock on the single file solves the conflict. |
 | Identity cache in `$XDG_CACHE_HOME` | Keeps resolved data out of config. | Clearing the cache would make `exec` fail or call GitHub. `ARCHITECTURE.md` (Data) places it with the profile. | Rejected. |
@@ -74,7 +74,7 @@ The brief's example does **not** parse under this spec. The differences, each de
 
 | Brief §9.4 | v1 | Why |
 |---|---|---|
-| YAML | JSON | A1: no new dependency without the owner's yes; strict typing. If the owner picks YAML, the brief's example parses once the four rows below are applied. |
+| YAML | JSON | Owner's decision (2026-11-12): JSON with `encoding/json`, no new dependency; strict typing. |
 | `private_key: keyring:claude-github-app` | Rejected with `ErrUnsupportedKeyReference`; use `file:` | The keyring backend is OPEN (`ARCHITECTURE.md`) and out of scope of #9 and #16. The `keyring:` prefix is reserved so that a later version can add it without a new syntax. |
 | `identity.name`, `identity.email` | `identity.login`, `identity.user_id`, `identity.resolved_at` | Name and email are derived from login and id (`ARCHITECTURE.md`, Git integration): name `<login>`, email `<user_id>+<login>@users.noreply.github.com`. Storing them separately would allow a mismatch. The brief asks for resolved, cached identity rather than manual entry. |
 | `integrations.claude-code` | Not in v1; unknown top-level member | Explicit selection only (brief §14). The Claude Code hook (#26) passes `--profile` on its command line. |
@@ -253,7 +253,7 @@ The system SHALL refuse to load a config file or directory that is writable by g
 - **`internal/credential`** (#16) receives a `profile.KeyRef` and loads the key; it does not parse the config. The `keyring` scheme reaches it only after a later version enables it.
 - **`setup`** (#19) is the only writer in Phase 1; `doctor` (#24) writes only the refreshed `identity`.
 - **`activation`** (#20) reads a resolved `Profile` and the derived Git identity; it never reads the file itself.
-- The spec adds no Go module dependency under A1, and no cross-module dependency beyond the rows already in `ARCHITECTURE.md`.
+- The spec adds no Go module dependency, and no cross-module dependency beyond the rows already in `ARCHITECTURE.md`.
 
 ## 📝 Edge Cases & Failure Scenarios
 
@@ -262,7 +262,7 @@ The system SHALL refuse to load a config file or directory that is writable by g
 | No config yet | `ErrConfigNotFound` with the `setup` command to run. |
 | Empty file | `ErrConfigInvalid`: not valid JSON. |
 | `{}` | `ErrUnsupportedVersion`: version is missing. |
-| File edited by hand with a trailing comma or a comment | `ErrConfigInvalid` with line and column. Under A1 the file has no comments; `setup` is the supported editor. |
+| File edited by hand with a trailing comma or a comment | `ErrConfigInvalid` with line and column. JSON has no comments; `setup` is the supported editor. |
 | `"app_id": "123456"` (string) | `ErrConfigInvalid`: must be a positive integer. |
 | `"app_id": 1e6` or `123456.0` | `ErrConfigInvalid`: a number with exponent or fraction is not an integer here. |
 | Profile name `Claude` or `my_bot` | `ErrConfigInvalid`: invalid profile name with the allowed pattern. |
@@ -275,11 +275,11 @@ The system SHALL refuse to load a config file or directory that is writable by g
 
 ## 📝 Risks & Impact Review
 
-- **Contract.** After the first release, changing the format or a field name needs a version bump, the in-memory migration, and a `.bak`. Picking the format (A1) before #17 starts avoids a migration; changing the format later means supporting two decoders for at least one release.
+- **Contract.** After the first release, changing the format or a field name needs a version bump, the in-memory migration, and a `.bak`. The format is decided (JSON) before #17 starts, so no migration is needed; changing the format later would mean supporting two decoders for at least one release.
 - **Name.** The directory name follows #6. If the owner renames the product to `agent-id`, the path becomes `$XDG_CONFIG_HOME/agent-id/config.json`; no release exists yet, so no migration is needed as long as #6 is decided before the first release.
 - **Strictness costs convenience.** No comments and no unknown members make hand editing less friendly. The trade-off is deliberate: a silently ignored member can change which credential or identity an agent gets.
 - **Not a security boundary.** Permission checks stop accidents and other local users, not the agent itself, which runs as the same OS user and can rewrite the file (brief §10). The spec does not claim otherwise.
-- **Product direction vs. rule.** The format (A1) is a direction call for the owner. The rules for unknown members, duplicates, inline secrets, and fail-closed errors follow `AGENTS.md` and `CODE_REVIEW.md` and are not optional.
+- **Product direction vs. rule.** The format was the owner's direction call and is decided (JSON). The rules for unknown members, duplicates, inline secrets, and fail-closed errors follow `AGENTS.md` and `CODE_REVIEW.md` and are not optional.
 
 ## 📝 Decisions in play
 
@@ -287,13 +287,13 @@ The system SHALL refuse to load a config file or directory that is writable by g
 - Brief §14, *Profile selection*: explicit `--profile` only, no auto-detection.
 - Brief §8, MVP boundaries: GitHub.com only.
 - Brief §10, *Credential handling*: keyring or protected file; v1 implements the file, reserves the keyring.
-- `ARCHITECTURE.md` OPEN rows: "Profile config format and schema; keyring support" (this spec proposes the answer; the implementation PR #17 flips the row to active after the owner's decision) and "Product and binary name" (#6, followed here).
+- `ARCHITECTURE.md` OPEN rows: "Profile config format and schema; keyring support" (format decided by the owner on 2026-11-12: JSON with `encoding/json`; the implementation PR #17 flips the row to active and records that decision; keyring stays OPEN) and "Product and binary name" (#6, followed here).
 
 ## Resolved assumptions (autonomous defaults)
 
 | # | Question | Applied default | Why | Confirm? |
 |---|---|---|---|---|
-| A1 | File format: YAML (new dependency), TOML (new dependency), or JSON (standard library)? | JSON with `encoding/json` and a strict token walk; file `config.json`. | No new dependency without the owner (`AGENTS.md`, Ask first); strict types and duplicate detection without extra guards; the file is written by `setup`. The schema is format-neutral, so YAML stays a decoder swap if chosen now. | ⚠ NEEDS HUMAN CONFIRMATION — the issue asks the owner to answer this on the spec PR. |
+| A1 | File format: YAML (new dependency), TOML (new dependency), or JSON (standard library)? | JSON with `encoding/json` and a strict token walk; file `config.json`. | No new dependency without the owner (`AGENTS.md`, Ask first); strict types and duplicate detection without extra guards; the file is written by `setup`. | Confirmed by the owner (Jacob, 2026-11-12): JSON with `encoding/json`; no YAML or TOML dependency. |
 | A2 | Keyring references in v1? | `keyring:` is reserved and rejected with a clear error. | Keyring backend is OPEN and out of scope (#9, #16); reserving the prefix keeps the syntax stable. | reversible |
 | A3 | Identity cache fields | `login`, `user_id`, `resolved_at`; name and email are derived. | One source of truth; matches `ARCHITECTURE.md` (Git integration). | reversible |
 | A4 | Keep the brief's `integrations` section? | No; not in v1. | Explicit selection only (brief §14); the hook passes `--profile`. | reversible |
@@ -319,6 +319,6 @@ Every test calls `testenv.Isolate(t)` first and uses only files under the isolat
 6. **Load and Resolve.** Read with the size limit, permission and owner checks (file, symlink target, directory), then `Validate`; `Resolve(name)` with `ErrProfileNotFound` listing names. Tests: missing file, `0664`, `0777` directory, symlink to a group-writable target, unknown profile, empty profiles.
 7. **Write.** `flock` on `config.json.lock`, read-modify-write, temp file `0600`, `fsync`, `rename`; directory `0700`; drop `identity` when `host` or `app_id` changes. The `.bak` copy and the migration chain arrive with the first v2 change, not in this phase. Tests: modes, no temp file left, two concurrent writers keep both profiles.
 8. **Identity derivation.** Pure `GitIdentity(Identity) (name, email)`. Test against the example.
-9. **Record the decision.** Update `ARCHITECTURE.md` (Data and Key decisions: format row from OPEN to active with the owner's decision and date) and archive the Delta into `.ai/specs/capabilities/profile-config.md`.
+9. **Record the decision.** Update `ARCHITECTURE.md` (Data and Key decisions: format row from OPEN to active: JSON with `encoding/json`, owner Jacob, 2026-11-12; keyring stays OPEN) and archive the Delta into `.ai/specs/capabilities/profile-config.md`.
 
 Run the validation gate in an isolated environment after each step.
