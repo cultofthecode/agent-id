@@ -352,7 +352,6 @@ credential_helpers() {
 		reset_case
 		newrepo
 		aid_both
-		out=$(printf 'url=https://personal:ghs_aidtest_embedded@github.com/o/r.git\n\n' | git credential fill 2>/dev/null)
 		: >"$AIDTEST_LOG"
 		out=$(printf 'url=https://personal:ghs_aidtest_embedded@github.com/o/r.git\n\n' | git credential fill 2>/dev/null)
 		row C21 "URL with embedded user:token + aid both resets" "answer=$(printf '%s\n' "$out" | sed -n 's/^username=//p') called=[$(calls get)]"

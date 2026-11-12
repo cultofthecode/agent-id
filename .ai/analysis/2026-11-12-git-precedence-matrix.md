@@ -192,7 +192,7 @@ Each startup file appends its name to a marker variable.
 | R5 | `zsh -c` | `.zshenv` (always) | — |
 | R6 | `zsh -ic` | `.zshenv`, `.zshrc` | — |
 | R7 | `zsh -lc` | `.zshenv`, `.zprofile` | — |
-| R8 | `zsh -c` with `unset GIT_CONFIG_COUNT` in `.zshenv` | **personal helper answers** | Bypass; Doctor (D6) when `doctor` runs inside the agent's shell |
+| R8 | `zsh -c` with `unset GIT_CONFIG_COUNT` in `.zshenv` | **the effective helper list is only the personal helper** | Bypass; Doctor (D6) when `doctor` runs inside the agent's shell |
 | R9–R10 | `.zshrc` or `.bashrc` defines a `gh` function | `gh` resolves to the function | Bypass (functions and aliases are invisible to a child process) |
 
 Not verified here: which startup files Claude Code's or Codex's shell tool reads. That belongs with the Claude Code `SessionStart` integration ticket.
