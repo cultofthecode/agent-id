@@ -16,6 +16,9 @@ import (
 	"runtime/debug"
 
 	"github.com/spf13/cobra"
+
+	"github.com/cultofthecode/agent-id/internal/profile"
+	"github.com/cultofthecode/agent-id/internal/provider/github"
 )
 
 // Exit codes of agent-id.
@@ -46,6 +49,13 @@ func newRoot() *cobra.Command {
 		},
 	}
 	return withVersion(root, versionText(version, commit, debug.ReadBuildInfo))
+}
+
+// newRegistry returns the providers this agent-id supports, for the profile
+// store: the GitHub adapter's validator of the github block and its token
+// prefixes, which the inline-secret scan rejects anywhere in the file.
+func newRegistry() (*profile.Registry, error) {
+	return profile.NewRegistry(github.ProfileRegistration())
 }
 
 // run executes root with args, writes output to stdout and diagnostics to
