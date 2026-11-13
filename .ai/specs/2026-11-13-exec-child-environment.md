@@ -546,6 +546,34 @@ Every test calls `testenv.Isolate(t)` first. `risk-high` evidence per `SDLC.md`:
    These tests run without #21–#23 and stay in the suite after they land. They prove that the baseline remains under the bot's entries: with #22 present, the decoy helper still records zero calls.
 8b. **Pure tables.** `ClassifyRemoteURL` covers scp form, `ssh://`, `git+ssh://`, `ssh+git://`, upper-case hosts, `ssh.github.com:443`, look-alike hosts (`github.com.evil.example`, `evilgithub.com`), `https`, `file://`, and local paths. `HasPassword` covers user-only, user and password, a percent-encoded `@`, and no user-info. The baseline entries are tested for their order after inherited entries (C18, G1) and for idempotence under re-entry.
 
+### Definition of Done for #20: the isolation test (owner decision, 13.11, #68)
+
+#20 is done only when this process test passes in CI and on darwin. It is a required condition, not one case among others. It belongs to the #25 suite and runs in `testenv.Isolate`:
+
+- a fake `HOME`, `XDG_*`, `GIT_CONFIG_GLOBAL` and `GH_CONFIG_DIR`, all under `$TMPDIR/agent-id/`, with `testenv.Main` checking that the real configuration is untouched;
+- a recording fake credential helper;
+- a fake `hosts.yml`.
+
+No real keychain, token or network is used.
+
+It proves that the child of `agent-id exec` does **not** see:
+
+1. **The developer's credential helper**, neither the global one (`credential.helper` and `credential.https://github.com.helper` in the fake global config) nor the repository's (the same keys in the test repository's `.git/config`).
+   - Inside `exec`, `printf 'protocol=https
+host=github.com
+path=o/r.git
+
+' | git credential fill` prints no `username=` or `password=`, exits non-zero without prompting (`GIT_TERMINAL_PROMPT=0`), and every recording helper logs zero calls.
+   - The same holds for `git ls-remote` against `testenv.NewGitServer`.
+2. **The developer's `gh` configuration or the keychain entry `gh:github.com`.**
+   - The child's `GH_CONFIG_DIR` is agent-id's own directory and has no `hosts.yml`.
+   - The fake `hosts.yml`, holding a fake `oauth_token` in the parent's `GH_CONFIG_DIR`, is never opened: a fake `gh` placed later on `PATH` that would read it records zero calls.
+   - `gh` by name is the stub: it prints agent-id's message and exits 1.
+   - No `gh` process runs, so no keychain lookup can happen. The test never touches a real keychain. The absolute-path case is OQ4, a documented bypass.
+3. **The developer's tokens.** With fake values (`testenv.FakeToken`) in `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` in the parent, the child's environment (`env` inside `exec`) contains none of these variables and no value with a registered token prefix, `-----BEGIN`, or a JWT shape.
+
+The test passes without #21–#23 and stays required after they land.
+
 ### Phase 3 — record
 
 9. **Architecture and archive.** Add a Key decisions row to `ARCHITECTURE.md` (the child environment contract v1, `execve`, exit codes 125–127, the neutral credential baseline of #68, and O1 in #20; source this spec, #20 and #68) and the `exec` exit codes to Cross-cutting concerns; archive the Delta into `.ai/specs/capabilities/exec.md`.
