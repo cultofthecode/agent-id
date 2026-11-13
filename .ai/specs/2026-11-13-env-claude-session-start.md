@@ -3,6 +3,7 @@
 Issue: #26 (E02-S12). Implemented by #26 after #21, #22 and #23. Depends on the child environment contract of #20.
 
 Extends: `.ai/specs/2026-11-13-exec-child-environment.md` (it renders the same child environment as shell text; the activation pipeline and the builder stay there).
+Supersedes: `.ai/specs/2026-11-13-exec-child-environment.md` — sections: Architecture (`Activate` return type)
 Extends: `.ai/specs/2026-11-12-profile-config.md` (explicit `--profile`; no `integrations` section in the config).
 
 ## 📝 TLDR
@@ -42,10 +43,10 @@ Claude Code runs the file's contents before every Bash command, so each command 
 
    Claude Code reruns the file before every command, so the block re-applies the same environment to each fresh command process. If one statement fails, for example because a startup file made `GH_TOKEN` read-only, the command does not run.
 3. **Fail closed on the hook path.**
-   - If the pipeline fails, `session-start` appends a **refusal line** instead and exits 1. Every Bash command of the session then stops with exit 125 and the reason. The pipeline fails on an invalid profile, an unresolved identity, a nested context, a refused SSH remote, or a damaged context.
+   - If the pipeline fails, `session-start` appends a **refusal line** instead and exits 3. Every Bash command of the session then stops with exit 125 and the reason. The pipeline fails on an invalid profile, an unresolved identity, a nested context, a refused SSH remote, or a damaged context.
    - The documented hook command appends its own refusal line only when agent-id could not run at all: status above 1, meaning not found, not executable, or a crash.
 4. **Later failures are caught where credentials are used.** The block carries no token. If the profile breaks during the session, the credential helper (#22) and the `gh` shim (#23) fail closed at use, as they do under `exec`.
-5. **Shadowing aliases and functions.** In the command's shell, the block removes any alias or function named `git` or named after the provider's CLI (`gh`), using `unalias` and `unset -f`.
+5. **Shadowing aliases and functions.** In the command's shell, the block removes any function, and on a best-effort basis any alias, named `git` or named after the provider's CLI (`gh`), using `unalias` and `unset -f`.
    - Claude Code applies the aliases and functions of the startup-file snapshot to every command (docs).
    - Such a wrapper could inject another token (gh analysis; Git analysis R9–R10).
 6. **Hook configuration is documented, never installed.**
@@ -81,7 +82,7 @@ The system SHALL print one block of `unset`, `unalias`/`unset -f`, and `export` 
 
 ##### Scenario: The block fails as a whole
 - WHEN `GH_TOKEN` is read-only in the shell (`readonly GH_TOKEN`) and the block is evaluated as `eval "$block" || echo failed`
-- THEN `failed` is printed
+- THEN `failed` is printed in `bash`; in `zsh`, the read-only error aborts the shell with status 1 before the guard runs, so the command still does not run, and zsh's own message names the variable
 
 ##### Scenario: No secret
 - WHEN the parent has a fake `GH_TOKEN` and the output is scanned for every registered token prefix, `-----BEGIN`, and a JWT shape
@@ -116,7 +117,7 @@ The system SHALL make every Bash command that runs the env file stop with exit s
 
 ##### Scenario: Hook cannot activate
 - WHEN `session-start` runs for a profile without a resolved identity
-- THEN it appends a refusal line and exits 1; a simulated command `sh -c '. "$CLAUDE_ENV_FILE"; echo ran'` does not print `ran`, exits 125, and prints the `setup` hint
+- THEN it appends a refusal line and exits 3; a simulated command `sh -c '. "$CLAUDE_ENV_FILE"; echo ran'` does not print `ran`, exits 125, and prints the `setup` hint
 
 ##### Scenario: Hostile profile name
 - WHEN the hook runs `session-start --profile "a';x"`
@@ -124,14 +125,14 @@ The system SHALL make every Bash command that runs the env file stop with exit s
 
 ##### Scenario: agent-id cannot run
 - WHEN the documented hook command runs with a `PATH` that does not contain `agent-id`
-- THEN its fallback appends a refusal line with the refusal marker, the hook exits 1, and a simulated command exits 125
+- THEN its fallback appends a refusal line with the refusal marker, the hook exits 1 (any status other than 0, 3 or 4 from agent-id is treated the same, including an older agent-id without the command), and a simulated command exits 125
 
 ##### Scenario: Not run as a hook
 - WHEN `session-start` runs without `CLAUDE_ENV_FILE`
-- THEN it exits 1 with a message that it must run as a Claude Code `SessionStart` command hook, and it writes no file
+- THEN it exits 4 with a message that it must run as a Claude Code `SessionStart` command hook, and it writes no file
 
 #### ADDED Requirement: Shadowing aliases and functions are removed
-The system SHALL remove, in each command's shell and before the command runs, any alias or function named `git` or named after the provider's CLI.
+The system SHALL remove, in each command's shell and before the command runs, any function named `git` or named after the provider's CLI, and SHALL attempt the same for aliases. An alias is removed reliably only when the env file and the command are parsed separately; `bash` expands an alias of a line that it has already parsed (assumption verified by #27).
 
 ##### Scenario: gh function from .zshrc
 - WHEN the simulated command's shell defines `gh() { GH_TOKEN=decoy command gh "$@"; }` before running the env file, and then runs `gh api repos/o/r`
@@ -160,9 +161,9 @@ flowchart LR
 
 Every activation goes through the same `internal/activation` pipeline as `exec`. The hook only adds the guard and the append.
 
-- **`internal/activation`** (#20) exposes `Activate(ctx, d Deps, r Request) ([]string, error)`. `Request` carries the profile, the mechanism, the binary path, the working directory, and the parent environment. This spec adds:
+- **`internal/activation`** (#20) exposes `Activate(ctx, d Deps, r Request) (Activation, error)`, with `Activation{Env, Drop, Unshadow []string}`. This changes the merged exec spec, where `Activate` returns only `[]string` (see the `Supersedes:` line): `exec` uses `Env`, and the renderers also need `Drop` and `Unshadow`. `Request` carries the profile, the mechanism, the binary path, the working directory, and the parent environment. This spec adds:
   - the plan field `Unshadow []string`: command names, contributed by `gitint` (`git`) and `cliint` (the provider's CLI name, `gh` in the MVP). It affects only rendering, because `exec` starts a program, not a shell;
-  - `Render(parent, child []string, unshadow []string) (string, error)`, a pure function.
+  - `Render(parent []string, a Activation) (string, error)`, a pure function.
 
   Both slices and `session-start` call `Activate` and `Render` (dependency rule 2: a slice never imports another slice).
 - **`internal/activation/env`** (new slice):
@@ -175,7 +176,7 @@ Every activation goes through the same `internal/activation` pipeline as `exec`.
   - Slice `internal/integration/claude/sessionstart`, with `Input{Profile string; HookInput []byte; EnvFile string}`. The handler validates the input, calls `Activate` with `Dir` set to the hook input's `cwd`, calls `Render`, and appends under a lock. It imports `internal/activation` (root) and names no forge.
 - **`cmd/agent-id`** registers both commands.
   - `env` exits 125 on failure, as `exec` does.
-  - `session-start` exits 1 on failure, because Claude Code treats any non-zero status other than 2 from a `SessionStart` hook as a non-blocking error and shows it to the user.
+  - `session-start` exits 0 on success, 3 when it wrote a refusal line, and 4 when it found no safe file to write (step 1). These codes differ from cobra's 1, so the hook snippet can tell agent-id's own outcome from a usage error, an unknown command in an older agent-id, a missing binary, or a crash. Every non-zero code is shown to the user, because Claude Code treats any non-zero status other than 2 from a `SessionStart` hook as a non-blocking error and shows it to the user.
 - **No new dependency.** The hook input is JSON on stdin, decoded with `encoding/json`.
 
 ## 📝 API Contracts
@@ -218,7 +219,7 @@ unset __agent_id_path __agent_id_dir
 Rules of `Render`, each a table test:
 
 - **Order.** The block starts with the comment `# agent-id env 1 profile=<name>`; the profile name pattern is shell-safe (profile spec). It continues with:
-  1. one `unset` of every variable that is in the parent but not in the child, in name order, omitted when that list is empty;
+  1. one `unset` of every name in `Drop` plus every variable that is in the parent but not in the child, in name order. The `Drop` names are always unset, even when absent from the parent, so a token that a startup file exported is removed too;
   2. the unshadow group for the plan's `Unshadow` names, which always succeeds;
   3. one `export NAME='value'` per variable other than `PATH` whose value differs or is new, in name order;
   4. the `PATH` group;
@@ -245,11 +246,11 @@ Inputs: the hook JSON on stdin (at most 64 KiB), `CLAUDE_ENV_FILE`, and the prof
 
 | Step | Rule | On failure |
 |---|---|---|
-| 1 | `CLAUDE_ENV_FILE` is set and absolute. Open it with `O_WRONLY\|O_APPEND\|O_CREAT\|O_NOFOLLOW`, mode `0600`, then `fstat` the same descriptor. It must be a regular file owned by the current user and not writable by group or others. Take an exclusive `flock` on that descriptor. A symlink is refused. | Exit 1 with the message on stderr, and no write: there is no safe file. The session stays personal, the hook error is shown, and `whoami` shows `personal/unmanaged`. This is the only path that does not fail closed, because there is no file to make fail. |
-| 2 | stdin is valid JSON with `hook_event_name: "SessionStart"` and a string `cwd` that is an absolute path. `source` is not checked: an unknown future value must not block sessions. | Refusal line, exit 1 |
-| 3 | If the file already contains a guarded block for another profile, refuse. | Refusal line naming both profiles, exit 1 |
-| 4 | `Activate(Request{Profile, Mechanism: "env", Binary, Dir: cwd, Parent: os.Environ()})`, then `Render` | Refusal line with the activation message, exit 1 |
-| 5 | Read the file through the same descriptor (`pread`). If an identical guarded block is present, write nothing; otherwise append the guarded block. | Exit 1 |
+| 1 | `CLAUDE_ENV_FILE` is set and absolute. Open it with `O_RDWR\|O_APPEND\|O_CREAT\|O_NOFOLLOW`, mode `0600`, then `fstat` the same descriptor. It must be a regular file owned by the current user and not writable by others, and not group-writable unless its group is the user's primary group (Linux user-private groups with umask 002 create `0664` files). Take an exclusive `flock` on that descriptor. A symlink is refused. | Exit 4 with the message on stderr, and no write: there is no safe file. The session stays personal, the hook error is shown, and `whoami` shows `personal/unmanaged`. This is the only path that does not fail closed, because there is no file to make fail. |
+| 2 | stdin is valid JSON with `hook_event_name: "SessionStart"` and a string `cwd` that is an absolute path. `source` is not checked: an unknown future value must not block sessions. | Refusal line, exit 3 |
+| 3 | If the file already contains a guarded block for another profile, refuse. | Refusal line naming both profiles, exit 3 |
+| 4 | `Activate(Request{Profile, Mechanism: "env", Binary, Dir: cwd, Parent: os.Environ()})`, then `Render` | Refusal line with the activation message, exit 3 |
+| 5 | Read the file through the same descriptor (`pread`). If an identical guarded block is present, write nothing; otherwise append the guarded block. | Exit 4 |
 | — | Success: exit 0, nothing on stdout. Claude Code adds a `SessionStart` hook's stdout to Claude's context, and agent-id adds nothing there. | |
 
 **Guarded block**: the `Render` output, wrapped as follows.
@@ -275,7 +276,7 @@ printf '%s\n' 'agent-id: <reason>; the command was not run. Fix it and start a n
 The command, as a shell line:
 
 ```sh
-agent-id claude-code session-start --profile claude; s=$?; [ "$s" -le 1 ] && exit "$s"; printf '%s\n' "printf '%s\\n' 'agent-id: the SessionStart hook could not run agent-id; the command was not run' >&2; exit 125 # agent-id refusal 1" >> "$CLAUDE_ENV_FILE"; exit 1
+agent-id claude-code session-start --profile claude; s=$?; case $s in 0|3|4) exit "$s" ;; esac; printf '%s\n' "printf '%s\\n' 'agent-id: the SessionStart hook could not run agent-id; the command was not run' >&2; exit 125 # agent-id refusal 1" >> "$CLAUDE_ENV_FILE"; exit 1
 ```
 
 In `.claude/settings.local.json`:
@@ -288,7 +289,7 @@ In `.claude/settings.local.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "agent-id claude-code session-start --profile claude; s=$?; [ \"$s\" -le 1 ] && exit \"$s\"; printf '%s\\n' \"printf '%s\\\\n' 'agent-id: the SessionStart hook could not run agent-id; the command was not run' >&2; exit 125 # agent-id refusal 1\" >> \"$CLAUDE_ENV_FILE\"; exit 1"
+            "command": "agent-id claude-code session-start --profile claude; s=$?; case $s in 0|3|4) exit \"$s\" ;; esac; printf '%s\\n' \"printf '%s\\\\n' 'agent-id: the SessionStart hook could not run agent-id; the command was not run' >&2; exit 125 # agent-id refusal 1\" >> \"$CLAUDE_ENV_FILE\"; exit 1"
           }
         ]
       }
@@ -297,8 +298,8 @@ In `.claude/settings.local.json`:
 }
 ```
 
-- **Status 0 or 1** comes from agent-id itself: success, or a refusal that it already wrote (or, at step 1, could not write). The hook exits with that status.
-- **Any other status** (127 not found, 126 not executable, a crash) appends the fallback refusal line and exits 1, so Claude Code shows the hook error. The README carries a golden test that decodes the JSON, runs it with `sh`, and checks the appended line against `RefusalLine`'s marker.
+- **Status 0, 3 or 4** comes from agent-id's own `session-start`: success, a refusal that it already wrote, or no safe file to write (step 1). The hook exits with that status.
+- **Any other status** (1 from a cobra usage error or an older agent-id without the command, 127 not found, 126 not executable, a crash) appends the fallback refusal line and exits 1, so Claude Code shows the hook error. The README carries a golden test that decodes the JSON, runs it with `sh`, and checks the appended line against `RefusalLine`'s marker.
 - **No `matcher`.** The hook runs for every `source` (`startup`, `resume`, `clear`, `compact`, `fork`).
 - **Location.** `.claude/settings.local.json` of the repository, which is personal and not committed (OQ1). A team that standardizes on agent-id may commit it to `.claude/settings.json`. The README explains the consequence: every collaborator's Bash commands then require agent-id and the same profile name.
 - **Workspace trust.** In interactive use, Claude Code runs no hook from any settings file until the user accepts the folder's trust dialog. With `-p` or the SDK, hooks from a repository's `.claude/settings.json` run without trust (hooks docs, "Workspace trust"). Until trust, the session is personal and unmanaged, and `whoami` (#24) says so. The README states this.
@@ -310,8 +311,8 @@ In `.claude/settings.local.json`:
 |---|---|
 | `agent-id` not on the `PATH` of the hook | The fallback refusal line. Every Bash command prints "the SessionStart hook could not run agent-id" and exits 125. The hook error is shown. |
 | `CLAUDE_ENV_FILE` missing, a symlink, or group-writable | The hook error is shown and nothing is written. The session stays personal (step 1), and `whoami` shows `personal/unmanaged`. |
-| A startup file makes `GH_TOKEN` or `PATH` read-only | The block fails, and every command stops with 125 and the guard's message. |
-| A startup file defines `gh` or `git` as an alias or function | The unshadow group removes it before each command. A function under any other name that calls `gh` is not covered (documented bypass). |
+| A startup file makes `GH_TOKEN` or `PATH` read-only | `bash`: the block fails, and every command stops with 125 and the guard's message. `zsh`: the read-only error aborts the shell with status 1 before the guard, so the command does not run and zsh's own message names the variable. |
+| A startup file defines `gh` or `git` as a function or alias | A function is removed before each command. An alias is removed in `zsh`. In `bash` it is removed only if Claude Code parses the env file and the command separately: an alias on an already-parsed line has been expanded (assumption, #27). A function or alias under any other name that calls `gh` is not covered (documented bypass); `doctor` reports a shadowed `gh` (`gh.binary`, `context.shell`). |
 | A startup file prepends a directory with another `gh` to `PATH` | Covered when the snapshot changes `PATH` before the env file runs: the `PATH` group moves the shim first. The docs do not say whether the snapshot carries environment variables, or in which order it runs; #27 records the observed behavior. `doctor` (`gh.binary`) detects a wrong order inside the session. |
 | Another hook appends `export GH_TOKEN=…` or a `PATH` change after agent-id's block | It runs after the block and wins. This is a documented bypass of local mode. `doctor` (`env.credential`, `gh.binary`, `context.git`) run inside the session detects it. |
 | The binary is upgraded during the session | `AGENT_ID_BIN` uses the stable symlink (#20), so the helper and the shim keep working. |
@@ -323,8 +324,8 @@ In `.claude/settings.local.json`:
 | A Bash command runs `agent-id exec --profile claude -- …` | Re-entry, with no duplicates. |
 | A Bash command runs `env -i …` or `unset AGENT_ID_CONTEXT` | A documented bypass (brief §10). |
 | MCP servers and subagents started by Claude Code | Not covered: the docs say nothing about `CLAUDE_ENV_FILE` for them. The README recommends `agent-id exec -- claude` for those. |
-| Hook input larger than 64 KiB, not JSON, or without an absolute `cwd` | Refusal line, exit 1. |
-| A shell other than `bash` or `zsh` runs the env file | Not supported in the MVP (brief §8). The block's parameter expansions fail, and the command stops. |
+| Hook input larger than 64 KiB, not JSON, or without an absolute `cwd` | Refusal line, exit 3. |
+| A shell other than `bash` or `zsh` runs the env file | Not supported in the MVP (brief §8) and not tested. The block uses only POSIX constructs, so `sh` evaluates it; another shell (for example `fish`) fails to parse it, and the command does not run. |
 | Windows, PowerShell hooks | Not supported (brief §8). `CLAUDE_ENV_FILE` is not given to PowerShell hooks. |
 
 ## 📝 Risks & Impact Review
@@ -369,7 +370,7 @@ In `.claude/settings.local.json`:
 | A1 | What does the hook write? | The rendered block, once, inside a guard; a refusal line on failure. | The simplest design that fails closed for every command, with no process per command (review of PR #51). | reversible |
 | A2 | `env` output format | A version comment, then statements chained with `&&`: `unset`, the unshadow group, single-quoted `export` lines, and a relative `PATH` group. The same text for `bash` and `zsh` in v1. | It fails as a whole, quotes literally, and is idempotent. | reversible before the first release |
 | A3 | Command name of the hook handler | `agent-id claude-code session-start`. | It names the integration and the event, with room for more `claude-code` subcommands later. | reversible before the first release |
-| A4 | Exit status of `session-start` on failure | 1, after writing a refusal line when a safe file exists. | Claude Code shows a non-blocking hook error, and the refusal line enforces fail closed. | reversible |
+| A4 | Exit status of `session-start` | 0 success, 3 refusal written, 4 no safe file; the snippet's fallback handles every other status. | Distinct from cobra's 1, so no failure path is silent (review of PR #51, N1). | reversible before the first release |
 | A5 | Working directory for preflight | The hook input's `cwd`, once per session start. | O1 checks the session's repository without a per-command cost. | reversible |
 | A6 | Which hook `source` values are accepted | All of them; only `hook_event_name` is checked. | A future value must not block sessions. | reversible |
 
@@ -415,7 +416,7 @@ Every test calls `testenv.Isolate(t)` first. Packages that run Git or `gh` use `
      - a hostile profile name is left out of the line;
      - evaluating each line in `bash` and `zsh` runs nothing but `printf` and `exit 125`.
 4. **Slice `sessionstart`.** Tests for each step of the table:
-   - no `CLAUDE_ENV_FILE`, a relative path, a symlink (refused), mode `0664`, and a file owned by another user (skipped when the test cannot create one);
+   - no `CLAUDE_ENV_FILE`, a relative path, a symlink (refused), mode `0664` with a foreign group (refused) and with the user's primary group (accepted), mode `0602` (refused), and a file owned by another user (skipped when the test cannot create one);
    - bad JSON, a missing or relative `cwd`, and an unknown `source` (accepted);
    - activation failure, which gives a refusal line;
    - startup, then resume, which gives one block and preserves other lines;
@@ -435,7 +436,7 @@ Every test calls `testenv.Isolate(t)` first. Packages that run Git or `gh` use `
    - A profile without a resolved identity gives a refusal line, then 125.
    - `--profile "a';x"` gives a refusal line without the name, then 125, with no injected effect.
    - The documented hook command, decoded from the README's JSON and run with a `PATH` without agent-id, gives a fallback refusal line with the marker, hook exit 1, and command exit 125.
-   - A `readonly GH_TOKEN` in the command's shell trips the guard: 125.
+   - A `readonly GH_TOKEN` in the command's shell: `bash` trips the guard (125); `zsh` aborts with status 1; in both the command did not run. A `bash` alias `gh` defined on the same line as the sourced env file documents the alias limitation (expected: not removed); on separate lines it is removed. Agent-id exiting 1 (an unknown flag) under the documented hook command gives the fallback refusal line.
 7. **Token scan.** Scan every stdout, stderr, and env file of steps 5–6 for `ghs_`, `ghp_`, `github_pat_`, `-----BEGIN`, and a JWT shape. Nothing may match.
 8. **README.** The integration docs:
    - the snippet, with a golden test that decodes it and runs it as above;

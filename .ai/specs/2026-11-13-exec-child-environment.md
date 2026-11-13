@@ -1,5 +1,7 @@
 # agent-id exec — the child environment contract
 
+> ⚠️ Superseded by `.ai/specs/2026-11-13-env-claude-session-start.md` (2026-11-13) — sections: Architecture (`Activate` return type). Current state: see the new spec.
+
 Issue: #20 (E02-S06). Implemented by #20; extended by #21 (Git identity), #22 (Git transport), #23 (`gh` injection); reused by #26 (`agent-id env`) and read by #24 (`whoami`, `doctor`).
 
 Extends: `.ai/specs/2026-11-12-profile-config.md` (it consumes `Resolve` and decides the consumer rule for an unresolved identity that the profile spec left to #20).
