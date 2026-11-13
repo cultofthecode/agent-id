@@ -6,9 +6,10 @@ import (
 	"strings"
 )
 
-// specificity ranks how closely a http.<url>.* pattern matches a URL, as
-// Git's urlmatch does: host first (a wildcard host ranks below an exact one),
-// then path, then user.
+// specificity ranks how closely an http.<url>.* pattern matches a URL, in the
+// order of Git's urlmatch: the length of the host pattern first, so a
+// pattern with a wildcard label ranks below the exact host. The path length
+// comes next and the user length last.
 type specificity struct{ host, user, path int }
 
 func (a specificity) less(b specificity) bool {
@@ -116,12 +117,18 @@ func headerName(value string) string {
 
 var headerNamePattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,40}$`)
 
-// ScopedHeaders returns the names of extra headers that a path-scoped
-// http.<url>.extraheader entry on one of hosts would send for URLs under its
-// path. agent-id's reset covers the host, and Git ignores a less specific
-// reset for a more specific entry, so these survive.
-func ScopedHeaders(entries []ConfigEntry, hosts []string) []string {
-	var out []string
+// HostHeader is an extra HTTP header, by name, that Git sends to Host.
+type HostHeader struct{ Host, Name string }
+
+// ScopedHeaders returns the extra headers that a scoped http.<url>.extraheader
+// entry would send to one of hosts. Scoped means a path, a user, or a host
+// pattern. It evaluates each entry at every host in hosts that the entry's
+// host pattern matches, so a pattern that Git ranks below agent-id's reset
+// for that host, such as *.com, reports nothing. agent-id's reset covers the
+// host only, and Git ignores a less specific reset for a more specific
+// entry, so a header of a path- or user-scoped entry survives.
+func ScopedHeaders(entries []ConfigEntry, hosts []string) []HostHeader {
+	var out []HostHeader
 	seen := map[string]bool{}
 	for _, e := range entries {
 		section, sub, variable, ok := splitKey(e.Key)
@@ -129,13 +136,30 @@ func ScopedHeaders(entries []ConfigEntry, hosts []string) []string {
 			continue
 		}
 		pattern, err := url.Parse(sub)
-		if err != nil || !hostIn(pattern.Hostname(), hosts) {
+		if err != nil || pattern.Host == "" {
 			continue
 		}
 		seen[sub] = true
-		out = append(out, EffectiveHeaders(entries, sub)...)
+		for _, h := range hosts {
+			if !hostPatternMatches(pattern.Hostname(), h) {
+				continue
+			}
+			for _, name := range EffectiveHeaders(entries, atHost(pattern, h)) {
+				out = append(out, HostHeader{Host: h, Name: name})
+			}
+		}
 	}
 	return out
+}
+
+// atHost returns the URL of pattern with its host replaced by host.
+func atHost(pattern *url.URL, host string) string {
+	at := *pattern
+	at.Host = host
+	if p := pattern.Port(); p != "" {
+		at.Host = host + ":" + p
+	}
+	return at.String()
 }
 
 // hostPatternMatches reports whether pattern, a host pattern of
@@ -153,13 +177,4 @@ func hostPatternMatches(pattern, host string) bool {
 		}
 	}
 	return true
-}
-
-func hostIn(host string, hosts []string) bool {
-	for _, h := range hosts {
-		if hostPatternMatches(host, h) {
-			return true
-		}
-	}
-	return false
 }
