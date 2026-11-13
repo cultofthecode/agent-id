@@ -232,7 +232,7 @@ func (s *Store) Path() string {
 // name that looks like a token or key fails with ErrInlineSecret and is
 // never echoed; any other invalid name fails with ErrConfigInvalid.
 func (s *Store) CheckName(name string) error {
-	if looksSecret(name, s.registry.tokenPrefixes()) {
+	if looksSecret(name, s.registry.TokenPrefixes()) {
 		return Errorf(ErrInlineSecret, "the profile name looks like a token or private key; it is not shown — remove it and revoke it if it was real")
 	}
 	if !validProfileName(name) {
