@@ -28,7 +28,7 @@ One file per user, read strictly, written only by agent-id, split into a provide
 3. **Core schema** (owned by `internal/profile`, provider-agnostic): `version: 1`, a `profiles` object keyed by profile name, and nothing else at the top level. Each profile has exactly three members: `provider` (required), `host` (required), and a **provider block** whose member name equals the value of `provider`.
 4. **Provider blocks** (owned by the provider adapter). The core never interprets a provider block; it hands the raw block and the host to the adapter registered for that provider, which validates it strictly. In the MVP the only adapter is GitHub (`internal/provider/github`); its block holds `app_id`, `installation_id`, `private_key`, and the optional `identity` cache.
 5. **Future providers do not break v1 profiles.** A profile whose `provider` has no registered adapter is kept, still checked by every document-level rule, but not validated further; resolving it fails with `ErrUnsupportedProvider`. Every other profile in the file loads normally, and a write preserves the unknown profile unchanged.
-6. **No secrets in the file.** Key material is referenced (`file:` now, `keyring:` reserved), never inlined. Every string in the whole document, provider blocks included, is scanned for token and key material, and a match rejects the whole file without echoing the value.
+6. **No secrets in the file.** Key material is referenced (`file:` now, `keyring:` reserved), never inlined. Every string in the whole document, provider blocks included, is scanned for token and key material (generic patterns in core plus the token prefixes of every registered adapter), and a match rejects the whole file without echoing the value.
 7. **Explicit selection.** A command that needs a profile takes `--profile <name>`. The file has no default profile, and agent-id does not detect a profile from the directory, the repository, or the environment (brief §14). There is no `AGENT_ID_PROFILE` selection variable.
 8. **Validation is a pure function** (`ARCHITECTURE.md`, dependency rule 5): validation takes the bytes and the registered provider validators and touches no file system and no network. Loading, permission checks, and the existence of the key file are separate steps.
 
@@ -169,12 +169,12 @@ Validation checks the syntax only. Whether the file exists, is a regular file or
 
 The scan runs in core over every string value and every member name in the document, including provider blocks of unregistered providers. It rejects a string that contains any of:
 
-- a GitHub token prefix: `ghs_`, `ghp_`, `gho_`, `ghu_`, `ghr_`, `github_pat_`;
+- a token prefix of a registered provider. Each adapter registers its prefixes together with its validator (ADR #35, "Authentication and tokens"). The GitHub adapter registers `ghs_`, `ghp_`, `gho_`, `ghu_`, `ghr_`, `github_pat_`, and the composition root always registers it, so the production scan always includes them;
 - a PEM block marker: `-----BEGIN`;
 - a JWT shape: three base64url segments separated by dots, the first starting with `eyJ`;
 - a newline or a NUL byte (no v1 field holds multi-line text).
 
-The pattern list is a core concern because the rule protects the file, not one provider; an adapter for a new provider adds its token prefixes to the core list (for example GitLab's `glpat-`) in the same change that adds the adapter. A false positive on an identifier is acceptable, because no v1 field legitimately holds these patterns. The error names the field path and never the value, and the loader never logs the raw document.
+The scan itself is a core concern because the rule protects the file, not one provider. The token prefixes come from the adapters, because they are installation-token details and dependency rule 7 keeps those in the adapter. A new adapter brings its own prefixes (for example GitLab's `glpat-`); core keeps only the generic patterns. A false positive on an identifier is acceptable, because no v1 field legitimately holds these patterns. The error names the field path and never the value, and the loader never logs the raw document.
 
 ### Identity cache (GitHub provider)
 
@@ -183,7 +183,7 @@ The pattern list is a core concern because the rule protects the file, not one p
 - name: `<login>` (for example `claude-dev[bot]`);
 - email: `<user_id>+<login>@users.noreply.github.com`.
 
-Core never reads `identity`; activation (#20) asks the provider for the Git author. Another provider defines its own identity cache in its own block.
+Core never reads `identity`; the Git integration (`internal/gitint`) asks the provider for the Git author (ADR #35). Another provider defines its own identity cache in its own block.
 
 A profile without `identity` is valid in the file. The proposed consumer rule for `exec` and `env` (#20) is to refuse such a profile with an error that points to `agent-id setup github --profile <n>`, rather than resolve the identity on every start; #20 owns that decision. `doctor` compares the cache with GitHub and reports a mismatch; it never trusts the cache as proof of anything.
 
@@ -329,7 +329,7 @@ flowchart LR
     GH -->|KeyRef, ParseKeyRef, sentinels| Profile
     Cred["internal/credential (new)"] -->|KeyRef| Profile
     Act["internal/activation (planned)"] -->|Profile: name, provider, host| Profile
-    Act -->|Git author, tokens| Prov["internal/provider (interface, ADR #35)"]
+    Act -->|adapter for the profile| Prov["internal/provider (interface, ADR #35)"]
     GH -.implements.-> Prov
 ```
 
@@ -353,12 +353,12 @@ Core packages depend on `internal/profile` and on the provider interface; only t
       ValidateSettings(host string, settings json.RawMessage) error
   }
   ```
-  It also owns `ParseKeyRef`, the sentinel errors (`ErrConfigNotFound`, `ErrConfigInvalid`, `ErrUnsupportedVersion`, `ErrUnsupportedProvider`, `ErrUnsupportedHost`, `ErrUnsupportedKeyReference`, `ErrInlineSecret`, `ErrInsecurePermissions`, `ErrProfileNotFound`), the pure validation, the pure `Path(getenv)` resolver, `Load`, `Resolve`, and `Write`. It imports no provider package, not even `internal/provider`, so that no cycle arises when the provider interface refers to a profile. Nothing in it names GitHub; the only GitHub knowledge in core is the token-prefix list of the inline-secret scan, which is a list of strings to reject, not a GitHub type.
-- **`internal/provider/github`** (adapter, ADR #35, #15) owns the GitHub block: `ProfileSettings{AppID, InstallationID int64; PrivateKey profile.KeyRef; Identity *BotIdentity}`, `BotIdentity{Login string; UserID int64; ResolvedAt time.Time}`, the strict decode of the `github` block, the `github.com` host rule, the login pattern, the identity-drop rule on `app_id` or host change, and the derivation of the Git author. It satisfies `profile.SettingsValidator` and imports `internal/profile` (adapter → core). That import is a new cross-module dependency and needs a row in `ARCHITECTURE.md` Key decisions; the documentation PR of ADR #35 or #17 adds it.
-- **`internal/provider`** (interface, ADR #35) exposes the provider responsibilities to core (tokens, commit author, credential helper, CLI integration, host mapping). This spec adds nothing to it except that a provider must also provide its profile-block validator.
+  It also owns `ParseKeyRef`, the sentinel errors (`ErrConfigNotFound`, `ErrConfigInvalid`, `ErrUnsupportedVersion`, `ErrUnsupportedProvider`, `ErrUnsupportedHost`, `ErrUnsupportedKeyReference`, `ErrInlineSecret`, `ErrInsecurePermissions`, `ErrProfileNotFound`), the pure validation, the pure `Path(getenv)` resolver, `Load`, `Resolve`, and `Write`. It imports no provider package, not even `internal/provider`, so that adapters can import it without a cycle. Nothing in it names GitHub: the token prefixes of the inline-secret scan come from the registered adapters.
+- **`internal/provider/github`** (adapter, ADR #35, #15) owns the GitHub block: `ProfileSettings{AppID, InstallationID int64; PrivateKey profile.KeyRef; Identity *BotIdentity}`, `BotIdentity{Login string; UserID int64; ResolvedAt time.Time}`, the strict decode of the `github` block, the `github.com` host rule, the login pattern, the identity-drop rule on `app_id` or host change, and the derivation of the Git author. It satisfies `profile.SettingsValidator`, registers the GitHub token prefixes, and imports `internal/profile` (adapter → core). `ARCHITECTURE.md` records this dependency, and the dependencies of `internal/credential` and `internal/activation` below, in Key decisions (2026-11-13, PR #38).
+- **`internal/provider`** (interface, ADR #35) exposes the provider responsibilities to core (tokens, commit author, credential helper, CLI integration, host mapping). This spec adds nothing to it. The adapter satisfies `profile.SettingsValidator` directly, and the composition root registers it with its token prefixes.
 - **`internal/credential`** (#16) receives a `profile.KeyRef` and loads the key; it does not parse the config and does not know the provider. The `keyring` scheme reaches it only after a later version enables it.
 - **`setup`** (#19, GitHub adapter) is the only writer in Phase 1; `doctor` (#24) writes only the refreshed `github.identity`.
-- **`activation`** (#20) reads a resolved `Profile` and asks the provider for the Git author and tokens; it never reads a provider block or the file itself.
+- **`activation`** (#20) reads a resolved `Profile`, takes the adapter registered for its `provider`, and hands it to `gitint` and `cliint`. Those ask the adapter for the Git author, hosts, and CLI data, and the token manager supplies the tokens. Activation never reads a provider block or the file itself.
 - The spec adds no Go module dependency.
 
 ## 📝 Edge Cases & Failure Scenarios
@@ -388,7 +388,7 @@ Core packages depend on `internal/profile` and on the provider interface; only t
 - **Adding providers.** The provider block and the unsupported-profile rule let GitLab or Bitbucket arrive without a version bump and without breaking any v1 GitHub profile. The cost is that a profile of an unregistered provider is only reported when resolved or in `doctor`, not as a load error.
 - **Strictness costs convenience.** No comments and no unknown members make hand editing less friendly. The trade-off is deliberate: a silently ignored member can change which credential or identity an agent gets.
 - **Not a security boundary.** Permission checks stop accidents and other local users, not the agent itself, which runs as the same OS user and can rewrite the file (brief §10). The spec does not claim otherwise.
-- **Product direction vs. rule.** The format, name and provider split are the owner's decisions. The provider block naming and the unsupported-profile rule (A7, A8) are design choices that implement ADR #35 and can change before the first release. The rules for unknown members, duplicates, inline secrets, and fail-closed errors follow `AGENTS.md` and `CODE_REVIEW.md` and are not optional.
+- **Product direction vs. rule.** The format, name and provider split are the owner's decisions. The provider block naming and the unsupported-profile rule (A7, A8) implement ADR #35 and were confirmed by the manager on 2026-11-13. The rules for unknown members, duplicates, inline secrets, and fail-closed errors follow `AGENTS.md` and `CODE_REVIEW.md` and are not optional.
 
 ## 📝 Decisions in play
 
@@ -409,8 +409,8 @@ Core packages depend on `internal/profile` and on the provider interface; only t
 | A4 | Keep the brief's `integrations` section? | No; not in v1. | Explicit selection only (brief §14); the hook passes `--profile`. | reversible |
 | A5 | When does `version` increase? | On every change to the core schema or to an existing provider's block, including new optional members; never for adding a new provider. | Readers reject unknown members, so a change must fail loudly in older readers; new providers are isolated instead (A8). | reversible before the first release |
 | A6 | Config directory name | `agent-id` (`$XDG_CONFIG_HOME/agent-id`), environment prefix `AGENT_ID_`. | Owner's decision. | Confirmed by the owner (Jacob, 2026-11-12). |
-| A7 | Where do provider-specific fields go? | In a provider block named after the provider (`"github": {…}`); core members are only `provider`, `host` and that block. | ADR #35: provider fields belong to the adapter; no namespace collision between core and providers; clear error paths. | reversible before the first release |
-| A8 | What does an older agent-id do with a profile of a provider it does not know? | Loads the file, keeps the profile, fails only when that profile is resolved (`ErrUnsupportedProvider`), and preserves it on write. | ADR #35: later providers must not break v1 GitHub profiles; the unknown profile still fails closed. | reversible before the first release |
+| A7 | Where do provider-specific fields go? | In a provider block named after the provider (`"github": {…}`); core members are only `provider`, `host` and that block. | ADR #35: provider fields belong to the adapter; no namespace collision between core and providers; clear error paths. | Confirmed (manager, 2026-11-13). |
+| A8 | What does an older agent-id do with a profile of a provider it does not know? | Loads the file, keeps the profile, fails only when that profile is resolved (`ErrUnsupportedProvider`), and preserves it on write. | ADR #35: later providers must not break v1 GitHub profiles; the unknown profile still fails closed. | Confirmed (manager, 2026-11-13). |
 
 ## 📋 Phasing
 
@@ -426,7 +426,7 @@ Every test calls `testenv.Isolate(t)` first and uses only files under the isolat
 
 1. **Contract.** Add `internal/profile` with its `AGENTS.md` (invariants: provider-agnostic, imports no provider package; pure validation; no value echo for secrets; strict members), the types and sentinel errors of the Architecture section, the `SettingsValidator` port, and a row in `AGENTS.md` task routing. Test: the package builds; sentinels are distinct.
 2. **Strict document decode.** Token walk with `encoding/json`: size limit, UTF-8, one top-level object, duplicate members at every depth (provider blocks included), JSON types; provider blocks are captured as raw JSON. Table tests: trailing data, duplicate at every level, `"123"` vs `123`, `1e6`, `1.0`, `2^53`.
-3. **Inline-secret scan.** Pure function over all strings and member names, provider blocks included. Table tests: each token prefix, PEM, JWT shape, newline, NUL, in a core member, a provider block, an unknown provider's block, and a member name; assert the error text never contains the value.
+3. **Inline-secret scan.** Pure function over all strings and member names, provider blocks included, with the generic patterns and the prefixes of the registered validators. Table tests (with a fake validator that registers its own prefixes): each registered prefix, PEM, JWT shape, newline, NUL, in a core member, a provider block, an unknown provider's block, and a member name; assert the error text never contains the value.
 4. **Core rules and validation.** Version, profile names, `provider` presence and syntax, `host` syntax, provider block present and matching, unknown core members, `ParseKeyRef` (every row of the Key references table), the validator registry, and unsupported-provider profiles. Tests with a fake validator: a registered provider's error fails the file; an unregistered provider's profile loads and is unsupported; error order as specified.
 5. **Path resolution.** Pure `Path(getenv)`: XDG set, unset, empty, relative; macOS and Linux give the same `agent-id` path.
 6. **Load and Resolve.** Read with the size limit, permission and owner checks (file, symlink target, directory), then validation; `Resolve(name)` with `ErrProfileNotFound` listing names and `ErrUnsupportedProvider` for unregistered providers. Tests: missing file, `0664`, `0777` directory, symlink to a group-writable target, unknown profile, empty profiles, unsupported provider.
@@ -435,6 +435,6 @@ Every test calls `testenv.Isolate(t)` first and uses only files under the isolat
 
 ### Phase 2 — GitHub block in `internal/provider/github` (#15, after ADR #35)
 
-9. **GitHub settings.** `ProfileSettings`, `BotIdentity`, strict decode of the `github` block, `github.com` host rule (look-alikes from the Delta), integers, `private_key` through `profile.ParseKeyRef`, identity. Satisfies `profile.SettingsValidator`; errors wrap the core sentinels. Golden test: the v1 example parses to the expected settings.
+9. **GitHub settings.** `ProfileSettings`, `BotIdentity`, strict decode of the `github` block, `github.com` host rule (look-alikes from the Delta), integers, `private_key` through `profile.ParseKeyRef`, identity. Satisfies `profile.SettingsValidator` and registers the GitHub token prefixes; errors wrap the core sentinels. Test: with the production registry, a `ghs_` value anywhere in the file fails with `ErrInlineSecret`. Golden test: the v1 example parses to the expected settings.
 10. **Git author and identity updates.** Pure derivation of name and email from `BotIdentity`; an update that changes `host` or `app_id` drops `identity`. Tests against the example.
 11. **Wire and archive.** `cmd/agent-id` registers the GitHub validator; a test proves no package outside `internal/provider/github` and `cmd/agent-id` imports it (the ADR #35 import rule); archive the GitHub requirements of the Delta into the capability file.
