@@ -191,7 +191,7 @@ flowchart LR
 
 `internal/activation` is the only owner of the child environment; `exec` executes it and `env` (#26) prints it. Dashed edges are data that later stories add to the plan.
 
-- **`internal/activation`** (module root, new). Pure functions and types only; no I/O except in the narrow `Execer` port:
+- **`internal/activation`** (module root, new). `ReadContext`, `Decide`, `CheckInheritedGit`, `ParseGitConfigParameters` and `Build` are pure. `Activate` orchestrates the pipeline and performs I/O only through its ports (profile resolver, provider source, preflight checks); the `Execer` is the slice's port:
   ```go
   type Plan struct {
       Profile     string
@@ -209,7 +209,13 @@ flowchart LR
       Providers ProviderSource  // narrow port: the provider.Provider for a resolved profile; built by the composition root
       Preflight []Check
   }
-  func Activate(ctx context.Context, d Deps, profile, mechanism string, parent []string) ([]string, error) // steps 2–6
+  type Request struct {
+      Profile, Mechanism string
+      Binary             string   // from ResolveBinary, resolved by the caller
+      Dir                string   // working directory, for preflight checks
+      Parent             []string // the parent environment
+  }
+  func Activate(ctx context.Context, d Deps, r Request) ([]string, error) // steps 2–6
   func ReadContext(parent []string) (ctx *Context, err error)              // pure
   func Decide(ctx *Context, profile string) (Start, error)                 // fresh | reenter | ErrNestedProfile
   func CheckInheritedGit(parent []string) error                            // G2–G4, O2; pure
@@ -222,7 +228,7 @@ flowchart LR
 - **Provider interface** (ADR #35). `internal/provider.Provider` exists on `main` as a provisional interface (PR #32): `Name`, `Host`, `Token`, `Identity`, `GitCredential`, `CLIEnvironment`; the GitHub adapter (#15) settles it. `exec` needs two more answers, which #20 proposes to add to it, together with `providertest.Fake`, `providertest.RunContract`, and `githubtest.App.Provider`:
   - `CredentialVariables() []string` — the CLI-integration variables the core must remove from any child (the names that `CLIEnvironment` sets, plus their aliases). GitHub: `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN`. The contract test requires a non-empty list that contains every name `CLIEnvironment` returns.
   - `Ready(ctx) error` — whether the profile can be activated without a network call; GitHub: the identity cache is present. Its error carries the adapter's hint.
-  The production wiring of #20 therefore needs the GitHub adapter (#15): the GitHub drop list is the adapter's data, and a test in `cmd/agent-id` proves that the production registry removes `GH_TOKEN` (M3 of the review on #48).
+  The provider source builds a `provider.Provider` from the resolved profile, including its cached identity, and for `exec` it must neither read the private key nor touch the network (keys are loaded lazily by `Token`). `githubtest.App.Provider` gains a control for the identity cache so that the contract suite can exercise `Ready`. The production wiring of #20 therefore needs the GitHub adapter (#15): the GitHub drop list is the adapter's data, and a test in `cmd/agent-id` must prove that the production registry removes an inherited `GH_TOKEN`; without it, `exec` would fail open.
 - **Preflight checks** are values of `type Check func(ctx context.Context, dir string, parent []string) error`, registered by the composition root in a fixed order. #22 registers O1.
 - **Dependencies on other work:** #17 (profile store) and #15 (GitHub adapter: drop list and readiness) are required before the `exec` command is registered; Phase 1 (the pure core) needs neither. Until #21–#23 land, a started command has the context markers but not the bot's Git identity, helper, or `gh` shim (see Risks).
 
@@ -237,7 +243,7 @@ agent-id exec --profile <name> [--] <command> [args…]
 | Input | Rule | Failure |
 |---|---|---|
 | `--profile` | required (checked by the handler: `--profile is required`); resolved through the profile store, which validates the name | 125, the store's message (`ErrProfileNotFound`, `ErrConfigNotFound`, `ErrUnsupportedProvider`, …) |
-| `<command>` | required; looked up with the child's `PATH` unless it contains `/` | 125 when absent; 127 when not found; 126 when found but not executable |
+| `<command>` | required; looked up with the child's `PATH` unless it contains `/` | 125 when absent; 127 when not found (non-executable files in `PATH` are skipped); 126 when a name with `/` exists but cannot be executed, or `execve` fails |
 | other flags | none; anything after the first non-flag argument belongs to the command | — |
 
 ### Exit status
@@ -274,7 +280,7 @@ Starting from the parent environment, in this order:
 
 Everything else is inherited unchanged, including `GIT_CONFIG_PARAMETERS` that passed the O2 check, `SSH_AUTH_SOCK`, and `GIT_SSH_COMMAND` (O3: documented, detected by `doctor`). The builder is the security decision (`ARCHITECTURE.md`, dependency rule 5) and has these properties, each a table or property test:
 
-- **Idempotent:** `Build(Build(E, p), p) == Build(E, p)` for every `E` and `p` (the re-entry path).
+- **Idempotent:** `Build(Build(E, p), p) == Build(E, p)` for every `E` and `p` for which `Build` succeeds (the re-entry path).
 - **Append-only for Git:** inherited entries `0…base-1` are byte-identical in the result.
 - **Order-stable:** the output is sorted by variable name, so equal inputs give equal outputs (golden tests, #26 rendering).
 - **Secret-free:** the builder rejects a plan whose `Set`, `GitConfig`, or `PathPrepend` value contains a registered token prefix, `-----BEGIN`, a JWT shape, a newline, or a NUL byte (`ErrPlanUnsafe`). This is a guard against a future contributor's bug, not input validation of user data.
@@ -318,7 +324,7 @@ Removing the previous contribution on re-entry means: with `GIT_CONFIG_COUNT == 
 
 Echoed values are cut to 64 characters with control characters replaced by `?`, as in the profile spec.
 
-`LookPath(env)` follows Go's `exec.LookPath` semantics on the child's `PATH`: a name with `/` is used as given (126 when it exists but cannot be executed, 127 when it does not exist); otherwise each `PATH` element is tried in order, non-executable files and directories are skipped, and no match is 127. A match through an empty or `.` element is a relative path and is refused (127, as Go's `exec.ErrDot`), so a command never runs from the current directory by accident.
+`LookPath(env)` follows Go's `exec.LookPath` semantics on the child's `PATH`: a name with `/` is used as given (126 when it exists but cannot be executed, 127 when it does not exist); otherwise each `PATH` element is tried in order, non-executable files and directories are skipped, and no match is 127. A match through a relative element (empty, `.`, or any path not starting with `/`) is a relative path and is refused (127, as Go's `exec.ErrDot`), so a command never runs from the current directory by accident.
 
 ### The binary path (`AGENT_ID_BIN`)
 
@@ -332,13 +338,13 @@ Echoed values are cut to 64 characters with control characters replaced by `?`, 
 | `agent-id exec --profile claude -- -v` | `-v` is the command; 127 unless a program named `-v` exists. |
 | Command is a shell builtin or alias (`cd`, `ll`) | 127: `exec` runs programs, not shell syntax. Use `sh -c '…'`. |
 | Command path contains `/` (`./run.sh`) | Not looked up in `PATH`; 126 or 127 from the file system. |
-| Profile name with shell metacharacters | Rejected by the profile store's name rule before anything else. |
+| Profile name with shell metacharacters | `Decide` first validates the syntax of `--profile` with the profile store's name rule (`ErrProfileNotFound`-style message naming the rule), so an invalid name is reported as such even inside a context; then nesting is decided. |
 | Config file missing or invalid | 125 with the store's message (`run agent-id setup github --profile <name>`). |
 | Profile of an unsupported provider | 125, `ErrUnsupportedProvider`. |
 | Identity not yet resolved | 125 with the adapter's `setup` hint; no network. |
 | Inside an `env`-activated Claude Code session (#26), same profile | Re-entry; the environment is identical except `AGENT_ID_MECHANISM` (`env` → `exec`) and, if a different agent-id binary runs, `AGENT_ID_BIN`. |
 | Inside a session of another profile | 125, both names. |
-| A startup file of the agent's shell unset `GIT_CONFIG_COUNT` but not the markers | 125 `ErrContextInvalid` (base greater than count) on the next nested exec; `doctor` D6 explains. |
+| A startup file of the agent's shell unset `GIT_CONFIG_COUNT` but not the markers | 125 `ErrContextInvalid` (`GIT_CONFIG_COUNT` no longer equals `AGENT_ID_GIT_CONFIG_END`) on the next nested exec; `doctor` D6 explains. |
 | Inherited `GIT_CONFIG_COUNT` with a value like `2 ` or `0x2` | 125, malformed. |
 | Inherited `GIT_CONFIG_PARAMETERS` with `core.editor` only | Kept. |
 | Git older than 2.43 | Not checked by `exec` (no Git call in #20); `doctor` reports it (O4). |
@@ -407,7 +413,7 @@ Every test calls `testenv.Isolate(t)` first. `risk-high` evidence per `SDLC.md`:
 
 ### Phase 2 — `internal/activation/exec`
 
-6. **Slice.** `contract.go`, `handler.go` (`activation.Activate`: read context → decide → resolve → ready → inherited Git → preflight → build; then look up → `Execer.Exec`), `command.go` (`SetInterspersed(false)`, `SetFlagErrorFunc`, `--profile` checked in the handler). Handler tests with a fake profile resolver, `providertest.Fake` extended with the drop list and readiness, a fake preflight check, and a recording `Execer`: every row of the Errors table (including an unknown flag and a missing `--profile` → 125), an empty drop list → `ErrPlanUnsafe`, the order of checks (nesting before readiness before inherited Git before preflight), and that the recorded environment equals `Build`'s output.
+6. **Slice.** `contract.go`, `handler.go` (`activation.Activate(ctx, deps, Request{…})`: read context → validate the name and decide → resolve → ready → inherited Git → preflight → build; then look up → `Execer.Exec`), `command.go` (`SetInterspersed(false)`, `SetFlagErrorFunc`, `--profile` checked in the handler). Handler tests with a fake profile resolver, `providertest.Fake` extended with the drop list and readiness, a fake preflight check, and a recording `Execer`: every row of the Errors table (including an unknown flag and a missing `--profile` → 125), an empty drop list → `ErrPlanUnsafe`, the order of checks (nesting before readiness before inherited Git before preflight), and that the recorded environment equals `Build`'s output.
 7. **Composition root** (after #15 and #17). Register the slice; build `activation.Deps` with the GitHub adapter; add `CredentialVariables` and `Ready` to `provider.Provider`, `providertest.Fake`, `providertest.RunContract`, and `githubtest.App.Provider`; add the exit-code error type and map it in `run`; the default for other commands stays 1. Tests: `run` returns 125/126/127 for the slice's errors and 1 for others; with the production registry, a fake inherited `GH_TOKEN` is absent from the environment that `Activate` returns.
 8. **Process tests.** Build `agent-id` with `testenv.BuildBinary`; the package's `TestMain` calls `testenv.Main`, which fails the run if the developer's Git or `gh` configuration changed; write a fixture config with a fake App and a cached identity. Cases: `exit 7` → 7; SIGTERM with a trap, sent only after the command created its readiness file → 42; SIGKILL → killed by signal; parent environment and isolated `HOME` tree unchanged (hash before and after); fake `GH_TOKEN`/`GITHUB_TOKEN` absent in the command; nested same profile prints an identical environment; nested different profile → 125; `does-not-exist` → 127; profile without identity → 125 with the fake GitHub recording zero requests. Scan stdout and stderr of every case for `ghs_`, `-----BEGIN`, and a JWT shape. These tests skip on platforms other than darwin and linux.
 
