@@ -18,17 +18,17 @@ func TestPersonalConfigPaths(t *testing.T) {
 		{
 			"defaults",
 			map[string]string{"HOME": "/home/dev"},
-			[]string{"/home/dev/.config/gh", "/home/dev/.config/git", "/home/dev/.gitconfig"},
+			[]string{"/home/dev/.config/gh", "/home/dev/.config/ghapp", "/home/dev/.config/git", "/home/dev/.gitconfig"},
 		},
 		{
 			"XDG and overrides",
 			map[string]string{"HOME": "/home/dev", "XDG_CONFIG_HOME": "/xdg", "GIT_CONFIG_GLOBAL": "/etc/dev.gitconfig", "GH_CONFIG_DIR": "/gh"},
-			[]string{"/etc/dev.gitconfig", "/gh", "/home/dev/.config/gh", "/home/dev/.gitconfig", "/xdg/gh", "/xdg/git"},
+			[]string{"/etc/dev.gitconfig", "/gh", "/home/dev/.config/gh", "/home/dev/.config/ghapp", "/home/dev/.gitconfig", "/xdg/gh", "/xdg/ghapp", "/xdg/git"},
 		},
 		{
 			"override equal to a default",
 			map[string]string{"HOME": "/home/dev", "GIT_CONFIG_GLOBAL": "/home/dev/.gitconfig"},
-			[]string{"/home/dev/.config/gh", "/home/dev/.config/git", "/home/dev/.gitconfig"},
+			[]string{"/home/dev/.config/gh", "/home/dev/.config/ghapp", "/home/dev/.config/git", "/home/dev/.gitconfig"},
 		},
 	}
 	for _, tt := range tests {
@@ -97,5 +97,34 @@ func write(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSnapshotWatchesGhappByMetadataWithoutReadingContent(t *testing.T) {
+	env := Isolate(t)
+	dir := filepath.Join(env.Home, ".config", "ghapp")
+	key := filepath.Join(dir, "key.pem")
+	write(t, key, "secret")
+	paths := personalConfigPaths(func(name string) string { return map[string]string{"HOME": env.Home}[name] })
+	if !slices.Contains(paths, dir) {
+		t.Fatalf("paths %q lack %s", paths, dir)
+	}
+	if err := os.Chmod(key, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshot(paths)
+	if got := before[key]; got == "unreadable" || got == "absent" {
+		t.Fatalf("fingerprint of an unreadable file = %q, want metadata without opening it", got)
+	}
+	if err := os.Chmod(key, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if changed := changedPaths(before, snapshot(paths)); !slices.Equal(changed, []string{key}) {
+		t.Errorf("mode change: changed = %q, want the key", changed)
+	}
+	before = snapshot(paths)
+	write(t, key, "secret-longer")
+	if changed := changedPaths(before, snapshot(paths)); !slices.Equal(changed, []string{key}) {
+		t.Errorf("size change: changed = %q, want the key", changed)
 	}
 }

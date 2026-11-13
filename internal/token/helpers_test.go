@@ -87,13 +87,34 @@ func entryPath(t *testing.T, m *Manager, src Source) string {
 	return filepath.Join(m.Dir, mustKey(t, src).fileName())
 }
 
+// entryName returns the file name of src's entry.
+func entryName(t *testing.T, src Source) string {
+	t.Helper()
+	return mustKey(t, src).fileName()
+}
+
+// openDir creates the cache directory of m when it is missing and returns
+// it opened as a root, closed when the test ends.
+func openDir(t *testing.T, m *Manager) *os.Root {
+	t.Helper()
+	if err := os.MkdirAll(m.Dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(m.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	return root
+}
+
 // seed writes an entry for src that expires at expiresAt.
 func seed(t *testing.T, m *Manager, src Source, value string, expiresAt time.Time) {
 	t.Helper()
 	if err := os.MkdirAll(m.Dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeEntry(m.Dir, entryPath(t, m, src), encodeEntry(mustKey(t, src), provider.Token{Value: value, ExpiresAt: expiresAt})); err != nil {
+	if err := writeEntry(openDir(t, m), entryName(t, src), encodeEntry(mustKey(t, src), provider.Token{Value: value, ExpiresAt: expiresAt})); err != nil {
 		t.Fatalf("writeEntry: %v", err)
 	}
 }
