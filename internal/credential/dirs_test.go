@@ -227,3 +227,88 @@ func TestDisplayPathHidesASymlinkedHome(t *testing.T) {
 		t.Errorf("displayPath = %q, want ~/keys/app.pem", got)
 	}
 }
+
+func writeRelativeLinkBehindDirectorySymlink(t *testing.T, root string) (alias string) {
+	t.Helper()
+	writeKey(t, filepath.Join(root, "real", "other", "app.pem"), pkcs1PEM(t), 0o600)
+	if err := os.MkdirAll(filepath.Join(root, "real", "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../other/app.pem", filepath.Join(root, "real", "sub", "link")); err != nil {
+		t.Fatal(err)
+	}
+	alias = filepath.Join(root, "alias")
+	if err := os.Symlink(filepath.Join(root, "real", "sub"), alias); err != nil {
+		t.Fatal(err)
+	}
+	return alias
+}
+
+func TestSymlinkHopsResolvesTheDirectoryOfARelativeLink(t *testing.T) {
+	env := testenv.Isolate(t)
+	alias := writeRelativeLinkBehindDirectorySymlink(t, env.Root)
+	hops := symlinkHops(filepath.Join(alias, "link"))
+	realRoot, err := filepath.EvalSymlinks(env.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(realRoot, "real", "other", "app.pem")
+	if len(hops) != 1 || hops[0] != want {
+		t.Errorf("hops = %v, want [%s]", hops, want)
+	}
+}
+
+func TestFileAcceptsRelativeLinkBehindDirectorySymlink(t *testing.T) {
+	env := testenv.Isolate(t)
+	alias := writeRelativeLinkBehindDirectorySymlink(t, env.Root)
+	key, err := File{Path: filepath.Join(alias, "link")}.PrivateKeyPEM()
+	if err != nil || key == nil {
+		t.Fatalf("a valid key behind a symlinked directory was refused: %v", err)
+	}
+}
+
+func TestFileRejectsKeyBehindNestedDirectorySymlinks(t *testing.T) {
+	env := testenv.Isolate(t)
+	shared := filepath.Join(env.Root, "s1")
+	mid := filepath.Join(shared, "mid")
+	final := filepath.Join(env.Root, "s2", "final")
+	writeKey(t, filepath.Join(final, "app.pem"), pkcs1PEM(t), 0o600)
+	if err := os.MkdirAll(mid, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(shared, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(final, filepath.Join(mid, "inner")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(mid, filepath.Join(env.Home, "keys")); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(env.Home, "keys", "inner", "app.pem")
+	if !chainReaches(t, chainOf(path), shared) {
+		t.Errorf("chain lacks the directory above a symlinked directory")
+	}
+	key, err := File{Path: path}.PrivateKeyPEM()
+	assertRejected(t, key, err, ErrInsecureKeyFile, "mode 0777", "chmod go-w")
+}
+
+func mustEval(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
+}
+
+func chainReaches(t *testing.T, chain []string, want string) bool {
+	t.Helper()
+	resolved := mustEval(t, want)
+	for _, dir := range chain {
+		if got, err := filepath.EvalSymlinks(dir); err == nil && got == resolved {
+			return true
+		}
+	}
+	return false
+}
