@@ -38,9 +38,37 @@ jobs:
         run: go test ./...
       - name: go build
         run: go build ./...
+      - name: release tag check tests
+        run: sh .github/scripts/check-release-tag_test.sh
       - name: GOOS=darwin golangci-lint run
         run: GOOS=darwin golangci-lint run
       - name: GOOS=darwin go vet
         run: GOOS=darwin go vet ./...
       - name: GOOS=darwin GOARCH=arm64 go build
         run: GOOS=darwin GOARCH=arm64 go build ./...
+
+  release-snapshot:
+    name: release-snapshot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: goreleaser check and snapshot build
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser
+          version: v2.19.0
+          args: release --snapshot --clean
+      - name: list the archives
+        run: |
+          test "$(ls dist/*.tar.gz | wc -l)" -eq 4
+          cat dist/checksums.txt
+          tar tzf dist/agent-id_*_linux_amd64.tar.gz
+          dist/agent-id_linux_amd64_v1/agent-id --version | grep -Eq '^agent-id version [0-9]+\.[0-9]+\.[0-9]+-snapshot \(commit [0-9a-f]+\)$'
