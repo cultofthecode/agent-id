@@ -28,6 +28,13 @@ linters:
               desc: only test files import the provider contract and fake (AGENTS.md, Test isolation)
             - pkg: github.com/cultofthecode/agent-id/internal/provider/github/githubtest$
               desc: only test files import the fake GitHub App (AGENTS.md, Test isolation)
+        profile-is-provider-agnostic:
+          list-mode: lax
+          files:
+            - "**/internal/profile/**"
+          deny:
+            - pkg: github.com/cultofthecode/agent-id/internal/provider
+              desc: the profile store imports no provider package, so that adapters can import it (ADR #35, profile-config spec)
         github-only-in-its-adapter:
           list-mode: lax
           files:
