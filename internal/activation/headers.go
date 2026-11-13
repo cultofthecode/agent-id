@@ -1,7 +1,6 @@
 package activation
 
 import (
-	"net/url"
 	"regexp"
 	"strings"
 )
@@ -31,10 +30,14 @@ func (a specificity) less(b specificity) bool {
 // specific pattern after a more specific one is still counted (Git ignores
 // it), which can only refuse too much.
 func EffectiveHeaders(entries []ConfigEntry, rawURL string) []string {
-	target, err := url.Parse(rawURL)
-	if err != nil {
+	target, ok := parseGitURL(rawURL, false)
+	if !ok {
 		return nil
 	}
+	return effectiveHeaders(entries, target)
+}
+
+func effectiveHeaders(entries []ConfigEntry, target gitURL) []string {
 	var headers []string
 	var best specificity
 	seen := false
@@ -62,8 +65,9 @@ func EffectiveHeaders(entries []ConfigEntry, rawURL string) []string {
 }
 
 // headerScope reports whether key is an http extraheader key that applies to
-// target. The specificity is nil for the generic http.extraheader.
-func headerScope(key string, target *url.URL) (*specificity, bool) {
+// target. The specificity is nil for the generic http.extraheader. A pattern
+// that does not parse never applies; refuseUnparsable reports it separately.
+func headerScope(key string, target gitURL) (*specificity, bool) {
 	section, sub, variable, ok := splitKey(key)
 	if !ok || !strings.EqualFold(section, "http") || !strings.EqualFold(variable, "extraheader") {
 		return nil, false
@@ -71,36 +75,44 @@ func headerScope(key string, target *url.URL) (*specificity, bool) {
 	if sub == "" {
 		return nil, true
 	}
-	pattern, err := url.Parse(sub)
-	if err != nil || pattern.Host == "" || !strings.EqualFold(pattern.Scheme, target.Scheme) {
+	pattern, ok := parseGitURL(sub, true)
+	if !ok || pattern.scheme != target.scheme {
 		return nil, false
 	}
-	if !hostPatternMatches(pattern.Hostname(), target.Hostname()) || port(pattern) != port(target) {
+	if !hostPatternMatches(pattern.host, target.host) || pattern.port != target.port {
 		return nil, false
 	}
 	user := 0
-	if pattern.User != nil {
-		if target.User == nil || pattern.User.String() != target.User.String() {
+	if pattern.user != "" {
+		if pattern.user != target.user {
 			return nil, false
 		}
-		user = len(pattern.User.String())
+		user = len(pattern.user)
 	}
-	pp := strings.TrimSuffix(pattern.Path, "/")
-	tp := target.Path
+	pp := strings.TrimSuffix(pattern.path, "/")
+	tp := target.path
 	if pp != "" && tp != pp && !strings.HasPrefix(tp, pp+"/") {
 		return nil, false
 	}
-	return &specificity{host: len(pattern.Hostname()), user: user, path: len(pp)}, true
+	return &specificity{host: len(pattern.host), user: user, path: len(pp)}, true
 }
 
-func port(u *url.URL) string {
-	if p := u.Port(); p != "" {
-		return p
+// UnparsableHeaderScope returns the first http.<url>.extraheader entry that
+// has a header and a URL pattern that agent-id cannot normalize as Git does.
+// Git may still apply such a pattern, so the caller must refuse it. An entry
+// with an empty value only resets headers; skipping it never weakens the
+// check, because a reset counts only when its pattern parses.
+func UnparsableHeaderScope(entries []ConfigEntry) (ConfigEntry, bool) {
+	for _, e := range entries {
+		section, sub, variable, ok := splitKey(e.Key)
+		if !ok || sub == "" || e.Value == "" || !strings.EqualFold(section, "http") || !strings.EqualFold(variable, "extraheader") {
+			continue
+		}
+		if _, ok := parseGitURL(sub, true); !ok {
+			return e, true
+		}
 	}
-	if strings.EqualFold(u.Scheme, "http") {
-		return "80"
-	}
-	return "443"
+	return ConfigEntry{}, false
 }
 
 // headerName returns the name of an extra header for a message, never its
@@ -135,31 +147,21 @@ func ScopedHeaders(entries []ConfigEntry, hosts []string) []HostHeader {
 		if !ok || sub == "" || !strings.EqualFold(section, "http") || !strings.EqualFold(variable, "extraheader") || seen[sub] {
 			continue
 		}
-		pattern, err := url.Parse(sub)
-		if err != nil || pattern.Host == "" {
+		pattern, ok := parseGitURL(sub, true)
+		if !ok {
 			continue
 		}
 		seen[sub] = true
 		for _, h := range hosts {
-			if !hostPatternMatches(pattern.Hostname(), h) {
+			if !hostPatternMatches(pattern.host, h) {
 				continue
 			}
-			for _, name := range EffectiveHeaders(entries, atHost(pattern, h)) {
+			for _, name := range effectiveHeaders(entries, pattern.atHost(h)) {
 				out = append(out, HostHeader{Host: h, Name: name})
 			}
 		}
 	}
 	return out
-}
-
-// atHost returns the URL of pattern with its host replaced by host.
-func atHost(pattern *url.URL, host string) string {
-	at := *pattern
-	at.Host = host
-	if p := pattern.Port(); p != "" {
-		at.Host = host + ":" + p
-	}
-	return at.String()
 }
 
 // hostPatternMatches reports whether pattern, a host pattern of
