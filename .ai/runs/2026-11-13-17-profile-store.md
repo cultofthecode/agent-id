@@ -59,3 +59,4 @@ PR: #52
 
 - [x] R.1 Merge main and apply the #44 profile-name rule — 450fee7
 - [x] R.2 Address the review findings (validator classes, missing-file marker, FIFO, symlink chain, dangling symlink, directory mode, reserved provider names) — 9ec23eb
+- [x] R.3 Re-review nits (stricter validator class, directory mode only on success) — 9776969
