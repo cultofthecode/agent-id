@@ -105,6 +105,21 @@ func TestIsolateBlocksGitFromReachingTheNetwork(t *testing.T) {
 	}
 }
 
+func TestIsolateBlocksGitFromLoopbackOutsideTheFakePorts(t *testing.T) {
+	git := lookPath(t, "git")
+	for _, remote := range []string{"https://127.0.0.1:19999/x.git"} {
+		rec := NewRecorder(t)
+		Isolate(rec)
+		out, err := exec.Command(git, "ls-remote", remote).CombinedOutput()
+		if err == nil {
+			t.Fatalf("git ls-remote %s reached a port outside 18000–18999: %s", remote, out)
+		}
+		if !rec.Reported("blocked a network request to 127.0.0.1:19999") {
+			t.Errorf("reported %q, want the blocked request to 127.0.0.1:19999 (git: %s)", rec.Errors(), out)
+		}
+	}
+}
+
 func TestIsolateAllowsOnlyLocalAndHTTPSGitTransports(t *testing.T) {
 	git := lookPath(t, "git")
 	Isolate(t)
@@ -144,8 +159,8 @@ func TestIsolateSetsTheProxyGuard(t *testing.T) {
 		}
 	}
 	for _, name := range noProxyVariables {
-		if got := os.Getenv(name); got != "127.0.0.1,localhost" {
-			t.Errorf("%s = %q, want 127.0.0.1,localhost", name, got)
+		if got := os.Getenv(name); got != "" {
+			t.Errorf("%s = %q, want it empty", name, got)
 		}
 	}
 }

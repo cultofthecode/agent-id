@@ -20,7 +20,9 @@ import (
 //
 //	func TestMain(m *testing.M) { testenv.Main(m) }
 //
-// Main only hashes these files; it never prints their contents.
+// It also watches ~/.config/ghapp and $XDG_CONFIG_HOME/ghapp by metadata only
+// (names, types, sizes, modes, mtimes), never opening a file there.
+// Main hashes the other files; it never prints their contents.
 func Main(m *testing.M) {
 	paths := personalConfigPaths(os.Getenv)
 	before := snapshot(paths)
@@ -45,6 +47,8 @@ func personalConfigPaths(getenv func(string) string) []string {
 		filepath.Join(configHome, "git"),
 		filepath.Join(configHome, "gh"),
 		filepath.Join(home, ".config", "gh"),
+		filepath.Join(configHome, "ghapp"),
+		filepath.Join(home, ".config", "ghapp"),
 	}
 	for _, name := range []string{"GIT_CONFIG_GLOBAL", "GH_CONFIG_DIR"} {
 		if value := getenv(name); value != "" {
@@ -60,6 +64,7 @@ func personalConfigPaths(getenv func(string) string) []string {
 func snapshot(paths []string) map[string]string {
 	out := make(map[string]string)
 	for _, root := range paths {
+		metadataOnly := isMetadataOnly(root)
 		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 			if errors.Is(err, fs.ErrNotExist) {
 				out[path] = "absent"
@@ -69,7 +74,7 @@ func snapshot(paths []string) map[string]string {
 				out[path] = "unreadable"
 				return nil
 			}
-			out[path] = fingerprint(path, entry)
+			out[path] = fingerprint(path, entry, metadataOnly)
 			return nil
 		})
 		if err != nil {
@@ -79,9 +84,16 @@ func snapshot(paths []string) map[string]string {
 	return out
 }
 
+// isMetadataOnly reports whether the tree at root holds secrets, such as the
+// ghapp private key, that a fingerprint must never open.
+func isMetadataOnly(root string) bool {
+	return filepath.Base(root) == "ghapp"
+}
+
 // fingerprint describes one entry: its type and mode, and the hash of a
-// file's content or a link's target.
-func fingerprint(path string, entry fs.DirEntry) string {
+// file's content or a link's target. With metadataOnly it records the size and
+// modification time of a file instead and never opens it.
+func fingerprint(path string, entry fs.DirEntry, metadataOnly bool) string {
 	info, err := entry.Info()
 	if err != nil {
 		return "absent"
@@ -95,6 +107,8 @@ func fingerprint(path string, entry fs.DirEntry) string {
 			return "link unreadable"
 		}
 		return "link " + target
+	case metadataOnly:
+		return fmt.Sprintf("file %s %d %d", info.Mode(), info.Size(), info.ModTime().UnixNano())
 	default:
 		return "file " + info.Mode().String() + " " + hashFile(path)
 	}
