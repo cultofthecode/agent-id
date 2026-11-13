@@ -8,11 +8,14 @@ import (
 
 // specificity ranks how closely a http.<url>.* pattern matches a URL, as
 // Git's urlmatch does: host first, then path.
-type specificity struct{ host, path int }
+type specificity struct{ host, user, path int }
 
 func (a specificity) less(b specificity) bool {
 	if a.host != b.host {
 		return a.host < b.host
+	}
+	if a.user != b.user {
+		return a.user < b.user
 	}
 	return a.path < b.path
 }
@@ -20,8 +23,11 @@ func (a specificity) less(b specificity) bool {
 // EffectiveHeaders returns the names of the extra HTTP headers that Git
 // would send for rawURL, from the ordered entries of git config --list. An
 // entry whose pattern is less specific than the best one seen is ignored, as
-// in Git, and an empty value resets the list. It is conservative: a generic
-// http.extraHeader always applies.
+// in Git, and an empty value resets the list. A pattern with a user matches
+// only URLs with that user and ranks above one without. It is conservative:
+// a generic http.extraHeader always applies, and a non-empty header of a less
+// specific pattern after a more specific one is still counted (Git ignores
+// it), which can only refuse too much.
 func EffectiveHeaders(entries []ConfigEntry, rawURL string) []string {
 	target, err := url.Parse(rawURL)
 	if err != nil {
@@ -70,12 +76,19 @@ func headerScope(key string, target *url.URL) (*specificity, bool) {
 	if !strings.EqualFold(pattern.Hostname(), target.Hostname()) || port(pattern) != port(target) {
 		return nil, false
 	}
+	user := 0
+	if pattern.User != nil {
+		if target.User == nil || pattern.User.String() != target.User.String() {
+			return nil, false
+		}
+		user = len(pattern.User.String())
+	}
 	pp := strings.TrimSuffix(pattern.Path, "/")
 	tp := target.Path
 	if pp != "" && tp != pp && !strings.HasPrefix(tp, pp+"/") {
 		return nil, false
 	}
-	return &specificity{host: len(pattern.Host), path: len(pp)}, true
+	return &specificity{host: len(pattern.Hostname()), user: user, path: len(pp)}, true
 }
 
 func port(u *url.URL) string {

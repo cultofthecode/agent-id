@@ -324,8 +324,20 @@ func TestExecRefusals(t *testing.T) {
 			}
 		})
 	}
-	t.Run("netrc", func(t *testing.T) {
+	t.Run("ssh alias", func(t *testing.T) {
 		gitIn(t, repo, "config", "--global", "--unset-all", "url.git@github.com:.insteadOf")
+		gitIn(t, repo, "remote", "add", "origin", "work:o/r.git")
+		shim := filepath.Join(f.env.TempDir, "shim")
+		writeScript(t, filepath.Join(shim, "ssh"), "echo 'hostname github.com'\n")
+		f.extra = []string{"PATH=" + shim + ":" + os.Getenv("PATH")}
+		defer func() { f.extra = nil }()
+		r := f.run("exec", "--profile", "claude", "--", "true")
+		if r.code != 125 || !strings.Contains(r.stderr, `alias "work"`) {
+			t.Errorf("code %d stderr %q", r.code, r.stderr)
+		}
+		gitIn(t, repo, "remote", "remove", "origin")
+	})
+	t.Run("netrc", func(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(f.env.Home, ".netrc"), []byte("machine github.com login x password hunter2\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}

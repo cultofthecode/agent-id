@@ -105,7 +105,11 @@ func (c *remoteChecker) configList(ctx context.Context, dir string, child []stri
 // repository and in the working directory.
 func (c *remoteChecker) rewrites(ctx context.Context, dir string, child []string) error {
 	for _, where := range []string{emptyDir(), dir} {
-		entries, ok, err := c.configList(ctx, where, withoutRepoVars(child))
+		env := child
+		if where == emptyDir() {
+			env = withoutRepoVars(child)
+		}
+		entries, ok, err := c.configList(ctx, where, env)
 		if err != nil {
 			return err
 		}
@@ -118,7 +122,7 @@ func (c *remoteChecker) rewrites(ctx context.Context, dir string, child []string
 			}
 		}
 		for _, h := range slices.Concat(EffectiveHeaders(entries, "https://"+c.a.Host()+"/"), ScopedHeaders(entries, c.a.GitHosts())) {
-			return failf(ErrRemoteHeader, "https://%s/ gets an extra HTTP header (%s) that agent-id cannot reset; remove that http.extraheader entry", c.a.Host(), h)
+			return failf(ErrRemoteHeader, "%s gets an extra HTTP header (%s) from an http.extraheader entry that agent-id cannot reset; remove that entry", c.a.Host(), h)
 		}
 	}
 	return nil

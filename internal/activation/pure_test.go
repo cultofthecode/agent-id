@@ -392,6 +392,18 @@ func TestReviewRegressions(t *testing.T) {
 			t.Errorf("another host: %v", got)
 		}
 	})
+	t.Run("a header scoped to a user survives the reset", func(t *testing.T) {
+		e := entries("http.https://dev@github.com/.extraheader", "Authorization: Basic x", "http.https://github.com/.extraheader", "")
+		if got := EffectiveHeaders(e, "https://dev@github.com/o/r.git"); !slices.Equal(got, []string{"Authorization"}) {
+			t.Errorf("headers %v", got)
+		}
+		if got := EffectiveHeaders(e, "https://github.com/o/r.git"); len(got) != 0 {
+			t.Errorf("a URL without that user: %v", got)
+		}
+		if got := ScopedHeaders(e, []string{"github.com"}); !slices.Equal(got, []string{"Authorization"}) {
+			t.Errorf("scoped %v", got)
+		}
+	})
 	t.Run("a trailing dot does not hide the host", func(t *testing.T) {
 		for _, raw := range []string{"git@github.com.:o/r.git", "ssh://git@github.com./o/r.git", "https://github.com./o/r.git"} {
 			if !ClassifyRemoteURL(raw, []string{"github.com"}).Provider {

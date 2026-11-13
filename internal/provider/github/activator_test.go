@@ -39,7 +39,7 @@ func TestActivatorGitHubValues(t *testing.T) {
 			t.Errorf("CredentialVariables() lacks %s", name)
 		}
 	}
-	if !slices.Contains(a.GitHosts(), "github.com") || !slices.Contains(a.GitHosts(), "ssh.github.com") {
+	if !slices.Contains(a.GitHosts(), "github.com") || !slices.Contains(a.GitHosts(), "ssh.github.com") || !slices.Contains(a.GitHosts(), "gist.github.com") {
 		t.Errorf("GitHosts() = %v", a.GitHosts())
 	}
 	if got := a.NeutralCLI().Decoys["GH_TOKEN"]; got != "agent-id-no-token" {
