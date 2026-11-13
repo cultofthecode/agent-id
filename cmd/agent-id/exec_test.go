@@ -39,6 +39,7 @@ type execFixture struct {
 	binary  string
 	extra   []string
 	workdir string
+	stdin   string
 }
 
 func newExecFixture(t *testing.T) *execFixture {
@@ -59,6 +60,9 @@ func (f *execFixture) run(args ...string) execRun {
 	cmd := exec.Command(f.binary, args...)
 	cmd.Dir = f.workdir
 	cmd.Env = append(os.Environ(), f.extra...)
+	if f.stdin != "" {
+		cmd.Stdin = strings.NewReader(f.stdin)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
@@ -290,7 +294,8 @@ func TestExecRefusals(t *testing.T) {
 		setup func(t *testing.T)
 		want  string
 	}{
-		{"scp remote", func(t *testing.T) { gitIn(t, repo, "remote", "add", "origin", "git@github.com:o/r.git") }, `remote "origin" reaches github.com over SSH (scp form)`},
+		{"ssh remote with a port", func(t *testing.T) { gitIn(t, repo, "remote", "add", "origin", "ssh://git@github.com:22/o/r.git") }, `remote "origin" reaches github.com over SSH (ssh://)`},
+		{"git+ssh remote", func(t *testing.T) { gitIn(t, repo, "remote", "set-url", "origin", "git+ssh://git@github.com/o/r.git") }, `remote "origin" reaches github.com over SSH`},
 		{"ssh pushurl", func(t *testing.T) {
 			gitIn(t, repo, "remote", "set-url", "origin", "https://github.com/o/r.git")
 			gitIn(t, repo, "remote", "set-url", "--push", "origin", "ssh://git@ssh.github.com:443/o/r.git")
@@ -436,7 +441,7 @@ func TestExecNesting(t *testing.T) {
 	if norm(same.stdout) != norm(outer.stdout) {
 		t.Errorf("nested environment differs:\n%s\n---\n%s", same.stdout, outer.stdout)
 	}
-	if strings.Count(same.stdout, "GIT_CONFIG_KEY_0=") != 1 || strings.Count(same.stdout, "GIT_CONFIG_COUNT=3") != 1 {
+	if strings.Count(same.stdout, "GIT_CONFIG_KEY_0=") != 1 || strings.Count(same.stdout, "GIT_CONFIG_COUNT=7") != 1 {
 		t.Errorf("entries duplicated:\n%s", same.stdout)
 	}
 	diff := f.run(inner("other")...)
@@ -508,5 +513,23 @@ func TestNetrcWouldLeakWithoutTheRefusal(t *testing.T) {
 	}
 	if !sent {
 		t.Skip("this Git version does not read .netrc for the fake server")
+	}
+}
+
+// TestExecRewritesCommonSSHRemotesToHTTPS is the O1 half of #22: the scp form
+// and ssh://git@host/ resolve to HTTPS in the context, so exec starts and Git
+// reads the rewritten URL.
+func TestExecRewritesCommonSSHRemotesToHTTPS(t *testing.T) {
+	f := newExecFixture(t)
+	repo := filepath.Join(f.env.Home, "repo")
+	gitIn(t, f.env.Home, "init", "--quiet", repo)
+	f.workdir = repo
+	gitIn(t, repo, "remote", "add", "origin", "https://github.com/o/r.git")
+	for _, remote := range []string{"git@github.com:o/r.git", "ssh://git@github.com/o/r.git"} {
+		gitIn(t, repo, "remote", "set-url", "origin", remote)
+		r := f.run("exec", "--profile", "claude", "--", "git", "ls-remote", "--get-url", "origin")
+		if r.code != 0 || strings.TrimSpace(r.stdout) != "https://github.com/o/r.git" {
+			t.Errorf("%s: code %d stdout %q stderr %q, want the HTTPS URL", remote, r.code, r.stdout, r.stderr)
+		}
 	}
 }

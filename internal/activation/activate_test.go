@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -91,6 +92,45 @@ func TestActivateOrderAndBaseline(t *testing.T) {
 	}
 	if !slices.Contains(act.Drop, "GIT_ASKPASS") || !slices.Contains(act.Drop, "FAKE_CLI_TOKEN") {
 		t.Errorf("drop %v", act.Drop)
+	}
+}
+
+func TestActivateAddsTheTransportGroup(t *testing.T) {
+	testenv.Isolate(t)
+	d, a, _ := newDeps(t)
+	act, err := Activate(context.Background(), d, request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := parseEnv(act.Env)
+	base := "https://" + a.Host()
+	want := [][2]string{
+		{"credential." + base + ".helper", "!'/bin/agent-id' git-credential --profile claude"},
+		{"credential." + base + ".useHttpPath", "true"},
+		{"url." + base + "/.insteadOf", "ssh://git@" + a.Host() + "/"},
+		{"url." + base + "/.insteadOf", "git@" + a.Host() + ":"},
+	}
+	if env["GIT_CONFIG_COUNT"] != "7" {
+		t.Fatalf("GIT_CONFIG_COUNT = %q, want 7", env["GIT_CONFIG_COUNT"])
+	}
+	for i, kv := range want {
+		n := strconv.Itoa(3 + i)
+		if env["GIT_CONFIG_KEY_"+n] != kv[0] || env["GIT_CONFIG_VALUE_"+n] != kv[1] {
+			t.Errorf("entry %s = %q=%q, want %q=%q", n, env["GIT_CONFIG_KEY_"+n], env["GIT_CONFIG_VALUE_"+n], kv[0], kv[1])
+		}
+	}
+	if env["GIT_CONFIG_KEY_0"] != "credential.helper" || env["GIT_CONFIG_VALUE_0"] != "" {
+		t.Error("the reset of inherited helpers must come first")
+	}
+}
+
+func TestActivateRefusesAnUnsafeBinaryPath(t *testing.T) {
+	testenv.Isolate(t)
+	d, _, _ := newDeps(t)
+	r := request()
+	r.Binary = "/bin/agent\nid"
+	if _, err := Activate(context.Background(), d, r); !errors.Is(err, ErrPlanUnsafe) {
+		t.Errorf("err = %v, want ErrPlanUnsafe", err)
 	}
 }
 

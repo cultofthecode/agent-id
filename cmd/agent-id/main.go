@@ -23,6 +23,7 @@ import (
 	activationexec "github.com/cultofthecode/agent-id/internal/activation/exec"
 	"github.com/cultofthecode/agent-id/internal/credential"
 	"github.com/cultofthecode/agent-id/internal/diagnose"
+	"github.com/cultofthecode/agent-id/internal/gitint/credentialhelper"
 	"github.com/cultofthecode/agent-id/internal/profile"
 	"github.com/cultofthecode/agent-id/internal/provider"
 	"github.com/cultofthecode/agent-id/internal/provider/github"
@@ -148,6 +149,7 @@ func buildRootWith(onboarders []provider.Onboarder, openStore func() (setup.Stor
 	root.AddCommand(setup.NewCommand(&setup.Handler{Onboarders: onboarders, OpenStore: openStore}))
 	root.AddCommand(diagnosticCommands(github.ProfileRegistration(), openProvider)...)
 	root.AddCommand(activationexec.NewCommand(execHandler))
+	root.AddCommand(credentialhelper.NewCommand(newCredentialHelper()))
 	return withVersion(root, versionText(version, commit, debug.ReadBuildInfo))
 }
 

@@ -87,7 +87,10 @@ func Activate(ctx context.Context, d Deps, r Request) (Activation, error) {
 	if err != nil {
 		return Activation{}, err
 	}
-	plan := PlanFor(r, a, paths)
+	plan, err := withTransport(PlanFor(r, a, paths), a)
+	if err != nil {
+		return Activation{}, err
+	}
 	env, err := Build(r.Parent, plan)
 	if err != nil {
 		return Activation{}, err
