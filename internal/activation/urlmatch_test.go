@@ -151,8 +151,8 @@ func ourMatch(pattern, target string) (match, comparable bool) {
 	if _, ok := parseGitURL(pattern, true); !ok {
 		return false, false
 	}
-	_, match = headerScope("http."+pattern+".extraheader", t)
-	return match, true
+	rules := compileHeaderRules([]ConfigEntry{{Key: "http." + pattern + ".extraheader", Value: "X: 1"}})
+	return len(rules.effective(t)) == 1, true
 }
 
 // TestUrlmatchAgreesWithGit compares the matcher with git config
@@ -561,6 +561,6 @@ func TestGenericHeaderBelowTheRoot(t *testing.T) {
 	}
 	e := entries(append([]string{"http.extraheader", "X-L: 1"}, append(baseline, "http.https://gist.github.com/.extraheader", "", "http.https://ssh.github.com/.extraheader", "")...)...)
 	if err := c.checkHostHeaders(e); err == nil {
-		t.Error("a generic header that every https host reset clears passes, but Git sends it over http and on other ports (#112)")
+		t.Error("a generic header that every https host reset clears passes, but Git sends it over http and on other ports (#107, #112)")
 	}
 }
