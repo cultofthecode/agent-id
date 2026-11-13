@@ -51,7 +51,7 @@ func (a *activator) NeutralCLI() provider.NeutralCLI {
 		ConfigDirVar:         "GH_CONFIG_DIR",
 		Decoys:               map[string]string{"GH_TOKEN": decoyToken, "GH_ENTERPRISE_TOKEN": decoyToken},
 		Binary:               "gh",
-		ForbiddenConfigFiles: []string{"hosts.yml"},
+		ForbiddenConfigFiles: []string{"hosts.yml", "config.yml"},
 	}
 }
 

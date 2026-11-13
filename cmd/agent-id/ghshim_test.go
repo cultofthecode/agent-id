@@ -300,3 +300,29 @@ func TestGHShimStartsTheRealGH(t *testing.T) {
 		t.Errorf("gh --version through the shim: %d %q %q", r.code, r.stdout, r.stderr)
 	}
 }
+
+func TestGHShimRefusesAConfigFileThatTheAgentStored(t *testing.T) {
+	f := newShimFixture(t)
+	f.seed(t, testenv.FakeToken("shim_config"))
+	if r := f.gh("pr", "list"); r.code != 0 {
+		t.Fatalf("first call: %d %s", r.code, r.stderr)
+	}
+	cfg := filepath.Join(f.env.CacheHome, "agent-id", "github", "cli-config")
+	if err := os.WriteFile(filepath.Join(cfg, "config.yml"), []byte("aliases:\n    t: auth token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := readLog(t, f.argsLog)
+	r := f.gh("t")
+	if r.code != 125 || !strings.Contains(r.stderr, "contains config.yml") || readLog(t, f.argsLog) != before {
+		t.Errorf("shim: code %d stderr %q, want exit 125 and a refusal that names config.yml", r.code, r.stderr)
+	}
+	if r := f.run("exec", "--profile", "claude", "--", "true"); r.code != 125 || !strings.Contains(r.stderr, "contains config.yml") {
+		t.Errorf("exec: code %d stderr %q, want exit 125", r.code, r.stderr)
+	}
+	if err := os.Remove(filepath.Join(cfg, "config.yml")); err != nil {
+		t.Fatal(err)
+	}
+	if r := f.gh("pr", "list"); r.code != 0 {
+		t.Errorf("after the removal: code %d stderr %q", r.code, r.stderr)
+	}
+}

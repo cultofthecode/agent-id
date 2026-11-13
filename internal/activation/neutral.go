@@ -85,7 +85,7 @@ func (FileNeutralDirs) Ensure(parent []string, providerName string, cli provider
 	}
 	for _, name := range cli.ForbiddenConfigFiles {
 		if _, err := os.Lstat(filepath.Join(paths.ConfigDir, name)); err == nil {
-			return NeutralPaths{}, neutralErr(paths.ConfigDir, "contains "+name, "remove it, then log in only outside the agent context")
+			return NeutralPaths{}, neutralErr(paths.ConfigDir, "contains "+name, "remove it, and change CLI settings or log in only outside the agent context")
 		}
 	}
 	if err := ensureStub(filepath.Join(paths.BinDir, cli.Binary), cli.Binary); err != nil {
