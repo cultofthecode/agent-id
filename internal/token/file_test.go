@@ -163,7 +163,7 @@ func TestLockFileRefusesASymlink(t *testing.T) {
 	if err := os.MkdirAll(m.Dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	lock := entryPath(t, m, newSource(c)) + lockSuffix
+	lock := lockPath(entryPath(t, m, newSource(c)))
 	if err := os.Symlink(filepath.Join(t.TempDir(), "elsewhere"), lock); err != nil {
 		t.Fatal(err)
 	}

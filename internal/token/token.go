@@ -69,14 +69,15 @@ func (m *Manager) Token(ctx context.Context, src Source) (provider.Token, error)
 	if err != nil {
 		return provider.Token{}, err
 	}
-	if err := m.prepareDir(); err != nil {
+	dir, err := m.prepareDir()
+	if err != nil {
 		return provider.Token{}, err
 	}
-	path := filepath.Join(m.Dir, key.fileName())
+	path := filepath.Join(dir, key.fileName())
 	if token, ok := m.cached(path, key); ok {
 		return token, nil
 	}
-	unlock, err := lockFile(ctx, path+lockSuffix, m.lockTimeout())
+	unlock, err := lockFile(ctx, lockPath(path), m.lockTimeout())
 	if err != nil {
 		return provider.Token{}, fmt.Errorf("token: refresh %s: %w", key, err)
 	}
@@ -84,7 +85,7 @@ func (m *Manager) Token(ctx context.Context, src Source) (provider.Token, error)
 	if token, ok := m.cached(path, key); ok {
 		return token, nil
 	}
-	return m.refresh(ctx, src, key, path)
+	return m.refresh(ctx, src, key, dir, path)
 }
 
 // cached returns the entry at path when it belongs to key and is fresh.
@@ -96,9 +97,9 @@ func (m *Manager) cached(path string, key Key) (provider.Token, bool) {
 	return token, true
 }
 
-// refresh mints a token with src, checks it, and caches it at path. The
-// caller holds the lock of path.
-func (m *Manager) refresh(ctx context.Context, src Source, key Key, path string) (provider.Token, error) {
+// refresh mints a token with src, checks it, and caches it at path in dir.
+// The caller holds the lock of path.
+func (m *Manager) refresh(ctx context.Context, src Source, key Key, dir, path string) (provider.Token, error) {
 	token, err := src.Token(ctx)
 	if err != nil {
 		return provider.Token{}, fmt.Errorf("token: mint a token for %s: %w", key, err)
@@ -106,27 +107,31 @@ func (m *Manager) refresh(ctx context.Context, src Source, key Key, path string)
 	if err := checkMinted(token, m.now(), m.margin()); err != nil {
 		return provider.Token{}, fmt.Errorf("token: mint a token for %s: %w", key, err)
 	}
-	if err := writeEntry(m.Dir, path, encodeEntry(key, token)); err != nil {
+	if err := writeEntry(dir, path, encodeEntry(key, token)); err != nil {
 		return provider.Token{}, fmt.Errorf("token: cache the token of %s: %w", key, err)
 	}
 	return token, nil
 }
 
-// prepareDir creates the cache directory when it is missing and checks that
-// it is private and that no other user can replace it.
-func (m *Manager) prepareDir() error {
+// prepareDir creates the cache directory when it is missing, checks that it
+// is private and that no other user can replace it, and returns its cleaned
+// path, the only form that later file operations use.
+func (m *Manager) prepareDir() (string, error) {
 	if !filepath.IsAbs(m.Dir) {
-		return fmt.Errorf("%w: the cache directory must be an absolute path", ErrNoCacheDir)
+		return "", fmt.Errorf("%w: the cache directory must be an absolute path", ErrNoCacheDir)
 	}
 	dir := filepath.Clean(m.Dir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("%w: create %s: %w", ErrInsecureCache, dir, cause(err))
+		return "", fmt.Errorf("%w: create %s: %w", ErrInsecureCache, dir, cause(err))
 	}
 	uid := uint32(os.Getuid())
 	if err := inspect(filepath.Dir(dir), uid, checkParent); err != nil {
-		return err
+		return "", err
 	}
-	return inspect(dir, uid, checkDir)
+	if err := inspect(dir, uid, checkDir); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
 // inspect applies check to the mode and owner of path, without following a

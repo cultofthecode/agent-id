@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -193,6 +195,94 @@ func TestCorruptEntryIsReplaced(t *testing.T) {
 	}
 }
 
+func TestSymlinkAndFIFOEntriesAreReplacedWithoutTouchingTheTarget(t *testing.T) {
+	c := newClock()
+	m := newManager(t, c)
+	src := newSource(c)
+	path := entryPath(t, m, src)
+	mkdir(t, m.Dir)
+	target := filepath.Join(t.TempDir(), "target.json")
+	original := encodeEntry(mustKey(t, src), provider.Token{Value: testenv.FakeToken("target"), ExpiresAt: c.In(time.Hour)})
+	if err := os.WriteFile(target, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	if token := mustManagerToken(t, m, src); token.Value == testenv.FakeToken("target") || len(src.minted) != 1 {
+		t.Error("Token served the target of a symlinked entry")
+	}
+	if got, err := os.ReadFile(target); err != nil || string(got) != string(original) {
+		t.Error("the symlink target was changed")
+	}
+	assertRegularEntry(t, path)
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustManagerToken(t, m, src)
+	if len(src.minted) != 2 {
+		t.Errorf("a FIFO entry gave %d mints, want a second mint", len(src.minted))
+	}
+	assertRegularEntry(t, path)
+}
+
+func TestDirectoryInPlaceOfAnEntryFailsWithItsPath(t *testing.T) {
+	c := newClock()
+	m := newManager(t, c)
+	src := newSource(c)
+	path := entryPath(t, m, src)
+	mkdir(t, filepath.Join(path, "child"))
+	_, err := m.Token(context.Background(), src)
+	if !errors.Is(err, ErrCacheWrite) || !strings.Contains(err.Error(), path) {
+		t.Errorf("directory entry: %v, want ErrCacheWrite naming %s", err, path)
+	}
+	for _, minted := range src.minted {
+		assertNoToken(t, err, minted.Value)
+	}
+}
+
+func TestStaleTemporaryFilesAreRemoved(t *testing.T) {
+	c := newClock()
+	m := newManager(t, c)
+	src := newSource(c)
+	mkdir(t, m.Dir)
+	stale := entryPath(t, m, src) + ".123456" + tempSuffix
+	other := filepath.Join(m.Dir, "other"+entrySuffix+".1"+tempSuffix)
+	for _, name := range []string{stale, other} {
+		if err := os.WriteFile(name, []byte(testenv.FakeToken("crashed")), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustManagerToken(t, m, src)
+	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Error("a temporary file of the refreshed entry was left behind")
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Error("a temporary file of another entry was removed without its lock")
+	}
+}
+
+func TestFakeProviderDenialFailsClosed(t *testing.T) {
+	m := newManager(t, newClock())
+	m.Now = nil
+	fake := providertest.NewFake()
+	old := testenv.FakeToken("stale_fake")
+	seed(t, m, fake, old, time.Now().Add(2*time.Minute))
+	fake.FailTokens(provider.ErrUnauthorized)
+	token, err := m.Token(context.Background(), fake)
+	if !errors.Is(err, provider.ErrUnauthorized) || token != (provider.Token{}) {
+		t.Errorf("denied refresh on providertest.Fake: %v, %v; want ErrUnauthorized and the zero token", token, err)
+	}
+	assertNoToken(t, err, old)
+	fake.FailTokens(nil)
+	if token := mustManagerToken(t, m, fake); token.Value == old {
+		t.Error("the stale entry was served after the provider recovered")
+	}
+}
+
 func TestFreshCacheIsPrivate(t *testing.T) {
 	c := newClock()
 	m := newManager(t, c)
@@ -277,7 +367,7 @@ func TestHeldLockTimesOutAndHonorsTheContext(t *testing.T) {
 	m := newManager(t, c)
 	src := newSource(c)
 	mkdir(t, m.Dir)
-	unlock, err := lockFile(context.Background(), entryPath(t, m, src)+lockSuffix, time.Second)
+	unlock, err := lockFile(context.Background(), lockPath(entryPath(t, m, src)), time.Second)
 	if err != nil {
 		t.Fatalf("lockFile: %v", err)
 	}
@@ -314,7 +404,7 @@ func TestCacheWriteFailureDiscardsTheToken(t *testing.T) {
 	m := newManager(t, c)
 	src := newSource(c)
 	mkdir(t, m.Dir)
-	unlock, err := lockFile(context.Background(), entryPath(t, m, src)+lockSuffix, time.Second)
+	unlock, err := lockFile(context.Background(), lockPath(entryPath(t, m, src)), time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,6 +431,14 @@ func mustManagerToken(t *testing.T, m *Manager, src Source) provider.Token {
 		t.Fatalf("Token: %v", err)
 	}
 	return token
+}
+
+func assertRegularEntry(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+		t.Errorf("entry %v, %v; want a regular 0600 file", info.Mode(), err)
+	}
 }
 
 func mkdir(t *testing.T, dir string) {

@@ -37,11 +37,11 @@ A new module `internal/token`, standard library only (no new module dependency).
 7. **Token(ctx, src)** — the one public operation:
    1. Build the key, resolve and check the directory.
    2. Read the entry without a lock. Fresh → return it. A reader never sees a partial file, because writers replace the file with `rename`.
-   3. Otherwise take an exclusive `flock` on the lock file (`syscall.Flock`, macOS and Linux, as in the profile-config spec). The lock file is opened with `O_RDWR|O_CREATE|O_NOFOLLOW`, mode `0600`; a symlink, a non-regular file, or another user's file fails with `ErrInsecureCache`. The wait polls with `LOCK_NB` every 20 ms and ends with the context, or after `Manager.LockTimeout` (default 60 s, longer than the adapter's 30 s HTTP timeout, so that waiters outlast one slow mint) with `ErrLockTimeout`. The kernel releases the lock when its process dies, so a crashed process never leaves a stale lock.
+   3. Otherwise take an exclusive `flock` on the lock file (`syscall.Flock`, macOS and Linux, as in the profile-config spec). The lock file is opened with `O_RDWR|O_CREATE|O_NOFOLLOW`, mode `0600`; a symlink, a non-regular file, or another user's file fails with `ErrInsecureCache`; any other failure to open it (a read-only directory, a full disk) fails with `ErrCacheWrite`. The wait polls with `LOCK_NB` every 20 ms and ends with the context, or after `Manager.LockTimeout` (default 60 s, longer than the adapter's 30 s HTTP timeout, so that waiters outlast one slow mint) with `ErrLockTimeout`. The kernel releases the lock when its process dies, so a crashed process never leaves a stale lock.
    4. Re-read the entry under the lock. Fresh → another process has just refreshed it; return it (this is what turns 20 concurrent misses into one mint).
    5. Mint with `src.Token(ctx)`. A failure returns an error that wraps the provider error (`errors.Is(err, provider.ErrUnauthorized)` and the other classes still hold) and the zero `Token`. No retry, no backoff, and no stale fallback: an entry inside the margin is not served even if it has not expired yet (A5).
    6. Check the minted token (item 8). It must also be fresh at `now`: a token whose lifetime is not longer than the margin (an expired `expires_at`, or a clock that is far off) fails with `ErrUnusableToken`, because serving it would make every later call mint again.
-   7. Write the entry atomically: `os.CreateTemp` in the same directory, `Chmod 0600` before any byte is written, write, `fsync`, close, `rename` over `<name>.json`, `fsync` the directory. On any failure, the temporary file is removed and `Token` fails with `ErrCacheWrite`; the minted token is discarded, not returned (A7).
+   7. Write the entry atomically: remove temporary files of this entry left by a crashed writer, then `os.CreateTemp` (`<name>.json.*.tmp`) in the same directory, `Chmod 0600` before any byte is written, write, `fsync`, close, `rename` over `<name>.json`, `fsync` the directory. On any failure up to the `rename`, the temporary file is removed and `Token` fails with `ErrCacheWrite`; the minted token is discarded, not returned (A7). The directory `fsync` after the `rename` is best effort: the entry is already in place, so its failure is not an error.
    8. Release the lock, return the token.
 8. **Token value check** (`checkValue`, pure): 1–4096 visible ASCII characters (`0x21`–`0x7e`), the same rule as the GitHub adapter, so neither the provider nor a tampered file can inject a newline into the credential helper protocol or the child environment. The check is provider-neutral; it does not test a prefix.
 9. **No secret leaves the package.** `Token` returns `provider.Token`, which already redacts its value under every `fmt` verb. `Manager` has no logger. Errors name the operation, the directory or file path (paths contain only the hash), and the fix; never the token, the file content, or a parser error. `Key` holds no secret.
@@ -67,7 +67,7 @@ const DefaultLockTimeout = 60 * time.Second
 var (
 	ErrInvalidKey    = errors.New("token: invalid cache key")
 	ErrNoCacheDir    = errors.New("token: no cache directory")
-	ErrInsecureCache = errors.New("token: the token cache directory is not private")
+	ErrInsecureCache = errors.New("token: the token cache is not private")
 	ErrLockTimeout   = errors.New("token: timed out waiting for the token cache lock")
 	ErrUnusableToken = errors.New("token: the provider returned an unusable token")
 	ErrCacheWrite    = errors.New("token: cannot write the token cache")
@@ -168,7 +168,9 @@ The token manager SHALL store each entry in a `0600` file inside a `0700` direct
 | `Manager.Dir` relative or empty | `ErrNoCacheDir`; nothing created. |
 | `tokens` is a symlink, has group/other bits, or another owner; or its parent `agent-id` is a symlink, group/other-writable, or another user's | `ErrInsecureCache` naming the path and the fix; no read, no mint. |
 | Lock file is a symlink, a FIFO, or another user's | `ErrInsecureCache`; no mint. |
-| Entry is a symlink, FIFO, directory, another owner's file, or not `0600` | Miss; replaced by `rename` (the symlink itself is replaced, its target is never written). |
+| Entry is a symlink, FIFO, another owner's file, or not `0600` | Miss; replaced by `rename` (the symlink itself is replaced, its target is never written). |
+| A directory in place of the entry | `ErrCacheWrite` naming the path, with the fix "remove it"; agent-id never deletes a directory. |
+| Temporary files of the entry left by a crashed writer | Removed by the next refresh of that entry, under its lock. |
 | Entry larger than 64 KiB, truncated, wrong `version`, unknown or duplicate member, stored key differs, token empty or with control characters, `expires_at` zero | Miss; replaced. |
 | Entry expired or inside the margin | Refresh under the lock. |
 | Another process holds the lock for longer than `LockTimeout` | `ErrLockTimeout`; no mint. |

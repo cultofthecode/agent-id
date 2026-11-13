@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,7 +19,7 @@ import (
 const (
 	entrySuffix   = ".json"
 	lockSuffix    = ".lock"
-	tempPattern   = ".entry-*.tmp"
+	tempSuffix    = ".tmp"
 	maxEntrySize  = 64 << 10
 	lockPollEvery = 20 * time.Millisecond
 )
@@ -92,11 +93,23 @@ func readEntry(path string, key Key, uid uint32) (token provider.Token, ok bool)
 	return decoded, err == nil
 }
 
+// lockPath returns the lock file of the entry at path: <sha256>.lock.
+func lockPath(path string) string {
+	return strings.TrimSuffix(path, entrySuffix) + lockSuffix
+}
+
 // writeEntry replaces the entry at path with data atomically: a 0600
-// temporary file in dir, synced, renamed over path, and the directory synced.
-// On failure it removes the temporary file and wraps ErrCacheWrite.
+// temporary file in dir, synced, renamed over path, and the directory synced
+// on a best-effort basis, because the entry is already in place by then. On
+// failure it removes the temporary file and wraps ErrCacheWrite. The caller
+// holds the entry's lock, so temporary files of the entry left by a crashed
+// writer are removed first.
 func writeEntry(dir, path string, data []byte) (err error) {
-	f, err := os.CreateTemp(dir, tempPattern)
+	removeStaleTemps(dir, filepath.Base(path))
+	if info, statErr := os.Lstat(path); statErr == nil && info.IsDir() {
+		return fmt.Errorf("%w: %s is a directory; remove it", ErrCacheWrite, path)
+	}
+	f, err := os.CreateTemp(dir, filepath.Base(path)+".*"+tempSuffix)
 	if err != nil {
 		return fmt.Errorf("%w: create a file in %s: %w", ErrCacheWrite, dir, cause(err))
 	}
@@ -120,22 +133,34 @@ func writeEntry(dir, path string, data []byte) (err error) {
 		return fmt.Errorf("%w: close %s: %w", ErrCacheWrite, temp, cause(err))
 	}
 	if err := os.Rename(temp, path); err != nil {
-		return fmt.Errorf("%w: replace %s: %w", ErrCacheWrite, filepath.Base(path), cause(err))
+		return fmt.Errorf("%w: replace %s: %w", ErrCacheWrite, path, cause(err))
 	}
-	return syncDir(dir)
+	syncDir(dir)
+	return nil
 }
 
-// syncDir makes a rename in dir durable.
-func syncDir(dir string) error {
+// removeStaleTemps removes the temporary files of the entry named base that
+// a crashed writer left in dir.
+func removeStaleTemps(dir, base string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if name := entry.Name(); strings.HasPrefix(name, base+".") && strings.HasSuffix(name, tempSuffix) {
+			_ = os.Remove(filepath.Join(dir, name))
+		}
+	}
+}
+
+// syncDir makes a rename in dir durable where the system allows it.
+func syncDir(dir string) {
 	d, err := os.Open(dir)
 	if err != nil {
-		return fmt.Errorf("%w: open %s: %w", ErrCacheWrite, dir, cause(err))
+		return
 	}
-	defer func() { _ = d.Close() }()
-	if err := d.Sync(); err != nil {
-		return fmt.Errorf("%w: sync %s: %w", ErrCacheWrite, dir, cause(err))
-	}
-	return nil
+	_ = d.Sync()
+	_ = d.Close()
 }
 
 // lockFile takes an exclusive flock on the lock file at path, waiting until
