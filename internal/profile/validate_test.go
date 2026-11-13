@@ -202,6 +202,16 @@ func TestParseLimitsTheClassesOfAValidator(t *testing.T) {
 	}
 }
 
+func TestParseKeepsTheStricterClassOfAValidator(t *testing.T) {
+	testenv.Isolate(t)
+	registry, err := NewRegistry(Registration{Name: "two", Validator: twoClassValidator{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Parse([]byte(profileDoc(`"p": {"provider": "two", "host": "two.test", "two": {}}`)), registry)
+	checkError(t, err, ErrInlineSecret, "profiles.p.two: classes")
+}
+
 func TestParseErrorOrder(t *testing.T) {
 	testenv.Isolate(t)
 	secret := acmePrefix + "S3cr3tV4lue"

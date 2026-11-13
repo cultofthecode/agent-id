@@ -86,8 +86,10 @@ func sanitize(s string) string {
 	return b.String()
 }
 
-// blockSentinels are the classes a provider's validator may report.
-var blockSentinels = []error{ErrConfigInvalid, ErrUnsupportedHost, ErrUnsupportedKeyReference, ErrInlineSecret}
+// blockSentinels are the classes a provider's validator may report, the
+// most urgent first: a secret must be removed and revoked before anything
+// else.
+var blockSentinels = []error{ErrInlineSecret, ErrUnsupportedHost, ErrUnsupportedKeyReference, ErrConfigInvalid}
 
 // blockSentinelOf returns the first of blockSentinels that err wraps, or
 // ErrConfigInvalid.

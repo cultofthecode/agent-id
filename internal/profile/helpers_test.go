@@ -63,6 +63,13 @@ func (v classValidator) ValidateSettings(string, json.RawMessage) error {
 	return Errorf(v.class, "class: key file not found")
 }
 
+// twoClassValidator fails with an error of two classes.
+type twoClassValidator struct{}
+
+func (twoClassValidator) ValidateSettings(string, json.RawMessage) error {
+	return &configError{sentinels: []error{ErrConfigInvalid, ErrInlineSecret}, message: "two: classes"}
+}
+
 // acmeRegistry returns a registry with the fake provider "acme".
 func acmeRegistry(t *testing.T) *Registry {
 	t.Helper()

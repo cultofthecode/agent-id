@@ -188,6 +188,15 @@ func TestWriteRestrictsTheDirectory(t *testing.T) {
 	checkMode(t, filepath.Dir(path), 0o700)
 }
 
+func TestRefusedWriteLeavesTheDirectoryMode(t *testing.T) {
+	env := testenv.Isolate(t)
+	path := writeFile(t, env, exampleConfig, 0o600)
+	chmod(t, filepath.Dir(path), 0o755)
+	err := NewStore(path, acmeRegistry(t)).Write(addAcme("Bad", 1))
+	checkError(t, err, ErrConfigInvalid, "invalid profile name")
+	checkMode(t, filepath.Dir(path), 0o755)
+}
+
 func TestWriteRefusesAnInsecureDirectory(t *testing.T) {
 	env := testenv.Isolate(t)
 	path := writeFile(t, env, exampleConfig, 0o600)

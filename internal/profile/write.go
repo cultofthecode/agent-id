@@ -28,9 +28,6 @@ func (s *Store) Write(change func(*Config) error) error {
 	if err := s.checkDir(dir); err != nil {
 		return err
 	}
-	if err := os.Chmod(dir, 0o700); err != nil {
-		return s.wrap(Errorf(ErrConfigInvalid, "cannot restrict the directory: %v", err))
-	}
 	unlock, err := lock(filepath.Join(dir, filepath.Base(s.path)+".lock"))
 	if err != nil {
 		return s.wrap(Errorf(ErrConfigInvalid, "cannot lock: %v", err))
@@ -61,6 +58,9 @@ func (s *Store) writeLocked(change func(*Config) error) error {
 	target, err := s.target()
 	if err != nil {
 		return err
+	}
+	if err := os.Chmod(filepath.Dir(s.path), 0o700); err != nil {
+		return s.wrap(Errorf(ErrConfigInvalid, "cannot restrict the directory: %v", err))
 	}
 	if err := replaceFile(target, data); err != nil {
 		return s.wrap(Errorf(ErrConfigInvalid, "cannot write: %v", err))
