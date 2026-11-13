@@ -1,0 +1,66 @@
+name: release
+
+# Publishes a GitHub Release for an annotated SemVer tag v* on main (issue
+# #11, RELEASING.md): four archives (darwin and linux, amd64 and arm64),
+# checksums.txt, and a build provenance attestation. The only credential is
+# the default GITHUB_TOKEN.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: fetch the annotated tag and main
+        run: git fetch --force --no-tags origin "+refs/tags/${TAG}:refs/tags/${TAG}" "+refs/heads/main:refs/remotes/origin/main"
+      - name: check the tag
+        run: sh .github/scripts/check-release-tag.sh "$TAG" origin/main
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./...
+      - name: build for this runner
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser
+          version: v2.19.0
+          args: build --clean --single-target --id agent-id
+      - name: check the version of the binary
+        run: sh .github/scripts/check-release-binary.sh dist/agent-id_linux_amd64_v1/agent-id "$TAG"
+      - name: release
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser
+          version: v2.19.0
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: dist/checksums.txt
