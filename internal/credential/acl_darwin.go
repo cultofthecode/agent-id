@@ -1,7 +1,6 @@
 package credential
 
 import (
-	"encoding/binary"
 	"os"
 	"syscall"
 	"unsafe"
@@ -10,7 +9,6 @@ import (
 const (
 	attrBitmapCount         = 5
 	attrCmnExtendedSecurity = 0x00400000
-	attrReferenceStart      = 4
 )
 
 type attrList struct {
@@ -26,9 +24,8 @@ type attrList struct {
 // extendedACL reports whether the opened file carries an access control list
 // (chmod +a). The ACL does not show in the mode bits, and fgetxattr refuses
 // the com.apple.system.Security attribute that holds it, so the descriptor is
-// asked for ATTR_CMN_EXTENDED_SECURITY through fgetattrlist. The first four bytes
-// hold the total length returned, which must cover the attribute reference;
-// a reference of length zero means no ACL.
+// asked for ATTR_CMN_EXTENDED_SECURITY through fgetattrlist. parseACLBuffer
+// reads the reply.
 func extendedACL(file *os.File) (bool, error) {
 	list := attrList{bitmapCount: attrBitmapCount, common: attrCmnExtendedSecurity}
 	buf := make([]byte, 64<<10)
@@ -37,10 +34,5 @@ func extendedACL(file *os.File) (bool, error) {
 	if errno != 0 {
 		return false, errno
 	}
-	total := binary.NativeEndian.Uint32(buf)
-	if total < attrReferenceStart+8 || int(total) > len(buf) {
-		return false, syscall.EINVAL
-	}
-	length := binary.NativeEndian.Uint32(buf[attrReferenceStart+4:])
-	return length != 0, nil
+	return parseACLBuffer(buf)
 }
