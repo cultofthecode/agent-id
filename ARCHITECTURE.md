@@ -124,6 +124,7 @@ The GitHub values below come from the GitHub adapter's identity, credential help
 - Configuration: only `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n`, appended after any inherited entries so that inherited process-scoped configuration is preserved or handled explicitly, never replaced blindly.
 - Credentials: an empty `credential.helper` entry resets inherited helpers for `https://github.com`, then the agent-id helper; `credential.useHttpPath` where repository scope matters. The helper answers only for `protocol=https` and the profile's host, and refuses any other host, look-alike host, or protocol (fail closed).
 - Transport: GitHub SSH remotes (`git@github.com:`, `ssh://git@github.com/`) are rewritten to HTTPS inside the context; push URLs and `http.extraHeader` are checked by `doctor`.
+- Supported paths and documented bypasses (decisions O1–O4, Key decisions): `exec` refuses to start while a GitHub remote still resolves to SSH after the rewrites (O1) or while an inherited `GIT_CONFIG_PARAMETERS` carries `credential`, `url`, `http`, or signing keys (O2; otherwise the variable is kept and `doctor` reports it); the SSH fallback after a personal rewrite is documented and detected by `doctor` (O3; a `GIT_SSH_COMMAND` shim is Phase 3, #4); Git 2.43 is the minimum supported version (O4).
 - Signing: inherited personal commit and tag signing is turned off in agent mode unless an explicit agent signing configuration exists. Commit metadata is attribution, not proof of origin.
 
 ## GitHub CLI integration (brief §9.3)
