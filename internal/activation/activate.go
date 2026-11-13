@@ -46,6 +46,13 @@ type Request struct {
 type Activation struct {
 	Env  []string
 	Drop []string
+	// Unshadow lists command names whose shell functions and aliases the
+	// env rendering removes.
+	Unshadow []string
+	// PathPrepend lists the directories put first on PATH.
+	PathPrepend []string
+	// TokenPrefixes are the provider's token prefixes, for the render guard.
+	TokenPrefixes []string
 }
 
 // coreDrop are the variables of every provider that a prompt or helper could
@@ -95,6 +102,10 @@ func Activate(ctx context.Context, d Deps, r Request) (Activation, error) {
 	}
 	plan := PlanFor(r, a, paths)
 	plan = withGit(plan, git)
+	plan, err = withTransport(plan, a)
+	if err != nil {
+		return Activation{}, err
+	}
 	env, err := Build(r.Parent, plan)
 	if err != nil {
 		return Activation{}, err
@@ -104,7 +115,10 @@ func Activate(ctx context.Context, d Deps, r Request) (Activation, error) {
 			return Activation{}, err
 		}
 	}
-	return Activation{Env: env, Drop: plan.Drop}, nil
+	return Activation{
+		Env: env, Drop: plan.Drop, Unshadow: plan.Unshadow,
+		PathPrepend: plan.PathPrepend, TokenPrefixes: plan.TokenPrefixes,
+	}, nil
 }
 
 // PlanFor returns the plan of #20: the context, the drop list, and the
@@ -131,6 +145,7 @@ func PlanFor(r Request, a provider.Activator, paths NeutralPaths) Plan {
 			{Key: "core.askPass", Value: ""},
 		},
 		PathPrepend:   []string{paths.BinDir},
+		Unshadow:      []string{"git", cli.Binary},
 		TokenPrefixes: a.TokenPrefixes(),
 	}
 }
