@@ -7,7 +7,7 @@ Claim: run `11a23a94-d263-4590-aefe-76ac00208ec4`, lock `refs/om-locks/issue-14`
 
 ## Goal
 
-Record, for a GitHub App installation token in `GH_TOKEN`, which common `gh` commands work, how `gh` picks its token and host, and which error aidentity should show for unsupported user-centric commands.
+Record, for a GitHub App installation token in `GH_TOKEN`, which common `gh` commands work, how `gh` picks its token and host, and which error agent-id should show for unsupported user-centric commands.
 
 ## Scope
 

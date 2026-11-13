@@ -27,7 +27,7 @@ Evidence codes in the tables: **S** source, **X** offline experiment, **D** GitH
 
 ## How gh picks its token
 
-`gh` resolves a token for the host of each request (`cli@v2.103.3:api/http_client.go:186-201`), through `AuthConfig.ActiveToken` (`cli@v2.103.3:internal/config/config.go:295-330`):
+`gh` resolves a token for the host of each request through `AddAuthTokenHeaderWithRefresh` (`cli@v2.103.3:api/http_client.go:206`), which calls `AuthConfig.ActiveTokenWithRefresh` (`cli@v2.103.3:internal/config/config.go:332-344`). That function takes the credential from `AuthConfig.ActiveToken` (`config.go:295-330`) and refreshes it only when it is a refreshable OAuth credential, so refresh never applies to a token from an environment variable. (`AddAuthTokenHeader`, `http_client.go:186-201`, is the backward-compatible entry point for external callers and uses the same order.)
 
 | Order | `github.com`, `*.github.com`, `*.ghe.com`, `github.localhost` | Any other host (GitHub Enterprise Server) | Evidence |
 |---|---|---|---|
@@ -54,13 +54,13 @@ Facts that matter for the injection:
 | `--hostname` (`gh api`, `gh auth *`) | Explicit host for that command. | S |
 | `-R/--repo [HOST/]OWNER/REPO`, then `GH_REPO` | Overrides the git remotes completely. The host part, when present, selects the token family. | S `cli@v2.103.3:pkg/cmdutil/repo_override.go:75-85`; `gh help environment` |
 | git remotes of the current directory | Sorted `upstream`, `github`, `origin`, then the others; filtered to hosts that have a token (env or `hosts.yml`) plus `github.com` and the default host; the first one wins. | S `cli@v2.103.3:pkg/cmd/factory/remote_resolver.go:34-90`, `pkg/cmd/factory/default.go:58-90` |
-| `GH_HOST` | Default host when nothing above names one. With `GH_HOST` set, remotes on other hosts are dropped **without fallback**; `gh` fails if none matches. | S `remote_resolver.go:72-86`; X case 11 |
+| `GH_HOST` | Default host when nothing above names one. With `GH_HOST` set, remotes on other hosts are dropped **without fallback**; `gh` fails if none matches. | S `remote_resolver.go:72-86`; X case 11 (the mirror case: remote on `github.com`, `GH_HOST` on another host) |
 | `hosts.yml` with exactly one host | Default host when `GH_HOST` is unset. | S `go-gh@v2.17.0:pkg/auth/auth.go:146-156` |
 | none | `github.com`. | S same |
 
 Consequences:
 
-- `GH_HOST=github.com` makes repository commands fail closed when the only remote is on another host: `none of the git remotes configured for this repository correspond to the GH_HOST environment variable. Try adding a matching remote or unsetting the variable` (X case 11).
+- `GH_HOST=github.com` makes repository commands fail closed when the only remote is on another host: `none of the git remotes configured for this repository correspond to the GH_HOST environment variable. Try adding a matching remote or unsetting the variable`. X case 11 shows this on the mirror case (remote on `github.com`, `GH_HOST=ghe.example.test`); both directions go through the same branch of `remote_resolver.go:72-86`.
 - `-R`, `GH_REPO`, and `--hostname` **bypass** that filter. `gh pr list -R ghe.example.com/o/r` inside the agent context reads the developer's enterprise credential from `hosts.yml` or the keyring. Removing `GH_ENTERPRISE_TOKEN` makes this worse, not better, for that host: the fallback is the personal credential. The wrapper must refuse a host other than the profile's host (open question 4).
 - An inherited `GH_HOST=<enterprise host>` with an injected `GH_TOKEN` makes `gh` use the enterprise variables or the personal enterprise credential, not the injected token (X case 6). The wrapper must pin `GH_HOST`.
 
@@ -68,14 +68,14 @@ Consequences:
 
 Assumptions: `GH_TOKEN` holds an installation token (`ghs_…`) of the profile's App; the host is `github.com`; the repository is one the installation can access; `gh` runs without a TTY, as agents usually run it. "Permission" names the GitHub App permission that the operation is expected to need. It is inferred from the resource that the endpoint touches, not checked against GitHub's per-endpoint permission tables; confirm the exact set in **E2E**.
 
-Legend: ✅ works · ⚠️ works with a limit that the agent must know · ⛔ user-centric or unsafe: aidentity should stop it with the error in the next section (code in the last column).
+Legend: ✅ works · ⚠️ works with a limit that the agent must know · ⛔ user-centric or unsafe: agent-id should stop it with the error in the next section (code in the last column).
 
 ### pr
 
 | Command | Status | Behavior and limits | Permission | Evidence | Error |
 |---|---|---|---|---|---|
 | `pr create --title … --body …` (branch already pushed, or `--head`) | ✅ | Creates the PR as `<app-slug>[bot]`. | Pull requests: write; Contents: read | S, D, E2E | — |
-| `pr create` (branch not pushed, no TTY) | ⚠️ | `aborted: you must first push the current branch to a remote, or use the --head flag` (`pr/create/create.go:1006-1008`). Push with `git push` first; Git uses the aidentity credential helper. | — | S | — |
+| `pr create` (branch not pushed, no TTY) | ⚠️ | `aborted: you must first push the current branch to a remote, or use the --head flag` (`pr/create/create.go:1006-1008`). Push with `git push` first; Git uses the agent-id credential helper. | — | S | — |
 | `pr create` (interactive, no push access) | ⛔ | Calls the viewer login (`create.go:1027`) and offers to fork into the viewer's account. An installation has no user account to fork into. | — | S, E2E | `AID-GH-USER` |
 | `pr create --assignee @me`, `--reviewer @me`, `pr edit --add-assignee @me` | ⛔ | `@me` becomes the bot login (`pr/shared/params.go:298-314`). A bot cannot be assigned or requested as a reviewer (E2E). | — | S, E2E | `AID-GH-ME` |
 | `pr create --project …` | ⚠️ | Needs organization Projects permission; without it the call fails. | Projects (organization): write | S, D | — |
@@ -84,7 +84,7 @@ Legend: ✅ works · ⚠️ works with a limit that the agent must know · ⛔ u
 | `pr merge` | ✅ | `--auto` needs auto-merge enabled on the repository; `--admin` works only if the App is a bypass actor of the rules; a PR that changes `.github/workflows/` needs Workflows: write; `--delete-branch` deletes the remote branch through the API and the local branch through Git. | Contents: write; Pull requests: write | S, D, E2E | — |
 | `pr comment` | ✅ | `--edit-last` / `--delete-last` act on the last comment of the bot, not of the developer. | Pull requests: write (or Issues: write) | S, D | — |
 | `pr status` | ⚠️ | Runs as the bot: "created by you" and "requesting your review" describe the bot (`pr/status/status.go:137`, `pr/status/http.go:189-198`). Not useful to the agent; harmless. | Pull requests: read | S | — |
-| `pr checkout`, `pr diff`, `pr checks` | ✅ | `checkout` fetches through Git and the aidentity credential helper. `pr checks --watch` can outlive the token (see Token lifetime). | Pull requests: read; Checks: read | S | — |
+| `pr checkout`, `pr diff`, `pr checks` | ✅ | `checkout` fetches through Git and the agent-id credential helper. `pr checks --watch` can outlive the token (see Token lifetime). | Pull requests: read; Checks: read | S | — |
 
 ### issue
 
@@ -114,7 +114,7 @@ Legend: ✅ works · ⚠️ works with a limit that the agent must know · ⛔ u
 |---|---|---|---|---|---|
 | `repo view` (current repository), `repo view OWNER/REPO` | ✅ | — | Metadata: read | S | — |
 | `repo view NAME`, `repo clone NAME` (no owner) | ⛔ | The owner becomes the viewer login (`repo/view/view.go:98-104`, `repo/clone/clone.go:148-156`), so `gh` looks for `<app-slug>[bot]/NAME` and fails with "not found". | — | S, E2E | `AID-GH-ME` |
-| `repo clone OWNER/REPO` | ✅ | `gh` looks the repository up through the API, then runs `git clone`; the transport uses the aidentity credential helper. Adds an `upstream` remote for forks. | Metadata: read; Contents: read | S | — |
+| `repo clone OWNER/REPO` | ✅ | `gh` looks the repository up through the API, then runs `git clone`; the transport uses the agent-id credential helper. Adds an `upstream` remote for forks. | Metadata: read; Contents: read | S | — |
 | `repo create`, `repo fork`, `repo list` (no owner) | ⛔ | Personal account operations (`repo/create/create.go:374`, `repo/create/http.go:117`, `repo/list/http.go:178`). | — | S | `AID-GH-USER` |
 | `repo edit`, `repo archive`, `repo delete`, `repo set-default` | ⚠️ | `edit/archive/delete` need Administration: write. `set-default` writes the repository's `.git/config` (local to the repository, not the developer's global configuration). | Administration: write | S, D | — |
 
@@ -122,12 +122,12 @@ Legend: ✅ works · ⚠️ works with a limit that the agent must know · ⛔ u
 
 | Command | Status | Behavior and limits | Evidence | Error |
 |---|---|---|---|---|
-| `auth status` | ⛔ | With an env token it asks the API for the viewer login and the token scopes (`auth/status/status.go:486-500`). It also walks **every host and every account in the developer's `hosts.yml`** and validates their tokens over the network (`status.go:279-360`), printing the developer's logins. | S | `AID-GH-AUTH` |
+| `auth status` | ⛔ | With an env token it asks the API for the viewer login and the token scopes (`auth/status/status.go:486-500`). It also walks **every host and every account in the developer's `hosts.yml`** and validates their tokens over the network (`status.go:279-360`), printing the developer's logins. `-h <host>` limits the walk to one host (`status.go:311`) and `--active` skips the non-active accounts (`status.go:336`); neither changes the verdict. | S | `AID-GH-AUTH` |
 | `auth token` | ⛔ | Prints the active token, i.e. the installation token (`auth/token/token.go:63-90`). | S, X (cases 1–10 use it with fake tokens) | `AID-GH-AUTH` |
 | `auth login`, `auth switch`, `auth logout`, `auth refresh` on `github.com` | ⛔ | `gh` refuses while `GH_TOKEN` is set: `The value of the GH_TOKEN environment variable is being used for authentication.` / `To have GitHub CLI store credentials instead, first clear the value from the environment.` (`login.go:222-226`, `switch.go:159`, `logout.go:148`, `refresh.go:192`; X case 13). | S, X | `AID-GH-AUTH` |
 | the same with `--hostname <other host>` | ⛔ | The guard checks that host's variables, so it passes, and `gh` writes the developer's `hosts.yml` or keyring. | S | `AID-GH-AUTH` |
 | `auth setup-git` | ⛔ | Runs `git config --global` to install `gh` as the credential helper for `github.com` and `gist.github.com` (`auth/shared/gitcredentials/helper_config.go:41-56`). X case 14 shows the four entries it wrote to the isolated global Git configuration. Outside isolation this changes the developer's `~/.gitconfig`. | S, X | `AID-GH-AUTH` |
-| `auth git-credential` | ⚠️ | Not called by agents directly; Git calls it when the developer's global configuration lists `!gh auth git-credential`. With `GH_TOKEN` set it answers `username=x-access-token` and the installation token (`auth/gitcredential/helper.go:16`, `:120-147`), without aidentity's host and path checks. The Git integration resets inherited helpers (`ARCHITECTURE.md`, Git integration), so this path should not run in agent mode. | S | — |
+| `auth git-credential` | ⚠️ | Not called by agents directly; Git calls it when the developer's global configuration lists `!gh auth git-credential`. With `GH_TOKEN` set it answers `username=x-access-token` and the installation token (`auth/gitcredential/helper.go:16`, `:120-147`), without agent-id's host and path checks. The Git integration resets inherited helpers (`ARCHITECTURE.md`, Git integration), so this path should not run in agent mode. | S | — |
 
 ### run
 
@@ -156,17 +156,17 @@ Legend: ✅ works · ⚠️ works with a limit that the agent must know · ⛔ u
 | `agent-task *` | `gh` refuses non-OAuth tokens itself: `this command requires an OAuth token. Re-authenticate with: gh auth login` (`agent-task/agent_task.go:90-106`). The hint would send the agent to `gh auth login`. | S | `AID-GH-USER` |
 | `extension install/upgrade/create` | Installs into the developer's `gh` data directory; `create` reads the viewer login (`extension/manager.go:688`). Out of scope for an agent identity. | S | `AID-GH-USER` |
 
-## Proposed aidentity error messages
+## Proposed agent-id error messages
 
-Every message goes to stderr, starts with `aidentity:`, names the profile, the bot, and the command, never contains a token, and ends with what the agent can do instead. The wrapper exits non-zero without starting `gh`. Exact exit code: open question 3.
+Every message goes to stderr, starts with `agent-id:`, names the profile, the bot, and the command, never contains a token, and ends with what the agent can do instead. The wrapper exits non-zero without starting `gh`. Exact exit code: open question 3.
 
 | Code | When | Message |
 |---|---|---|
-| `AID-GH-USER` | A command that needs a user account | `aidentity: "gh <command>" needs a personal GitHub account and does not work with the GitHub App identity <bot> (profile <profile>). Run it in your own terminal, outside the agent context.` |
-| `AID-GH-ME` | `@me`, or a repository name without an owner | `aidentity: "@me" and repository names without an owner resolve to the App identity <bot> (profile <profile>), not to a person. Name the user or the OWNER/REPO explicitly.` |
-| `AID-GH-AUTH` | `gh auth login/logout/switch/refresh/setup-git/status/token` | `aidentity: "gh auth <subcommand>" is managed by aidentity in agent mode (profile <profile>, identity <bot>). Use "aidentity whoami" to see the active identity and "aidentity doctor" to check credentials.` |
-| `AID-GH-HOST` | `--hostname`, `-R HOST/…`, `GH_REPO=HOST/…`, or a remote on a host other than the profile's | `aidentity: profile <profile> is configured for <profile host>; "gh" was asked to use <requested host>. aidentity does not send another host's credentials from the agent context.` |
-| `AID-GH-TOKEN` | No token could be obtained (fail closed, brief §8) | `aidentity: could not obtain an installation token for profile <profile> (<reason without secrets>). gh was not started; run "aidentity doctor".` |
+| `AID-GH-USER` | A command that needs a user account | `agent-id: "gh <command>" needs a personal GitHub account and does not work with the GitHub App identity <bot> (profile <profile>). Run it in your own terminal, outside the agent context.` |
+| `AID-GH-ME` | `@me`, or a repository name without an owner | `agent-id: "@me" and repository names without an owner resolve to the App identity <bot> (profile <profile>), not to a person. Name the user or the OWNER/REPO explicitly.` |
+| `AID-GH-AUTH` | `gh auth login/logout/switch/refresh/setup-git/status/token` | `agent-id: "gh auth <subcommand>" is managed by agent-id in agent mode (profile <profile>, identity <bot>). Use "agent-id whoami" to see the active identity and "agent-id doctor" to check credentials.` |
+| `AID-GH-HOST` | `--hostname`, `-R HOST/…`, `GH_REPO=HOST/…`, or a remote on a host other than the profile's | `agent-id: profile <profile> is configured for <profile host>; "gh" was asked to use <requested host>. agent-id does not send another host's credentials from the agent context.` |
+| `AID-GH-TOKEN` | No token could be obtained (fail closed, brief §8) | `agent-id: could not obtain an installation token for profile <profile> (<reason without secrets>). gh was not started; run "agent-id doctor".` |
 
 ## Input for E02-S09 (the injection)
 
@@ -179,18 +179,18 @@ These follow from the evidence. They do not decide the open questions below.
 - Resolve the real `gh` by absolute path, skipping the wrapper itself, and mark the child environment so the wrapper detects a nested call. Calls back into `gh` through `GH_PATH` from extensions (`extension/manager.go:134`) and the absolute path that `auth setup-git` writes reach the real `gh` directly; they inherit the injected `GH_TOKEN`, which is correct.
 - A **shell function or alias named `gh`** in the developer's startup files shadows a wrapper on `PATH` in every interactive or login shell that the agent starts. A function that sets `GH_TOKEN` from another tool replaces the injected token without any error. Claude Code runs its shell commands with the user's profile loaded. `doctor` should report `type gh` when it is not the expected executable.
 - Token lifetime: installation tokens last about one hour (brief §10). Long-running commands (`run watch`, `pr checks --watch`) keep the token that they started with. The token manager should hand the wrapper a token with enough remaining life; the margin belongs to the token manager's design.
-- `GH_DEBUG=api` logs request headers. go-gh configures its logger with header logging on (`go-gh@v2.17.0:pkg/api/http_client.go:101-113`); this analysis did not verify that the logger masks `Authorization`. Treat debug output as sensitive until that is checked.
+- `GH_DEBUG=api` logs request and response headers and bodies (`go-gh@v2.17.0:pkg/api/http_client.go:101-113`). The logger is `henvic/httpretty` v0.2.0, whose default sanitizers mask `Authorization` and `Proxy-Authorization` (`internal/header/header.go:39-49`, applied in `printer.go:742` unless `SkipSanitize` is set); neither `cli` nor `go-gh` sets `SkipSanitize`. The token header therefore does not leak. Response bodies are logged in full, so treat debug output as sensitive for endpoints that return credentials.
 
 ## Open questions for the owner
 
 The issue has no open questions, and this research does not resolve any. The design of E02-S09 needs these answers; they are listed here so that the injection ticket can carry `needs-decision` where it applies.
 
-1. **`GH_CONFIG_DIR` in agent mode.** Keep the developer's directory (aliases, extensions, editor, pager stay; `hosts.yml` remains readable for other hosts) or point it at an aidentity-owned directory (removes the `hosts.yml` fallback but not the unkeyed keyring entry, and loses the developer's `gh` settings).
+1. **`GH_CONFIG_DIR` in agent mode.** Keep the developer's directory (aliases, extensions, editor, pager stay; `hosts.yml` remains readable for other hosts) or point it at an agent-id-owned directory (removes the `hosts.yml` fallback but not the unkeyed keyring entry, and loses the developer's `gh` settings).
 2. **Deny-list or allow-list.** Block the ⛔ commands above and pass everything else (closer to brief §3 principle 2, "native workflows"), or pass only the ✅ commands.
 3. **Exit code** of a refused command: `1`, or a dedicated code that scripts can match.
 4. **Cross-host arguments.** Parse `--hostname`, `-R`, and `GH_REPO` in the wrapper and refuse other hosts, or document them as a known bypass of local mode (brief §10).
 5. **Process tests for `gh`.** `gh` reaches a local fake only through `github.localhost` (plain HTTP on port 80, outside the allowed port range) or an HTTPS fake whose certificate `gh` trusts. Choose one for `internal/ghint` process tests, or keep `gh` process tests to the offline checks of appendix A.
-6. **`gh auth status` and `gh auth token`.** Refuse both (as proposed), or answer `auth status` with aidentity's own identity summary for tools that call it to check authentication.
+6. **`gh auth status` and `gh auth token`.** Refuse both (as proposed), or answer `auth status` with agent-id's own identity summary for tools that call it to check authentication.
 
 ## Appendix A — offline experiment
 
