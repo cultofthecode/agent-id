@@ -86,7 +86,7 @@ func TestFileRejectsWorldReadableKey(t *testing.T) {
 	path := filepath.Join(env.Home, "app.pem")
 	writeKey(t, path, pkcs1PEM(t), 0o644)
 	key, err := File{Path: path}.PrivateKeyPEM()
-	assertRejected(t, key, err, ErrInsecureKeyFile, "private key "+path+":", "mode 0644", "run chmod 600 "+path)
+	assertRejected(t, key, err, ErrInsecureKeyFile, "private key ~/app.pem:", "mode 0644", "run chmod 600 ~/app.pem")
 }
 
 func TestFileRejectsSymlinkToWorldReadableKey(t *testing.T) {
@@ -102,7 +102,7 @@ func TestFileRejectsSymlinkToWorldReadableKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	key, err := File{Path: link}.PrivateKeyPEM()
-	assertRejected(t, key, err, ErrInsecureKeyFile, "private key "+link+" (symlink to "+resolved+")", "run chmod 600 "+resolved)
+	assertRejected(t, key, err, ErrInsecureKeyFile, "private key ~/app.pem (symlink to "+resolved+")", "run chmod 600 "+resolved)
 }
 
 func TestFileRejectsChainedSymlinkToWorldReadableKey(t *testing.T) {
@@ -130,7 +130,7 @@ func TestFileRejectsMissingKey(t *testing.T) {
 	}
 	for _, path := range []string{missing, dangling} {
 		key, err := File{Path: path}.PrivateKeyPEM()
-		assertRejected(t, key, err, ErrKeyNotFound, "private key "+path, "mode 0600")
+		assertRejected(t, key, err, ErrKeyNotFound, "private key ~/"+filepath.Base(path), "mode 0600")
 	}
 }
 
@@ -159,7 +159,7 @@ func TestFileRejectsUnreadableKey(t *testing.T) {
 	writeKey(t, path, pkcs1PEM(t), 0)
 	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
 	key, err := File{Path: path}.PrivateKeyPEM()
-	assertRejected(t, key, err, ErrKeyUnreadable, "private key "+path)
+	assertRejected(t, key, err, ErrKeyUnreadable, "private key ~/app.pem")
 }
 
 func TestFileRejectsInvalidContent(t *testing.T) {
@@ -179,7 +179,7 @@ func TestFileRejectsInvalidContent(t *testing.T) {
 			path := filepath.Join(env.Home, name)
 			writeKey(t, path, tc.data, 0o600)
 			key, err := File{Path: path}.PrivateKeyPEM()
-			assertRejected(t, key, err, ErrInvalidKey, "private key "+path+":", tc.want)
+			assertRejected(t, key, err, ErrInvalidKey, "private key ~/"+name+":", tc.want)
 		})
 	}
 }
@@ -258,6 +258,9 @@ func assertRejected(t *testing.T, key []byte, err error, sentinel error, want ..
 	}
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("error = %v, want %v", err, sentinel)
+	}
+	if home := os.Getenv("HOME"); home != "" && strings.Contains(err.Error(), home) {
+		t.Errorf("error = %q, want the home directory shown as ~", err)
 	}
 	for _, w := range want {
 		if !strings.Contains(err.Error(), w) {
