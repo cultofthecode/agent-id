@@ -265,7 +265,7 @@ func doctorText(r DoctorReport) string {
 	for _, res := range r.Results {
 		text := res.Title
 		if res.Detail != "" {
-			text = res.Detail
+			text += ": " + res.Detail
 		}
 		if res.Source != "" {
 			text += " (" + res.Source + ")"

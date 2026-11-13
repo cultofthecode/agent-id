@@ -30,9 +30,9 @@ func (g ExecGit) Version(ctx context.Context) (string, error) {
 // RemoteURLs implements Git. The URLs are as Git resolves them, with its
 // rewrite rules, so that a personal insteadOf rule to SSH shows.
 func (g ExecGit) RemoteURLs(ctx context.Context) ([]string, bool, error) {
-	if _, err := g.run(ctx, "rev-parse", "--git-dir"); err != nil {
+	if stderr, err := g.runStderr(ctx, "rev-parse", "--git-dir"); err != nil {
 		var exit *exec.ExitError
-		if errors.As(err, &exit) {
+		if errors.As(err, &exit) && strings.Contains(stderr, "not a git repository") {
 			return nil, false, nil
 		}
 		return nil, false, err
@@ -55,15 +55,30 @@ func (g ExecGit) RemoteURLs(ctx context.Context) ([]string, bool, error) {
 // run runs git with args under the gatherer timeout. The error names the
 // failed command, never its output, which could hold a credential.
 func (g ExecGit) run(ctx context.Context, args ...string) (string, error) {
+	out, _, err := g.exec(ctx, args...)
+	return out, err
+}
+
+// runStderr is run for a command whose failure must be told apart by what
+// git says: it returns stderr, which the caller only matches and never
+// shows.
+func (g ExecGit) runStderr(ctx context.Context, args ...string) (string, error) {
+	_, stderr, err := g.exec(ctx, args...)
+	return stderr, err
+}
+
+// exec runs git with args under the gatherer timeout, in the C locale so
+// that the messages that callers match do not depend on the user's language.
+func (g ExecGit) exec(ctx context.Context, args ...string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, gathererTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = g.Dir
-	cmd.Env = append(append([]string(nil), g.Env...), "GIT_TERMINAL_PROMPT=0")
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
+	cmd.Env = append(append([]string(nil), g.Env...), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git %s: %w", args[0], err)
+		return "", stderr.String(), fmt.Errorf("git %s: %w", args[0], err)
 	}
-	return stdout.String(), nil
+	return stdout.String(), "", nil
 }
