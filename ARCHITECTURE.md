@@ -1,6 +1,6 @@
 # Architecture — agent-id
 
-The code so far is the composition root in `cmd/agent-id` (root command and `--version`) and the test isolation helpers in `internal/testenv`. Every other module below is **planned**. This file records the target structure so that new code follows it. Rows marked **OPEN** are undecided: they mirror `PRODUCT_BRIEF.md` §14 and the design questions of §9.4, and code must not assume an answer. Keep this file current as the system changes; agents read it (through `AGENTS.md`) before structural changes.
+The code so far is the composition root in `cmd/agent-id` (root command and `--version`) and the test helpers in `internal/testenv`, `internal/provider/providertest`, and `internal/provider/github/githubtest`, with the provisional provider interface in `internal/provider`. Every other module below is **planned**. This file records the target structure so that new code follows it. Rows marked **OPEN** are undecided: they mirror `PRODUCT_BRIEF.md` §14 and the design questions of §9.4, and code must not assume an answer. Keep this file current as the system changes; agents read it (through `AGENTS.md`) before structural changes.
 
 ## Purpose and scope
 
@@ -37,13 +37,13 @@ The layout follows orbit: a vertical slice architecture adjusted to Go. A **modu
 ```text
 cmd/agent-id/              composition root: build adapters, wire slices, run            (exists)
 internal/
-  testenv/                 test isolation: temporary HOME/XDG/Git/gh config, fake GitHub (exists)
+  testenv/                 test isolation: temporary HOME/XDG/Git/gh config, network guard, fake host API, HTTPS Git server, bare repositories (exists)
   profile/                 module: profile config (non-secret metadata, key references) (planned)
   credential/              module: private key sources: protected file; keyring OPEN     (planned)
-  provider/                port: the forge provider interface and its contract tests      (planned)
-    providertest/          fake provider and the contract suite every adapter must pass
-    github/                adapter: GitHub App JWT, installation tokens, bot identity, gh (planned)
-      githubtest/          deterministic fake responses built on testenv.FakeGitHub
+  provider/                code-host boundary (ADR #35): Provider interface, provider errors (exists, provisional)
+    providertest/          provider contract (RunContract) and a provider-neutral Fake for core tests (exists)
+    github/                adapter: GitHub App JWT, installation tokens, bot identity, gh  (planned, #15)
+      githubtest/          fake GitHub App on testenv.FakeAPI, also behind provider.Provider (exists)
   token/                   module: token cache per provider/host/app/installation/scope, refresh (planned)
   activation/              module: child environment of exec and env (pure), activation  (planned)
     exec/  env/            slices: agent-id exec, agent-id env
@@ -59,10 +59,12 @@ internal/
 | Component | Location (planned) | Responsibility (brief §9.2) | Depends on |
 |---|---|---|---|
 | Composition root | `cmd/agent-id` | Builds the adapters, adds the cobra command of every slice, prints errors, sets the exit code. No behavior. | every module |
-| Test isolation | `internal/testenv` | Isolated environment, fake GitHub, port allocation in 18000–18999. Test files only. | — |
+| Test isolation | `internal/testenv` | Isolated environment, network guard, provider-neutral fake host API, HTTPS Git server, bare repositories, binary builds, port allocation in 18000–18999, check that a run left the personal configuration unchanged. Test files and test helper packages only. | — |
+| Provider contract | `internal/provider/providertest` | `RunContract`, which every provider passes, and `Fake`, the provider that core tests use. Test files only. | `provider`, `testenv` |
+| Fake GitHub App | `internal/provider/github/githubtest` | The App, installation-token, installation-repository, and bot-user endpoints with a per-test key and controllable expiry and failures; `App.Provider` puts it behind `provider.Provider`. Tests of the GitHub adapter only. | `provider`, `testenv` |
 | Profile store | `internal/profile` | Persist non-secret metadata and references to securely stored credentials; resolve the active profile. | `kernel` |
 | Credential source | `internal/credential` | Load the App private key from its reference; check file permissions; keyring backend behind an interface. Receives a `profile.KeyRef`; never parses the config and never knows the provider. | `profile`, `kernel` |
-| Provider interface | `internal/provider` | The port through which the core reaches a Git forge: authentication and tokens, bot identity, per-host credential helper data, CLI integration, host and URL mapping (see Provider abstraction). Defines no forge-specific type. | `kernel` |
+| Provider interface | `internal/provider` | The port through which the core reaches a Git forge: authentication and tokens, bot identity, per-host credential helper data, CLI integration, host and URL mapping (see Provider abstraction). Defines no forge-specific type. Exists as v0, an internal interface that may still change: #15 settles its final shape and #22 adds the SSH→HTTPS mapping. | `kernel` |
 | GitHub adapter | `internal/provider/github` | Implements the provider interface for GitHub.com: sign the App JWT, mint installation tokens, resolve the bot login, numeric id and noreply email, validate repository access, describe `gh`, decode and validate the `github` block of a profile (#9). The only package with GitHub-specific code. | `provider`, `profile`, `kernel` |
 | Token manager | `internal/token` | Cache tokens with restrictive permissions, atomic writes and a cross-process lock; refresh ahead of expiry; never expose a token. | `provider`, `kernel` |
 | Context runtime | `internal/activation` | Build the child environment as a pure function, start the child, preserve exit status and signals, detect nesting. Takes the adapter registered for the resolved profile's `provider` and hands it to `gitint` and `cliint`. | `profile`, `provider`, `gitint`, `cliint`, `kernel` |
@@ -84,10 +86,10 @@ internal/
 3. A module uses another module only through that module's root package.
 4. `kernel` imports nothing from this repository.
 5. A security decision is a pure function in a module, not logic in a handler or a command: the child environment, the credential helper's answer for a request, the token cache key, the conflict checks of `doctor`, redaction. Handlers load, call the function, and act on the result.
-6. Only test files import `internal/testenv`.
-7. No GitHub-specific import outside `internal/provider/github`: GitHub types, API clients and libraries, hostnames such as `github.com` and `api.github.com`, App JWT and installation-token details, and `gh` wiring live in the adapter. Every other package uses the `internal/provider` interface. Exceptions: `cmd/agent-id` constructs the adapter (rule 1); the test-only package `internal/testenv` holds the fake GitHub and the list of inherited GitHub variables that `Isolate` removes, and test files may use them. A Go import path that merely lives on GitHub, such as this repository's own module path `github.com/cultofthecode/agent-id`, is not GitHub-specific.
+6. Only test files import `internal/testenv`, `internal/provider/providertest`, and `internal/provider/github/githubtest`; those helper packages are the only non-test packages that import `testenv`. Core tests use `providertest.Fake`, never `githubtest`.
+7. No GitHub-specific import outside `internal/provider/github`: GitHub types, API clients and libraries, hostnames such as `github.com` and `api.github.com`, App JWT and installation-token details, and `gh` wiring live in the adapter. Every other package uses the `internal/provider` interface. Exceptions: `cmd/agent-id` constructs the adapter (rule 1); the test-only package `internal/provider/github/githubtest` holds the fake GitHub App, the test-only package `internal/testenv` holds the list of inherited GitHub variables that `Isolate` removes and the real-token prefixes its guards reject, and test files may use them. A Go import path that merely lives on GitHub, such as this repository's own module path `github.com/cultofthecode/agent-id`, is not GitHub-specific.
 
-depguard (`.golangci.yml`) enforces rule 6 today. Rules 1, 2, 4, and 7 get depguard rules when the packages they name exist; the compiler enforces rule 3. Until then, review enforces rule 7 (`CODE_REVIEW.md`).
+depguard (`.golangci.yml`) enforces rule 6 and the import half of rules 1 and 7 (`github-only-in-its-adapter`, which also covers test files) today. Rules 2 and 4 get depguard rules when the packages they name exist; the compiler enforces rule 3. Review enforces the rest of rule 7, such as hostnames and `gh` wiring (`CODE_REVIEW.md`).
 
 ## Provider abstraction (ADR, 2026-11-12)
 
@@ -109,7 +111,7 @@ Consequences:
 
 - **Profile config v1** has a required `provider` field. The MVP supports only `github`; a profile with any other value can never be activated (fail closed). How a file that contains such a profile loads is defined by the profile-config spec (#9), which also carries the field; the format and schema row below stays OPEN until that spec is implemented (#17).
 - **Token cache key** includes the provider next to host, App or account, installation, and scope.
-- **Contract tests.** `internal/provider` owns a contract suite that every adapter must pass. It runs against a fake provider in `internal/provider/providertest`, with no network and no real credentials. The fake GitHub of `internal/testenv` serves the GitHub adapter's tests behind that interface; core packages never import GitHub-only test types.
+- **Contract tests.** `internal/provider` owns a contract suite that every adapter must pass. It runs against a fake provider in `internal/provider/providertest`, with no network and no real credentials. The fake GitHub App of `internal/provider/github/githubtest` (on `testenv.NewFakeAPI`) serves the GitHub adapter's tests and also passes the contract behind that interface; core packages never import GitHub-only test types.
 - **Import rule.** Dependency rule 7: no GitHub-specific import outside `internal/provider/github`.
 - **Out of scope** for this decision: implementing GitLab or Bitbucket adapters (follow-ups under #5), Azure DevOps (still an optional Phase 4 evaluation), replacing `gh` in the MVP, and any second runtime provider in Phase 1.
 - **Work it constrains:** #9 (`provider` field), #10 (fake GitHub behind the interface), #15 (GitHub adapter), #17 (profile store), #19 (setup for the GitHub adapter), #22 (per-host credential helper), #23 (CLI integration). #15 and #19 build on the interface recorded here.
@@ -149,8 +151,8 @@ agent-id has no database.
 - **Errors:** wrapped with `%w`, matched with `errors.Is`. Only `cmd/agent-id` prints errors and sets exit codes; `exec` returns the child's exit status unchanged. No `panic` for expected failures. Output goes to stdout, diagnostics to stderr.
 - **Testing strategy:**
   - Unit tests for every pure security function, with hostile input: look-alike hosts, other protocols, unrelated repository paths, inherited personal tokens and helpers, `GIT_CONFIG_COUNT` already set, expired tokens, unreadable or world-readable keys.
-  - Handler tests against `testenv.NewFakeGitHub` in an isolated environment (`testenv.Isolate`). `go test ./...` never reaches the network and never needs a GitHub account.
-  - Process tests that run real `git` and `gh` binaries do so only in an isolated environment with a fake GitHub and a local bare repository.
+  - Core handler tests against `providertest.Fake` in an isolated environment (`testenv.Isolate`); every provider adapter runs `providertest.RunContract`, and the GitHub adapter is tested against `githubtest.NewApp` on `testenv.NewFakeAPI`. `go test ./...` never reaches the network and never needs a GitHub account.
+  - Process tests that run real `git` and `gh` binaries do so only in an isolated environment with a fake GitHub and a local bare repository: `testenv.NewGitServer` serves bare repositories over HTTPS and records the credentials of every push, `testenv.BuildBinary` builds the agent-id binary into the test root, and the network guard of `testenv.Isolate` fails a test whose child process tries to reach the network. Each such package calls `testenv.Main` from `TestMain`, which fails the run when `~/.gitconfig`, `~/.config/git`, or the `gh` configuration changed.
   - End-to-end tests against a disposable GitHub repository and a dedicated test App carry the `e2e` build tag and run by hand (`SDLC.md`, Validation gate).
   - CI runs the gate on `ubuntu-24.04` and the darwin lint, vet, and build; `darwin.yml` runs the unit tests on `macos-26`.
 
@@ -169,6 +171,7 @@ Derived from `PRODUCT_BRIEF.md`; the brief is the record, except where a row cit
 | 2026-11-12 | Turn off inherited personal signing in agent mode; never claim verified commits | brief §9.3 | active |
 | 2026-11-12 | Start with existing GitHub Apps; guided or manifest registration is evaluated later | brief §14 onboarding | active |
 | 2026-11-12 | No runtime dependency on GHAPP and no requirement to install it | brief §1, §13 Phase 0 | active |
+| 2026-11-12 | Test harness: the fake GitHub App (`internal/provider/github/githubtest`, standard library only) sits behind the provisional `provider.Provider` and builds on `internal/testenv`; `providertest` holds the contract and a neutral fake; `testenv.Isolate` blocks the network of child processes through a guard proxy; Git over HTTPS is tested against `git http-backend` | #10 | active |
 | 2026-11-12 | The product name is `agent-id` everywhere: binary `agent-id` (`cmd/agent-id`), config and cache directory `agent-id` (`$XDG_CONFIG_HOME/agent-id`, `$XDG_CACHE_HOME/agent-id`), environment prefix `AGENT_ID_`. The repository and module path stay. The package, domain and trademark availability check is a pre-launch item. | owner's decision (Jacob, 2026-11-12 22:40 Europe/Warsaw) on [#6](https://github.com/cultofthecode/agent-id/issues/6); supersedes the working name of brief §14 | active |
 | 2026-11-12 | Git forges behind a provider interface (`internal/provider`); GitHub is the first adapter (`internal/provider/github`, replacing `internal/github`); GitLab and Bitbucket later as adapters of the same interface; no GitHub-specific import outside the adapter; profile config v1 has a required `provider` field | owner decision (Jacob, 12 November 2026, 22:41 Europe/Warsaw), #35; supersedes the deferral in brief §3 principle 6 and §13 Phase 4 for package boundaries only | active |
 | 2026-11-13 | New cross-module dependencies for the profile config: `internal/provider/github` → `internal/profile` (the adapter decodes its profile block and uses `profile.KeyRef`), `internal/credential` → `internal/profile` (`KeyRef`), `internal/activation` → `internal/provider` (adapter for the resolved profile). `internal/profile` imports no provider package, so adapters import it without a cycle | profile-config spec (#9, PR #33) under ADR #35 | active |
