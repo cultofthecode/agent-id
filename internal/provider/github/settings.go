@@ -29,9 +29,10 @@ const (
 // 2^53−1, the largest integer every JSON reader keeps exactly.
 const maxID int64 = 1<<53 - 1
 
-// TokenPrefixes are the prefixes of GitHub tokens that the profile store's
-// inline-secret scan rejects anywhere in the configuration.
-var TokenPrefixes = []string{"ghs_", "ghp_", "gho_", "ghu_", "ghr_", "github_pat_"}
+// tokenPrefixes are the prefixes of GitHub tokens that the profile store's
+// inline-secret scan rejects anywhere in the configuration. ProfileRegistration
+// hands out a copy, so no importer can weaken the scan.
+var tokenPrefixes = []string{"ghs_", "ghp_", "gho_", "ghu_", "ghr_", "github_pat_"}
 
 // ProfileSettings is the github block of a profile: the App, its
 // installation, the reference to the App's private key, and the cached bot
@@ -71,13 +72,15 @@ func (SettingsValidator) ValidateSettings(host string, settings json.RawMessage)
 // ProfileRegistration returns the registration of the github provider for
 // profile.NewRegistry: its validator and its token prefixes.
 func ProfileRegistration() profile.Registration {
-	return profile.Registration{Name: providerName, Validator: SettingsValidator{}, TokenPrefixes: slices.Clone(TokenPrefixes)}
+	return profile.Registration{Name: providerName, Validator: SettingsValidator{}, TokenPrefixes: slices.Clone(tokenPrefixes)}
 }
 
 // DecodeProfileSettings decodes the github block of a profile on host
 // strictly: host must be github.com, every member is known and of its type,
 // IDs are positive JSON integers of at most 2^53−1, private_key is a key
-// reference, and identity, when present, is complete. Errors are built with
+// reference, and identity, when present, is complete. A member that appears
+// twice is refused; the inline-secret scan is the profile store's (Parse runs
+// it before the validator). Errors are built with
 // profile.Errorf, start with a path relative to the profile, and never echo
 // the private key reference.
 func DecodeProfileSettings(profileHost string, settings json.RawMessage) (ProfileSettings, error) {
@@ -241,6 +244,7 @@ func objectMembers(value json.RawMessage, path string) ([]member, error) {
 		return nil, notObject
 	}
 	var members []member
+	seen := map[string]bool{}
 	for dec.More() {
 		token, err := dec.Token()
 		name, ok := token.(string)
@@ -251,6 +255,10 @@ func objectMembers(value json.RawMessage, path string) ([]member, error) {
 		if err := dec.Decode(&raw); err != nil {
 			return nil, notObject
 		}
+		if seen[name] {
+			return nil, profile.Errorf(profile.ErrConfigInvalid, "%s: duplicate member %s", path, profile.Quote(name))
+		}
+		seen[name] = true
 		members = append(members, member{name: name, value: raw})
 	}
 	if token, err := dec.Token(); err != nil || token != json.Delim('}') {
@@ -318,14 +326,24 @@ func (s ProfileSettings) MarshalJSON() ([]byte, error) {
 }
 
 // Update returns next as the settings that replace prev, where prev belonged
-// to a profile on prevHost and next to one on nextHost. The identity of next
-// is kept when it is set; otherwise prev's identity is carried over only when
-// the host and the App ID are unchanged, because a cached bot belongs to one
-// App on one host.
+// to a profile on prevHost and next to one on nextHost. A cached bot belongs
+// to one App on one host: when the host and the App ID are unchanged, prev's
+// identity is carried over if next has none; when either changed, an identity
+// of next that equals prev's is dropped, and only a newly resolved one is
+// kept.
 func Update(prevHost string, prev ProfileSettings, nextHost string, next ProfileSettings) ProfileSettings {
-	if next.Identity == nil && prev.Identity != nil && prevHost == nextHost && prev.AppID == next.AppID {
+	sameApp := prevHost == nextHost && prev.AppID == next.AppID
+	switch {
+	case sameApp && next.Identity == nil && prev.Identity != nil:
 		identity := *prev.Identity
 		next.Identity = &identity
+	case !sameApp && sameIdentity(prev.Identity, next.Identity):
+		next.Identity = nil
 	}
 	return next
+}
+
+// sameIdentity reports whether a and b are both set and equal.
+func sameIdentity(a, b *BotIdentity) bool {
+	return a != nil && b != nil && a.Login == b.Login && a.UserID == b.UserID && a.ResolvedAt.Equal(b.ResolvedAt)
 }

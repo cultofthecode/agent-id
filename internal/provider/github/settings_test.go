@@ -133,6 +133,8 @@ func TestDecodeProfileSettingsRefuses(t *testing.T) {
 		{"keyring reference", "github.com", `{"app_id":1,"installation_id":2,"private_key":"keyring:claude-github-app"}`, profile.ErrUnsupportedKeyReference, "github.private_key: keyring references are reserved and not supported yet", "claude-github-app"},
 		{"relative file reference", "github.com", `{"app_id":1,"installation_id":2,"private_key":"file:keys/claude.pem"}`, profile.ErrUnsupportedKeyReference, "github.private_key: a file reference needs an absolute path or ~/", "keys/claude.pem"},
 		{"bare path", "github.com", `{"app_id":1,"installation_id":2,"private_key":"/k/secret-name.pem"}`, profile.ErrUnsupportedKeyReference, "github.private_key: unknown key reference", "secret-name"},
+		{"duplicate member", "github.com", `{"app_id":1,"app_id":2,"installation_id":2,"private_key":"file:/k.pem"}`, profile.ErrConfigInvalid, `github: duplicate member "app_id"`, ""},
+		{"duplicate identity member", "github.com", `{"app_id":1,"installation_id":2,"private_key":"file:/k.pem","identity":{"login":"a[bot]","login":"b[bot]","user_id":3,"resolved_at":"2026-11-12T10:00:00Z"}}`, profile.ErrConfigInvalid, `github.identity: duplicate member "login"`, ""},
 		{"identity not an object", "github.com", `{"app_id":1,"installation_id":2,"private_key":"file:/k.pem","identity":"x"}`, profile.ErrConfigInvalid, "github.identity: must be an object", ""},
 		{"identity login missing", "github.com", `{"app_id":1,"installation_id":2,"private_key":"file:/k.pem","identity":{"user_id":3,"resolved_at":"2026-11-12T10:00:00Z"}}`, profile.ErrConfigInvalid, "github.identity: login is missing", ""},
 		{"identity user_id missing", "github.com", `{"app_id":1,"installation_id":2,"private_key":"file:/k.pem","identity":{"login":"a[bot]","resolved_at":"2026-11-12T10:00:00Z"}}`, profile.ErrConfigInvalid, "github.identity: user_id is missing", ""},
@@ -213,6 +215,7 @@ func TestProductionRegistryThroughTheStore(t *testing.T) {
 }
 
 func TestParseID(t *testing.T) {
+	testenv.Isolate(t)
 	tests := []struct {
 		in   string
 		want int64
@@ -311,6 +314,7 @@ func TestProfileSettingsMarshalRefusesInvalid(t *testing.T) {
 }
 
 func TestUpdateIdentity(t *testing.T) {
+	testenv.Isolate(t)
 	identity := &BotIdentity{Login: "claude-dev[bot]", UserID: 12345678, ResolvedAt: time.Date(2026, 11, 12, 10, 0, 0, 0, time.UTC)}
 	fresh := &BotIdentity{Login: "other[bot]", UserID: 9, ResolvedAt: time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC)}
 	prev := ProfileSettings{AppID: 1, InstallationID: 2, Identity: identity}
@@ -324,6 +328,9 @@ func TestUpdateIdentity(t *testing.T) {
 		{"another App drops it", "github.com", ProfileSettings{AppID: 4, InstallationID: 2}, nil},
 		{"another host drops it", "example.com", ProfileSettings{AppID: 1, InstallationID: 2}, nil},
 		{"a new identity wins", "github.com", ProfileSettings{AppID: 4, Identity: fresh}, fresh},
+		{"a copy of prev with another App drops it", "github.com", ProfileSettings{AppID: 4, InstallationID: 2, Identity: identity}, nil},
+		{"a copy of prev on another host drops it", "example.com", ProfileSettings{AppID: 1, InstallationID: 2, Identity: &BotIdentity{Login: identity.Login, UserID: identity.UserID, ResolvedAt: identity.ResolvedAt}}, nil},
+		{"same App keeps its own identity", "github.com", ProfileSettings{AppID: 1, Identity: identity}, identity},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -343,7 +350,7 @@ func TestProfileRegistration(t *testing.T) {
 	}
 	reg := ProfileRegistration()
 	reg.TokenPrefixes[0] = "changed"
-	if TokenPrefixes[0] != "ghs_" {
+	if tokenPrefixes[0] != "ghs_" {
 		t.Errorf("ProfileRegistration shares TokenPrefixes with the caller")
 	}
 }
