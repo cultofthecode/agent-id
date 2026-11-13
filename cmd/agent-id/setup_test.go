@@ -227,6 +227,24 @@ func TestSetupFailuresWriteNothing(t *testing.T) {
 	}
 }
 
+func TestSetupCanceled(t *testing.T) {
+	env := testenv.Isolate(t)
+	before := homeFiles(t, env)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	fake := providertest.NewFakeOnboarder("github", githubFields, githubResult(1, "a[bot]", 1))
+	var stdout, stderr bytes.Buffer
+	if code := run(ctx, buildRoot([]provider.Onboarder{fake}, openStore), setupArgs, &stdout, &stderr); code != exitFailure {
+		t.Fatalf("exit %d, want 1 (stderr %q)", code, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q", stdout.String())
+	}
+	if got := changedFiles(before, homeFiles(t, env)); len(got) != 0 {
+		t.Errorf("changed files = %v", got)
+	}
+}
+
 func TestSetupCommandsOfTheProductionRoot(t *testing.T) {
 	testenv.Isolate(t)
 	var stdout, stderr bytes.Buffer

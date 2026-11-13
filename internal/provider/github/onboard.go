@@ -93,7 +93,7 @@ type setupValues struct {
 }
 
 // parseSetupValues checks the setup values without I/O and returns them. A
-// value that looks like a token or key, or holds a control character, is
+// value that looks like a token or key, or holds a control or format character, is
 // refused before it is normalized, and no error echoes a value.
 func parseSetupValues(values map[string]string, dir string) (setupValues, error) {
 	appID, err := parseIDValue(values, fieldAppID, usageAppID)
@@ -169,7 +169,7 @@ func keyReference(value, dir string) (string, error) {
 // echoed.
 func refuseSecret(field, value string) error {
 	if strings.ContainsFunc(value, func(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) }) {
-		return failf(ErrSetupValue, "--%s contains a control character; it is not shown", field)
+		return failf(ErrSetupValue, "--%s contains a control or format character; it is not shown", field)
 	}
 	if profile.LooksSecret(value, tokenPrefixes) {
 		return failf(ErrSetupValue, "--%s looks like a token or key; it is not shown — remove it and revoke it if it was real", field)
@@ -207,7 +207,7 @@ func (o *Onboarder) adapter(values setupValues) (*Provider, error) {
 	defer clear(pemBytes)
 	p, err := newProvider(Config{AppID: values.appID, InstallationID: values.installationID, PrivateKeyPEM: pemBytes}, o.api)
 	if errors.Is(err, ErrInvalidKey) {
-		return nil, failf(ErrInvalidKey, "--%s %s: not a GitHub App private key (one unencrypted RSA key of at least 2048 bits, PEM)", fieldPrivateKey, values.key)
+		return nil, failf(ErrInvalidKey, "--%s %s: not a GitHub App private key (one unencrypted RSA key of at least 2048 bits, PEM)", fieldPrivateKey, values.key.Value)
 	}
 	return p, err
 }

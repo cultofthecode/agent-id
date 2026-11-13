@@ -13,7 +13,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"runtime/debug"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -33,8 +35,13 @@ const (
 // commandName is the name of the binary (ARCHITECTURE.md, Key decisions).
 const commandName = "agent-id"
 
+// main runs agent-id with a context that SIGINT and SIGTERM cancel, so that
+// an interrupted command fails closed with exit status 1.
 func main() {
-	os.Exit(run(context.Background(), newRoot(), os.Args[1:], os.Stdout, os.Stderr))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	code := run(ctx, newRoot(), os.Args[1:], os.Stdout, os.Stderr)
+	stop()
+	os.Exit(code)
 }
 
 // newRoot returns the production root command of agent-id: the GitHub

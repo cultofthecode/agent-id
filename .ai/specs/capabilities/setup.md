@@ -2,7 +2,7 @@
 
 `agent-id setup <provider>` turns an existing provider app into a verified agent profile. In the MVP the only provider is GitHub (`agent-id setup github`).
 
-Implemented by the setup slice `internal/setup`, the onboarding port `provider.Onboarder`, and the GitHub onboarder `github.Onboarder` (#19). The fake GitHub App of the tests uses its own slug and bot id (`githubtest`), so the GitHub-layer test checks those values in place of `claude-dev` and 12345678.
+Implemented by the setup slice `internal/setup`, the onboarding port `provider.Onboarder`, and the GitHub onboarder `github.Onboarder` (#19). The fake GitHub App of the tests uses its own slug and bot id (`githubtest`), so the GitHub-layer test checks those values in place of `claude-dev` and 12345678. Beyond the spec's `Store.CheckName` and `Store.Path`, `internal/profile` exports `LooksSecret`, the inline-secret rule, so setup flags and the configuration scan share one rule (#82). Ctrl-C cancels the command's context (`signal.NotifyContext` in `main`), and setup exits 1 without writing.
 
 ## Requirement: Setup writes a verified profile
 The system SHALL write a profile only after the provider has minted a token, resolved the bot identity, and listed the installation's repositories with the given values, and SHALL store the resolved identity in the profile.

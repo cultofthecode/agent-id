@@ -244,6 +244,14 @@ func TestHandleStopsOnStoreErrorsBeforeTheNetwork(t *testing.T) {
 		}, profile.ErrInsecurePermissions},
 		{"invalid JSON", func(t *testing.T, f *fixture) { f.writeConfig(t, `{"version":1,`) }, profile.ErrConfigInvalid},
 		{"newer version", func(t *testing.T, f *fixture) { f.writeConfig(t, `{"version":2,"profiles":{}}`) }, profile.ErrUnsupportedVersion},
+		{"symlink to a missing file", func(t *testing.T, f *fixture) {
+			if err := os.MkdirAll(filepath.Dir(f.store.Path()), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(filepath.Dir(f.store.Path()), "gone.json"), f.store.Path()); err != nil {
+				t.Fatal(err)
+			}
+		}, profile.ErrConfigNotFound},
 		{"relative configuration path", func(t *testing.T, f *fixture) {
 			f.store = profile.NewStore("rel/config.json", nil)
 		}, profile.ErrConfigNotFound},

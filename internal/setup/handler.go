@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -117,17 +119,28 @@ func checkName(store Store, name string) error {
 }
 
 // checkExisting loads the configuration and refuses a profile of the same
-// name and another provider. Only a configuration file that does not exist
-// counts as empty; every other store error stops setup.
+// name and another provider. Only a configuration path at which nothing
+// exists counts as empty; every other store error stops setup, a symlink
+// whose target is missing included, which the write would refuse.
 func checkExisting(store Store, in Input) error {
 	config, err := store.Load()
-	if errors.Is(err, profile.ErrConfigNotFound) && filepath.IsAbs(store.Path()) {
+	if errors.Is(err, profile.ErrConfigNotFound) && missing(store.Path()) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
 	return conflict(config, in, store.Path())
+}
+
+// missing reports whether nothing, not even a dangling symlink, exists at
+// the absolute path.
+func missing(path string) bool {
+	if !filepath.IsAbs(path) {
+		return false
+	}
+	_, err := os.Lstat(path)
+	return errors.Is(err, fs.ErrNotExist)
 }
 
 // conflict returns ErrProviderConflict when config holds the profile of in
@@ -137,7 +150,7 @@ func conflict(config profile.Config, in Input, path string) error {
 	if !ok || existing.Provider == in.Provider {
 		return nil
 	}
-	return failf(ErrProviderConflict, "profile %s already exists for provider %s; choose another name or remove it from %s", profile.Quote(in.Profile), profile.Quote(existing.Provider), path)
+	return failf(ErrProviderConflict, "profile %s already exists for provider %s; choose another name or remove it from %s", profile.Quote(in.Profile), profile.Quote(existing.Provider), clean(path))
 }
 
 // write stores the verified profile under the store's lock, checking the
