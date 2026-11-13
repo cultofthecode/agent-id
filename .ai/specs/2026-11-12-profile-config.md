@@ -178,7 +178,7 @@ The scan itself is a core concern because the rule protects the file, not one pr
 
 ### Identity cache (GitHub provider)
 
-`github.identity` is non-secret data that `setup` (#19) writes after it resolves the bot from GitHub, and `doctor` (#24) refreshes. It belongs to the profile's `host` and `github.app_id`: the GitHub adapter removes `identity` in any update that changes either. The adapter derives the Git identity from it, as the provider interface's "commit author / bot identity" responsibility (ADR #35):
+`github.identity` is non-secret data that `setup` (#19) writes after it resolves the bot from GitHub, and `doctor` (#24) refreshes. It belongs to the profile's `host` and `github.app_id`: in an update that changes either, the GitHub adapter drops the old `identity` and keeps only one resolved for the new App (`github.Update`, #58). The adapter derives the Git identity from it, as the provider interface's "commit author / bot identity" responsibility (ADR #35):
 
 - name: `<login>` (for example `claude-dev[bot]`);
 - email: `<user_id>+<login>@users.noreply.github.com`.
@@ -438,5 +438,5 @@ Every test calls `testenv.Isolate(t)` first and uses only files under the isolat
 ### Phase 2 — GitHub block in `internal/provider/github` (#15, after ADR #35)
 
 9. **GitHub settings.** `ProfileSettings`, `BotIdentity`, strict decode of the `github` block, `github.com` host rule (look-alikes from the Delta), integers, `private_key` through `profile.ParseKeyRef`, identity. Satisfies `profile.SettingsValidator` and registers the GitHub token prefixes; errors wrap the core sentinels. Test: with the production registry, a `ghs_` value anywhere in the file fails with `ErrInlineSecret`. Golden test: the v1 example parses to the expected settings.
-10. **Git author and identity updates.** Pure derivation of name and email from `BotIdentity`; an update that changes `host` or `app_id` drops `identity`. Tests against the example.
+10. **Git author and identity updates.** Pure derivation of name and email from `BotIdentity`; an update that changes `host` or `app_id` drops the old `identity` and keeps only a newly resolved one. Tests against the example.
 11. **Wire and archive.** `cmd/agent-id` registers the GitHub validator; a test proves no package outside `internal/provider/github` and `cmd/agent-id` imports it (the ADR #35 import rule); archive the GitHub requirements of the Delta into the capability file.
