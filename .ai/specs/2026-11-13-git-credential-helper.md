@@ -71,7 +71,7 @@ The root builds the provider for the profile (it loads the key through the crede
 ### Failure (fail closed)
 
 When the profile cannot be resolved, the key cannot be loaded, the mint fails, the cache is unusable, or `Render` refuses: stdout is `quit=1` only, exit 1, and stderr has one line:
-`agent-id: git-credential: cannot get a token for profile "<name>" (<class>); run agent-id doctor --profile <name>`.
+`agent-id: git-credential: cannot get a token for profile "<name>" (<class>); run agent-id doctor --profile "<name>"`.
 `<class>` is a fixed word from the error class: `unauthorized`, `forbidden`, `not found`, `rate limited`, `unavailable`, `cache not private`, `cache write failed`, `lock timeout`, `unusable token`, `private key`, `profile`, `canceled`, or `error`. The message never holds `err.Error()`. No personal helper (osxkeychain, `gh`) runs, because `credential.helper=` reset every inherited helper before ours, and `core.askPass`, `GIT_ASKPASS`, and `GIT_TERMINAL_PROMPT=0` close the prompt.
 
 ### Secrets

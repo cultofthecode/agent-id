@@ -109,7 +109,7 @@ func (f *gitFixture) activate(host string, scoped bool) {
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	all := []gitint.TransportEntry{{Key: "credential.helper", Value: ""}, {Key: "core.askPass", Value: ""}}
+	all := []gitint.Entry{{Key: "credential.helper", Value: ""}, {Key: "core.askPass", Value: ""}}
 	if !scoped {
 		entries[0].Key = "credential.helper"
 	}

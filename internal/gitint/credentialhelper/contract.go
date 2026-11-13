@@ -51,7 +51,10 @@ type ClassedError struct {
 	Err   error
 }
 
+// Error returns the class word, never the text of the cause.
 func (e *ClassedError) Error() string { return e.Class }
+
+// Unwrap returns the cause, for errors.Is and errors.As.
 func (e *ClassedError) Unwrap() error { return e.Err }
 
 // Handler runs the operations of the helper. Both functions are injected by

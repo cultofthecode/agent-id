@@ -1,9 +1,9 @@
-// Package gitint holds the pure Git data of an agent context. Its transport
-// half (spec .ai/specs/2026-11-13-git-credential-helper.md, #22) parses a
+// The transport half of package gitint (spec .ai/specs/2026-11-13-git-credential-helper.md, #22) parses a
 // Git credential request, decides whether the profile's host may answer it,
 // renders the answer, and lists the process-scoped configuration entries that
 // install the helper and the SSH→HTTPS rewrites. Every function is pure,
 // names no forge, and never echoes a request value.
+
 package gitint
 
 import (
@@ -212,9 +212,6 @@ func plain(s string) bool {
 // QuitLine tells Git to stop asking helpers and prompts.
 const QuitLine = "quit=1\n"
 
-// TransportEntry is one process-scoped Git configuration entry.
-type TransportEntry struct{ Key, Value string }
-
 var profilePattern = regexp.MustCompile(`^[a-z](?:[a-z0-9-]{0,30}[a-z0-9])?$`)
 
 // TransportEntries returns, in order, the entries that install the helper for
@@ -222,7 +219,7 @@ var profilePattern = regexp.MustCompile(`^[a-z](?:[a-z0-9-]{0,30}[a-z0-9])?$`)
 // command, useHttpPath, and the insteadOf rules for ssh://git@host/ and, when
 // host has no port, git@host:. binary must be an absolute path without a
 // control character; profile must be a valid profile name.
-func TransportEntries(binary, profile, host string) ([]TransportEntry, error) {
+func TransportEntries(binary, profile, host string) ([]Entry, error) {
 	switch {
 	case !strings.HasPrefix(binary, "/") || strings.ContainsFunc(binary, isControl):
 		return nil, fmt.Errorf("%w (binary path)", ErrEntryInvalid)
@@ -232,13 +229,13 @@ func TransportEntries(binary, profile, host string) ([]TransportEntry, error) {
 		return nil, fmt.Errorf("%w (host)", ErrEntryInvalid)
 	}
 	base := "https://" + host
-	entries := []TransportEntry{
+	entries := []Entry{
 		{"credential." + base + ".helper", "!" + shellQuote(binary) + " git-credential --profile " + profile},
 		{"credential." + base + ".useHttpPath", "true"},
 		{"url." + base + "/.insteadOf", "ssh://git@" + host + "/"},
 	}
 	if !strings.Contains(host, ":") {
-		entries = append(entries, TransportEntry{"url." + base + "/.insteadOf", "git@" + host + ":"})
+		entries = append(entries, Entry{"url." + base + "/.insteadOf", "git@" + host + ":"})
 	}
 	return entries, nil
 }

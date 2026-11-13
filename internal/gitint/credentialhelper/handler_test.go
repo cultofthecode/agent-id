@@ -148,7 +148,7 @@ func TestGetFailsClosedWhenNoTokenComes(t *testing.T) {
 			if err == nil || out.Stdout != "quit=1\n" {
 				t.Fatalf("out %q err %v", out.Stdout, err)
 			}
-			want := fmt.Sprintf("git-credential: cannot get a token for profile \"claude\" (%s); run agent-id doctor --profile claude", tt.class)
+			want := fmt.Sprintf("git-credential: cannot get a token for profile \"claude\" (%s); run agent-id doctor --profile \"claude\"", tt.class)
 			if err.Error() != want {
 				t.Errorf("error = %q, want %q", err, want)
 			}
@@ -239,6 +239,9 @@ func TestStoreReadsAtMost64KiB(t *testing.T) {
 type countingReader struct{ n int }
 
 func (c *countingReader) Read(p []byte) (int, error) {
+	if c.n > 1<<20 {
+		return 0, io.EOF
+	}
 	c.n += len(p)
 	return len(p), nil
 }

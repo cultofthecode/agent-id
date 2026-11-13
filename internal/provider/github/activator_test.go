@@ -62,3 +62,15 @@ func TestActivatorRefusesAnInvalidBlock(t *testing.T) {
 		t.Fatal("NewActivator accepted an incomplete block")
 	}
 }
+
+func TestActivatorIdentityFromTheCache(t *testing.T) {
+	testenv.Isolate(t)
+	a := newActivator(t, resolvedBlock)
+	id, err := a.Identity()
+	if err != nil || id.Name != "claude-dev[bot]" || id.Email != "3+claude-dev[bot]@users.noreply.github.com" {
+		t.Errorf("Identity() = %+v, %v", id, err)
+	}
+	if _, err := newActivator(t, unresolvedBlock).Identity(); !errors.Is(err, ErrNotReady) {
+		t.Errorf("Identity() of an unresolved profile: %v", err)
+	}
+}

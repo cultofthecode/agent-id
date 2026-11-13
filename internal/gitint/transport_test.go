@@ -175,7 +175,7 @@ func TestTransportEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []TransportEntry{
+	want := []Entry{
 		{"credential.https://github.com.helper", "!'/opt/agent id/agent-id' git-credential --profile claude"},
 		{"credential.https://github.com.useHttpPath", "true"},
 		{"url.https://github.com/.insteadOf", "ssh://git@github.com/"},

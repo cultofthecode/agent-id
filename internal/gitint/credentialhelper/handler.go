@@ -58,7 +58,7 @@ func (h *Handler) get(ctx context.Context, in Input) (Output, error) {
 }
 
 func denied(profile, class string) error {
-	return fmt.Errorf("git-credential: cannot get a token for profile %q (%s); run agent-id doctor --profile %s", profile, class, profile)
+	return fmt.Errorf("git-credential: cannot get a token for profile %q (%s); run agent-id doctor --profile %q", profile, class, profile)
 }
 
 // classOf names the class of a failure with a fixed word. It never returns

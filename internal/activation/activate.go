@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
+	"github.com/cultofthecode/agent-id/internal/gitint"
 	"github.com/cultofthecode/agent-id/internal/profile"
 	"github.com/cultofthecode/agent-id/internal/provider"
 )
@@ -77,6 +79,10 @@ func Activate(ctx context.Context, d Deps, r Request) (Activation, error) {
 	if err := a.Ready(); err != nil {
 		return Activation{}, &detailed{kind: ErrProfileNotReady, msg: fmt.Sprintf("profile %q: %s", r.Profile, err), cause: err}
 	}
+	git, err := gitContribution(r.Profile, a)
+	if err != nil {
+		return Activation{}, err
+	}
 	if len(a.CredentialVariables()) == 0 {
 		return Activation{}, unsafePlan("no credential variables to remove (the provider declares none)")
 	}
@@ -87,7 +93,9 @@ func Activate(ctx context.Context, d Deps, r Request) (Activation, error) {
 	if err != nil {
 		return Activation{}, err
 	}
-	plan, err := withTransport(PlanFor(r, a, paths), a)
+	plan := PlanFor(r, a, paths)
+	plan = withGit(plan, git)
+	plan, err = withTransport(plan, a)
 	if err != nil {
 		return Activation{}, err
 	}
@@ -129,4 +137,33 @@ func PlanFor(r Request, a provider.Activator, paths NeutralPaths) Plan {
 		PathPrepend:   []string{paths.BinDir},
 		TokenPrefixes: a.TokenPrefixes(),
 	}
+}
+
+func gitContribution(profileName string, a provider.Activator) (gitint.Contribution, error) {
+	id, err := a.Identity()
+	if err != nil {
+		return gitint.Contribution{}, &detailed{kind: ErrIdentityUnavailable, cause: err,
+			msg: fmt.Sprintf("profile %q: cannot read the bot identity: %s", profileName, err)}
+	}
+	c, err := gitint.Identity(id)
+	if err != nil {
+		return gitint.Contribution{}, &detailed{kind: ErrIdentityUnavailable, cause: err,
+			msg: fmt.Sprintf("profile %q: the cached bot identity is malformed (%s); run agent-id doctor --profile %s", profileName, ruleOf(err), profileName)}
+	}
+	return c, nil
+}
+
+func ruleOf(err error) string {
+	msg := strings.TrimPrefix(err.Error(), gitint.ErrIdentityInvalid.Error())
+	return strings.Trim(msg, " ()")
+}
+
+func withGit(plan Plan, c gitint.Contribution) Plan {
+	for name, value := range c.Set {
+		plan.Set[name] = value
+	}
+	for _, e := range c.GitConfig {
+		plan.GitConfig = append(plan.GitConfig, GitConfigEntry{Key: e.Key, Value: e.Value})
+	}
+	return plan
 }
