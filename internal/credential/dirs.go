@@ -56,10 +56,9 @@ func ancestors(path string) []string {
 const maxSymlinkHops = 40
 
 // symlinkHops follows the symlink chain that starts at path, one hop at a
-// time. The directory of a relative link is resolved through EvalSymlinks
-// before the join, so a symlinked directory on the way does not produce a hop
-// that does not exist. When that directory cannot be resolved, the textual
-// directory stays and the later directory check fails closed on it.
+// time. The target of each link comes from linkTarget, which resolves the
+// directory of a relative link and every dot-dot component the way the kernel
+// does.
 func symlinkHops(path string) []string {
 	var hops []string
 	for current := path; len(hops) < maxSymlinkHops; {
@@ -67,13 +66,39 @@ func symlinkHops(path string) []string {
 		if err != nil {
 			break
 		}
-		if !filepath.IsAbs(link) {
-			link = filepath.Join(resolvedDir(current), link)
-		}
-		current = filepath.Clean(link)
+		current = linkTarget(current, link)
 		hops = append(hops, current)
 	}
 	return hops
+}
+
+// linkTarget returns the place a link at path points to. A dot-dot component
+// is applied to the real directory reached so far, as the kernel does, and not
+// to the text: "sub/../x" with a symlinked sub is the parent of the target of
+// sub, not the directory that holds sub. When a prefix cannot be resolved, the
+// textual prefix stays and the later directory check fails closed on it.
+func linkTarget(path, link string) string {
+	current := resolvedDir(path)
+	if filepath.IsAbs(link) {
+		current = string(filepath.Separator)
+	}
+	for _, part := range strings.Split(link, string(filepath.Separator)) {
+		switch part {
+		case "", ".":
+		case "..":
+			current = filepath.Dir(realOrSelf(current))
+		default:
+			current = filepath.Join(current, part)
+		}
+	}
+	return current
+}
+
+func realOrSelf(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return path
 }
 
 func resolvedDir(path string) string {

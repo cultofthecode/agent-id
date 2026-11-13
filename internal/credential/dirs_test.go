@@ -312,3 +312,78 @@ func chainReaches(t *testing.T, chain []string, want string) bool {
 	}
 	return false
 }
+
+func writeDotDotProbe(t *testing.T, root, home, linkText string) (path, open string) {
+	t.Helper()
+	writeKey(t, filepath.Join(root, "safe", "app.pem"), pkcs1PEM(t), 0o600)
+	open = filepath.Join(root, "w", "a")
+	if err := os.MkdirAll(filepath.Join(open, "b"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(open, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "safe", "app.pem"), filepath.Join(open, "x")); err != nil {
+		t.Fatal(err)
+	}
+	keys := filepath.Join(home, "keys")
+	if err := os.MkdirAll(keys, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(open, "b"), filepath.Join(keys, "sub2")); err != nil {
+		t.Fatal(err)
+	}
+	path = filepath.Join(keys, "link")
+	if err := os.Symlink(linkText, path); err != nil {
+		t.Fatal(err)
+	}
+	return path, open
+}
+
+func TestChainOfCoversDotDotAfterASymlinkedComponent(t *testing.T) {
+	env := testenv.Isolate(t)
+	path, open := writeDotDotProbe(t, env.Root, env.Home, "sub2/../x")
+	if !chainReaches(t, chainOf(path), open) {
+		t.Errorf("chain lacks the directory that holds the link after dot-dot")
+	}
+}
+
+func TestFileRejectsDotDotAfterASymlinkedComponent(t *testing.T) {
+	env := testenv.Isolate(t)
+	path, _ := writeDotDotProbe(t, env.Root, env.Home, "sub2/../x")
+	key, err := File{Path: path}.PrivateKeyPEM()
+	assertRejected(t, key, err, ErrInsecureKeyFile, "mode 0777", "chmod go-w")
+}
+
+func TestFileRejectsAbsoluteLinkWithDotDotAfterASymlinkedComponent(t *testing.T) {
+	env := testenv.Isolate(t)
+	text := env.Home + "/keys/sub2/../x"
+	path, _ := writeDotDotProbe(t, env.Root, env.Home, text)
+	key, err := File{Path: path}.PrivateKeyPEM()
+	assertRejected(t, key, err, ErrInsecureKeyFile, "mode 0777", "chmod go-w")
+}
+
+func TestLinkTarget(t *testing.T) {
+	env := testenv.Isolate(t)
+	root := mustEval(t, env.Root)
+	if err := os.MkdirAll(filepath.Join(root, "real", "deep"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "real", "deep"), filepath.Join(root, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	from := filepath.Join(root, "link")
+	cases := map[string]string{
+		"alias/../x":                            filepath.Join(root, "real", "x"),
+		"./alias/./../x":                        filepath.Join(root, "real", "x"),
+		"alias/../../x":                         filepath.Join(root, "x"),
+		"missing/../x":                          filepath.Join(root, "x"),
+		"../../../../../../../../../../../../x": "/x",
+		root + "/alias/../x":                    filepath.Join(root, "real", "x"),
+	}
+	for link, want := range cases {
+		if got := linkTarget(from, link); got != want {
+			t.Errorf("linkTarget(%q) = %q, want %q", link, got, want)
+		}
+	}
+}
