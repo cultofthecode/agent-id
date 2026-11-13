@@ -211,10 +211,15 @@ func TestGitRewritesTheScpFormOfAPortlessHost(t *testing.T) {
 	f := newGitFixture(t)
 	f.activate("github.com", true)
 	for remote, want := range map[string]string{
-		"git@github.com:o/r.git":          "https://github.com/o/r.git",
-		"ssh://git@github.com/o/r.git":    "https://github.com/o/r.git",
-		"git@github.com.evil.example:o/r": "git@github.com.evil.example:o/r",
-		"ssh://git@gist.github.com/o/r":   "ssh://git@gist.github.com/o/r",
+		"git@github.com:o/r.git":           "https://github.com/o/r.git",
+		"ssh://git@github.com/o/r.git":     "https://github.com/o/r.git",
+		"github.com:o/r.git":               "https://github.com/o/r.git",
+		"ssh://github.com/o/r.git":         "https://github.com/o/r.git",
+		"git+ssh://git@github.com/o/r.git": "https://github.com/o/r.git",
+		"ssh+git://git@github.com/o/r.git": "https://github.com/o/r.git",
+		"ssh://git@ssh.github.com:443/o/r": "ssh://git@ssh.github.com:443/o/r",
+		"git@github.com.evil.example:o/r":  "git@github.com.evil.example:o/r",
+		"ssh://git@gist.github.com/o/r":    "ssh://git@gist.github.com/o/r",
 	} {
 		out, err := f.git("ls-remote", "--get-url", remote)
 		if err != nil || strings.TrimSpace(out) != want {

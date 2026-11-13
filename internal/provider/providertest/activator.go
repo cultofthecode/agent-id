@@ -32,6 +32,8 @@ type FakeActivator struct {
 	// makes Identity fail.
 	Ident         provider.Identity
 	IdentityError error
+	// CLIRule, when set, is the CheckCLI of the fake.
+	CLIRule func(args, parent []string) error
 }
 
 // NewFakeActivator returns a ready activator for the fake host.
@@ -60,6 +62,14 @@ func (f *FakeActivator) Ready() error                    { return f.ReadyError }
 
 // Identity implements provider.Activator.
 func (f *FakeActivator) Identity() (provider.Identity, error) { return f.Ident, f.IdentityError }
+
+// CheckCLI allows every invocation unless CLIRule is set.
+func (f *FakeActivator) CheckCLI(args, parent []string) error {
+	if f.CLIRule == nil {
+		return nil
+	}
+	return f.CLIRule(args, parent)
+}
 
 var activatorHostPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]*$`)
 
@@ -146,4 +156,18 @@ func containsFold(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// RequireDropsCLIEnvironment fails the test when a variable that p's
+// CLIEnvironment returns is not one of a.CredentialVariables(). A provider
+// cannot then add a variable to CLIEnvironment and forget to drop it from
+// the child (exec spec, #75).
+func RequireDropsCLIEnvironment(t *testing.T, a provider.Activator, p provider.Provider) {
+	t.Helper()
+	for _, entry := range p.CLIEnvironment(provider.Token{Value: testenv.FakeToken("drops")}) {
+		name, _, _ := strings.Cut(entry, "=")
+		if !contains(a.CredentialVariables(), name) {
+			t.Errorf("CLIEnvironment() sets %s, which is not one of CredentialVariables()", name)
+		}
+	}
 }

@@ -110,10 +110,14 @@ func TestActivateAddsTheTransportGroup(t *testing.T) {
 		{"credential." + base + ".helper", "!'/bin/agent-id' git-credential --profile claude"},
 		{"credential." + base + ".useHttpPath", "true"},
 		{"url." + base + "/.insteadOf", "ssh://git@" + a.Host() + "/"},
+		{"url." + base + "/.insteadOf", "ssh://" + a.Host() + "/"},
+		{"url." + base + "/.insteadOf", "git+ssh://git@" + a.Host() + "/"},
+		{"url." + base + "/.insteadOf", "ssh+git://git@" + a.Host() + "/"},
 		{"url." + base + "/.insteadOf", "git@" + a.Host() + ":"},
+		{"url." + base + "/.insteadOf", a.Host() + ":"},
 	}
-	if env["GIT_CONFIG_COUNT"] != "10" {
-		t.Fatalf("GIT_CONFIG_COUNT = %q, want 10", env["GIT_CONFIG_COUNT"])
+	if env["GIT_CONFIG_COUNT"] != "14" {
+		t.Fatalf("GIT_CONFIG_COUNT = %q, want 14", env["GIT_CONFIG_COUNT"])
 	}
 	for i, kv := range want {
 		n := strconv.Itoa(6 + i)
@@ -155,7 +159,7 @@ func TestActivateRefusals(t *testing.T) {
 	})
 	t.Run("nesting comes before the profile is read", func(t *testing.T) {
 		d, _, calls := newDeps(t)
-		parent := request("AGENT_ID_CONTEXT=1", "AGENT_ID_ACTIVE_PROFILE=other", "AGENT_ID_GIT_CONFIG_BASE=0", "AGENT_ID_GIT_CONFIG_END=0")
+		parent := request("AGENT_ID_CONTEXT=1", "AGENT_ID_ACTIVE_PROFILE=other", "AGENT_ID_GIT_CONFIG_BASE=0", "AGENT_ID_GIT_CONFIG_END=0", "AGENT_ID_PATH_PREPEND=", "AGENT_ID_SET_NAMES=")
 		_, err := Activate(context.Background(), d, parent)
 		if !errors.Is(err, ErrNestedProfile) || len(*calls) != 0 {
 			t.Errorf("error %v calls %v", err, *calls)
@@ -388,7 +392,7 @@ func TestNeutralDirsOnDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 	stub, err := os.ReadFile(filepath.Join(paths.BinDir, cli.Binary))
-	if err != nil || string(stub) != StubScript(cli.Binary) {
+	if err != nil || string(stub) != LauncherScript(cli.Binary) {
 		t.Errorf("stub %q %v", stub, err)
 	}
 	info, _ := os.Stat(filepath.Join(env.CacheHome, "agent-id"))
