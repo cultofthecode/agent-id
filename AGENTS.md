@@ -72,7 +72,6 @@ env -u GH_TOKEN -u GITHUB_TOKEN -u SSH_AUTH_SOCK \
   sh -c 'test -z "$(gofmt -l .)" && go vet ./... && golangci-lint run && go test ./... && go build ./...'
 ```
 
-
 ## Calling GitHub from an agent (mandatory)
 
 Start new hc agents of this project only with:
@@ -83,7 +82,7 @@ Start new hc agents of this project only with:
 
 The script sets `GH_CONFIG_DIR` to the empty, write-protected directory `~/Projects/.agent-id-env/gh-empty` and puts `~/Projects/.agent-id-env/bin` first on `PATH`. It does **not** set `GIT_CONFIG_GLOBAL`: the ghapp credential helper must stay visible so `git push` works. It does not export a standing `GH_TOKEN`: installation tokens expire, so mint a fresh one per command.
 
-`GH_CONFIG_DIR` alone is not enough. In gh 2.103.3, `AuthConfig.ActiveToken` still does an unkeyed keychain lookup for service `gh:github.com` even when `hosts.yml` is missing. An empty `GH_TOKEN` is treated as unset and can hit that fallback if the developer later signs in with `gh auth login`. The wrapper `~/Projects/.agent-id-env/bin/gh` therefore refuses to run unless `GH_TOKEN` or `GITHUB_TOKEN` is non-empty.
+`GH_CONFIG_DIR` alone is not enough. In gh 2.103.3, `AuthConfig.ActiveToken` still does an unkeyed keychain lookup for service `gh:github.com` even when `hosts.yml` is missing. An empty `GH_TOKEN` is treated as unset and can hit that fallback if the developer later signs in with `gh auth login`. The wrapper `~/Projects/.agent-id-env/bin/gh` therefore refuses to run unless `GH_TOKEN` or `GITHUB_TOKEN` is non-empty. It accepts `GITHUB_TOKEN` as a substitute, and `gh` uses `GITHUB_TOKEN` when `GH_TOKEN` is empty, so never set `GITHUB_TOKEN` in an agent's environment: a personal `GITHUB_TOKEN` there would pass the wrapper. A shell function named `gh` in the developer's startup files (for example ghapp's shell hook) shadows the wrapper by name in the agent's shells. Such a function still reaches the wrapper only when it calls `command gh`, and ghapp's hook does.
 
 Every `gh` command must be:
 
@@ -93,7 +92,7 @@ GH_TOKEN=$(ghapp token) gh ...
 
 Never call `gh` without that token. Never run `gh auth login`, `gh auth logout`, or `gh auth switch`. Do not write to `~/Library/Application Support/gh/`, `~/.config/gh`, or the OS keychain.
 
-An already running agent's process environment cannot be changed in place. Until that agent is relaunched with `launch-agent.sh`, prefix every `gh` command with `GH_CONFIG_DIR="$HOME/Projects/.agent-id-env/gh-empty" GH_TOKEN=$(ghapp token)`.
+An already running agent's process environment cannot be changed in place. Until that agent is relaunched with `launch-agent.sh`, prefix every `gh` command with `GH_CONFIG_DIR="$HOME/Projects/.agent-id-env/gh-empty" GH_TOKEN=$(ghapp token)`. Without the wrapper on `PATH`, nothing stops `gh` when `ghapp token` prints nothing, so such an agent checks that the token is non-empty before it calls `gh`.
 
 ## Always / Ask first / Never
 
