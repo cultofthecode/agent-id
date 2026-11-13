@@ -24,6 +24,11 @@ const (
 	VarBinary    = "AGENT_ID_BIN"
 	VarGitBase   = "AGENT_ID_GIT_CONFIG_BASE"
 	VarGitEnd    = "AGENT_ID_GIT_CONFIG_END"
+	// VarPathPrepend records the PATH directories of the plan, joined with
+	// ":", and VarSetNames the names of Plan.Set, sorted and joined with ",",
+	// so that a re-entry removes exactly that contribution (#70).
+	VarPathPrepend = "AGENT_ID_PATH_PREPEND"
+	VarSetNames    = "AGENT_ID_SET_NAMES"
 
 	// ContextVersion is the contract version that this package reads and
 	// writes.
@@ -88,6 +93,9 @@ type GitConfigEntry struct{ Key, Value string }
 type Context struct {
 	Version, Profile, Mechanism, Binary string
 	GitConfigBase, GitConfigEnd         int
+	// PathPrepend and SetNames are the contribution of the previous plan
+	// (#70).
+	PathPrepend, SetNames []string
 }
 
 // Start is how a start relates to the inherited context.

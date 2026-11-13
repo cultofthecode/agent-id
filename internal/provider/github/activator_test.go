@@ -34,7 +34,7 @@ func TestActivatorContract(t *testing.T) {
 func TestActivatorGitHubValues(t *testing.T) {
 	testenv.Isolate(t)
 	a := newActivator(t, resolvedBlock)
-	for _, name := range []string{"GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"} {
+	for _, name := range []string{"GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_HOST"} {
 		if !slices.Contains(a.CredentialVariables(), name) {
 			t.Errorf("CredentialVariables() lacks %s", name)
 		}
@@ -73,4 +73,9 @@ func TestActivatorIdentityFromTheCache(t *testing.T) {
 	if _, err := newActivator(t, unresolvedBlock).Identity(); !errors.Is(err, ErrNotReady) {
 		t.Errorf("Identity() of an unresolved profile: %v", err)
 	}
+}
+
+func TestActivatorDropsEveryCLIEnvironmentVariable(t *testing.T) {
+	testenv.Isolate(t)
+	providertest.RequireDropsCLIEnvironment(t, newActivator(t, resolvedBlock), newAdapter(t, newFakeApp(t)))
 }

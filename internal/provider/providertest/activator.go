@@ -157,3 +157,17 @@ func containsFold(list []string, s string) bool {
 	}
 	return false
 }
+
+// RequireDropsCLIEnvironment fails the test when a variable that p's
+// CLIEnvironment returns is not one of a.CredentialVariables(). A provider
+// cannot then add a variable to CLIEnvironment and forget to drop it from
+// the child (exec spec, #75).
+func RequireDropsCLIEnvironment(t *testing.T, a provider.Activator, p provider.Provider) {
+	t.Helper()
+	for _, entry := range p.CLIEnvironment(provider.Token{Value: testenv.FakeToken("drops")}) {
+		name, _, _ := strings.Cut(entry, "=")
+		if !contains(a.CredentialVariables(), name) {
+			t.Errorf("CLIEnvironment() sets %s, which is not one of CredentialVariables()", name)
+		}
+	}
+}
