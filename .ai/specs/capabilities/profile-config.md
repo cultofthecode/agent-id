@@ -2,7 +2,7 @@
 
 agent-id reads its agent profiles from one strictly validated configuration file and resolves a profile only by the name the user passes.
 
-Implemented by the provider-agnostic profile store `internal/profile` (#17). Scenarios that name the `github` block hold once the GitHub adapter (#15) registers its validator and token prefixes; the core rules behind them are tested with a fake provider. The requirement "GitHub provider accepts github.com only" is archived with the adapter (#15).
+Implemented by the provider-agnostic profile store `internal/profile` (#17). The GitHub adapter validates the `github` block and the composition root registers it with the GitHub token prefixes (#58), so the scenarios that name the `github` block are tested with the production registry in `internal/provider/github`; the core rules behind them are also tested with a fake provider. The requirement "GitHub provider accepts github.com only" is archived with the adapter, in `github-provider.md`.
 
 ## Requirement: Config location
 The system SHALL read the profile configuration from `$XDG_CONFIG_HOME/agent-id/config.json`, or from `$HOME/.config/agent-id/config.json` when `XDG_CONFIG_HOME` is unset, empty, or relative, on both macOS and Linux.

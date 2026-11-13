@@ -50,3 +50,29 @@ The GitHub adapter SHALL NOT follow redirects and SHALL NOT accept a token value
 - THEN `Token` fails with `ErrUnavailable` and returns the zero `Token`
 
 Source: .ai/specs/2026-11-13-github-provider-adapter.md
+
+## Requirement: GitHub provider accepts github.com only
+The system SHALL accept `host: github.com` only for profiles with `provider: github`, and SHALL reject any other host, including look-alikes.
+
+### Scenario: Enterprise host rejected
+- WHEN a GitHub profile has `host: github.example.com`
+- THEN validation fails with `ErrUnsupportedHost` and the message says that only github.com is accepted
+
+### Scenario: Look-alike host rejected
+- WHEN a GitHub profile has `host` set to `GitHub.com`, `github.com.`, `https://github.com`, `github.com:443`, or `api.github.com`
+- THEN validation fails with `ErrUnsupportedHost`
+
+Source: .ai/specs/2026-11-12-profile-config.md (#58)
+
+## Requirement: The github profile block
+The GitHub adapter SHALL decode the `github` block strictly (`app_id`, `installation_id`, `private_key`, optional complete `identity`), SHALL derive the commit identity from the cached `identity`, and SHALL drop a carried-over `identity` when the host or the App ID changes.
+
+### Scenario: The v1 example
+- WHEN the v1 example of the profile-config spec is parsed with the production registry
+- THEN profile `claude` decodes to App 123456, installation 789012, `file:~/.config/agent-id/keys/claude.pem`, and bot `claude-dev[bot]` with id 12345678, whose commit email is `12345678+claude-dev[bot]@users.noreply.github.com`; profile `reviewer` has no identity
+
+### Scenario: Another App
+- WHEN a profile's settings are replaced by settings for another App ID without an identity
+- THEN the result has no identity
+
+Source: .ai/specs/2026-11-12-profile-config.md (#58)
