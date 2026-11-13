@@ -82,14 +82,14 @@ The token appears only on stdout of a successful `get`. No log, no error, no mes
 
 ### Compatibility
 
-Git 2.43 minimum (O4). `useHttpPath` and the `quit` attribute are older than that. The entries add four `GIT_CONFIG_*` slots to the plan; `AGENT_ID_GIT_CONFIG_BASE/_END` already carry the count. #21 adds its identity group to the same plan; the order is baseline, identity group, transport group.
+Git 2.43 minimum (O4). `useHttpPath` and the `quit` attribute are older than that. The entries add eight `GIT_CONFIG_*` slots (six for a host with a port) to the plan; `AGENT_ID_GIT_CONFIG_BASE/_END` already carry the count. #21 adds its identity group to the same plan; the order is baseline, identity group, transport group.
 
 ## Requirements and scenarios
 
 | ID | Requirement |
 |---|---|
 | R1 | An HTTPS push, fetch, or clone to `H` sends the installation token as `x-access-token`. |
-| R2 | An SSH-style remote (`ssh://git@H/o/r.git`, and `git@H:o/r.git` when `H` has no port) resolves to HTTPS and authenticates as in R1. |
+| R2 | An SSH-style remote (`ssh://git@H/o/r.git`, `ssh://H/`, `git+ssh://git@H/`, `ssh+git://git@H/`, and `git@H:` and `H:` when `H` has no port) resolves to HTTPS and authenticates as in R1. |
 | R3 | A request for any other host, `http`, a malformed path, or a request that holds a password gets no credential. |
 | R4 | When the token cannot be obtained, Git gets no credential, no personal helper or prompt runs, and the message names the profile and class, never a secret. |
 | R5 | `store` and `erase` persist nothing. |
@@ -115,5 +115,5 @@ None for the owner. Defaults recorded here, reversible before the first release:
 | Q1 | Require a path? | Yes. `useHttpPath` makes Git send it. A request without a path (for example `git credential fill` with `host` only) gets `Refuse`. |
 | Q2 | Accept only `owner/name`? | Yes. GitHub repository paths have this shape. A different forge may need another rule through the provider later. |
 | Q3 | `quit=1` on a refusal at `H`? | Yes: fail closed, skip later helpers and the prompt. |
-| Q4 | Rewrite `ssh.github.com:443` and `git+ssh://`? | No. `exec` refuses them (O1). |
+| Q4 | Rewrite `ssh.github.com:443` and `git+ssh://`? | `git+ssh://` yes (#105). `ssh.github.com:443` no: it is forge-specific, and `exec` refuses it (O1). |
 | Q5 | The ADR (#35) gives the SSH→HTTPS mapping and the repository-path rule to the provider. Do they move there now? | No. The MVP derives the SSH forms from `Host()` (they are the same on every forge that has scp-style URLs) and keeps the `owner/name` rule in `gitint`. A second adapter (GitLab subgroups) moves both onto `provider.Activator`. Recorded in Key decisions of `ARCHITECTURE.md`. |

@@ -295,7 +295,9 @@ func TestExecRefusals(t *testing.T) {
 		want  string
 	}{
 		{"ssh remote with a port", func(t *testing.T) { gitIn(t, repo, "remote", "add", "origin", "ssh://git@github.com:22/o/r.git") }, `remote "origin" reaches github.com over SSH (ssh://)`},
-		{"ssh alias remote", func(t *testing.T) { gitIn(t, repo, "remote", "set-url", "origin", "ssh://git@ssh.github.com:443/o/r.git") }, `remote "origin" reaches github.com over SSH`},
+		{"ssh alias remote", func(t *testing.T) {
+			gitIn(t, repo, "remote", "set-url", "origin", "ssh://git@ssh.github.com:443/o/r.git")
+		}, `remote "origin" reaches github.com over SSH`},
 		{"ssh pushurl", func(t *testing.T) {
 			gitIn(t, repo, "remote", "set-url", "origin", "https://github.com/o/r.git")
 			gitIn(t, repo, "remote", "set-url", "--push", "origin", "ssh://git@ssh.github.com:443/o/r.git")
