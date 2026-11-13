@@ -324,6 +324,21 @@ func TestExecRefusals(t *testing.T) {
 			}
 		})
 	}
+	t.Run("GIT_DIR cannot hide a repository's rewrite", func(t *testing.T) {
+		other := filepath.Join(f.env.Home, "other")
+		gitIn(t, f.env.Home, "init", "--quiet", other)
+		gitIn(t, other, "config", "url.git@github.com:.insteadOf", "https://github.com/")
+		outside := filepath.Join(f.env.Home, "outside")
+		if err := os.MkdirAll(outside, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		f.workdir, f.extra = outside, []string{"GIT_DIR=" + filepath.Join(other, ".git")}
+		defer func() { f.workdir, f.extra = repo, nil }()
+		r := f.run("exec", "--profile", "claude", "--", "true")
+		if r.code != 125 || !strings.Contains(r.stderr, "rewrites https://github.com/ to SSH") {
+			t.Errorf("code %d stderr %q", r.code, r.stderr)
+		}
+	})
 	t.Run("ssh alias", func(t *testing.T) {
 		gitIn(t, repo, "config", "--global", "--unset-all", "url.git@github.com:.insteadOf")
 		gitIn(t, repo, "remote", "add", "origin", "work:o/r.git")

@@ -121,9 +121,24 @@ func (c *remoteChecker) rewrites(ctx context.Context, dir string, child []string
 				return failf(ErrSSHRewrite, "url.<...>.insteadOf from %s rewrites https://%s/ to SSH; the agent would use your SSH key for every clone; remove the rule or scope it to a repository", e.source(), host)
 			}
 		}
-		for _, h := range slices.Concat(EffectiveHeaders(entries, "https://"+c.a.Host()+"/"), ScopedHeaders(entries, c.a.GitHosts())) {
-			return failf(ErrRemoteHeader, "%s gets an extra HTTP header (%s) from an http.extraheader entry that agent-id cannot reset; remove that entry", c.a.Host(), h)
+		if err := c.checkHostHeaders(entries); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+// checkHostHeaders refuses an extra header that survives for any Git host of
+// the provider, not only the host that the baseline resets: the reset is
+// scoped to one host, and a wildcard or generic header reaches the others.
+func (c *remoteChecker) checkHostHeaders(entries []ConfigEntry) error {
+	for _, h := range c.a.GitHosts() {
+		for _, name := range EffectiveHeaders(entries, "https://"+h+"/") {
+			return failf(ErrRemoteHeader, "%s gets an extra HTTP header (%s) from an http.extraheader entry that agent-id cannot reset; remove that entry", h, name)
+		}
+	}
+	for _, name := range ScopedHeaders(entries, c.a.GitHosts()) {
+		return failf(ErrRemoteHeader, "%s gets an extra HTTP header (%s) from a path-scoped http.extraheader entry that agent-id cannot reset; remove that entry", c.a.Host(), name)
 	}
 	return nil
 }

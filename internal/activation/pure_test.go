@@ -404,6 +404,18 @@ func TestReviewRegressions(t *testing.T) {
 			t.Errorf("scoped %v", got)
 		}
 	})
+	t.Run("a wildcard header reaches a provider subdomain", func(t *testing.T) {
+		e := entries("http.https://*.github.com/.extraheader", "Authorization: Basic x", "http.https://github.com/.extraheader", "")
+		if got := EffectiveHeaders(e, "https://gist.github.com/"); !slices.Equal(got, []string{"Authorization"}) {
+			t.Errorf("gist: %v", got)
+		}
+		if got := EffectiveHeaders(e, "https://github.com/"); len(got) != 0 {
+			t.Errorf("the reset beats the wildcard on github.com: %v", got)
+		}
+		if got := ScopedHeaders(e, []string{"gist.github.com"}); len(got) == 0 {
+			t.Error("a wildcard pattern for a Git host was not found")
+		}
+	})
 	t.Run("a trailing dot does not hide the host", func(t *testing.T) {
 		for _, raw := range []string{"git@github.com.:o/r.git", "ssh://git@github.com./o/r.git", "https://github.com./o/r.git"} {
 			if !ClassifyRemoteURL(raw, []string{"github.com"}).Provider {

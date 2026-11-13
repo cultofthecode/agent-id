@@ -7,17 +7,18 @@ import (
 )
 
 // specificity ranks how closely a http.<url>.* pattern matches a URL, as
-// Git's urlmatch does: host first, then path.
+// Git's urlmatch does: host first (a wildcard host ranks below an exact one),
+// then path, then user.
 type specificity struct{ host, user, path int }
 
 func (a specificity) less(b specificity) bool {
 	if a.host != b.host {
 		return a.host < b.host
 	}
-	if a.user != b.user {
-		return a.user < b.user
+	if a.path != b.path {
+		return a.path < b.path
 	}
-	return a.path < b.path
+	return a.user < b.user
 }
 
 // EffectiveHeaders returns the names of the extra HTTP headers that Git
@@ -73,7 +74,8 @@ func headerScope(key string, target *url.URL) (*specificity, bool) {
 	if err != nil || pattern.Host == "" || !strings.EqualFold(pattern.Scheme, target.Scheme) {
 		return nil, false
 	}
-	if !strings.EqualFold(pattern.Hostname(), target.Hostname()) || port(pattern) != port(target) {
+	exact := strings.EqualFold(pattern.Hostname(), target.Hostname())
+	if (!exact && !wildcardMatches(pattern.Hostname(), target.Hostname())) || port(pattern) != port(target) {
 		return nil, false
 	}
 	user := 0
@@ -88,7 +90,11 @@ func headerScope(key string, target *url.URL) (*specificity, bool) {
 	if pp != "" && tp != pp && !strings.HasPrefix(tp, pp+"/") {
 		return nil, false
 	}
-	return &specificity{host: len(pattern.Hostname()), user: user, path: len(pp)}, true
+	hostRank := 1
+	if exact {
+		hostRank = len(pattern.Hostname()) + 1
+	}
+	return &specificity{host: hostRank, user: user, path: len(pp)}, true
 }
 
 func port(u *url.URL) string {
@@ -137,9 +143,16 @@ func ScopedHeaders(entries []ConfigEntry, hosts []string) []string {
 	return out
 }
 
+// wildcardMatches reports whether pattern is a "*.suffix" host pattern that
+// matches host.
+func wildcardMatches(pattern, host string) bool {
+	rest, ok := strings.CutPrefix(strings.ToLower(pattern), "*")
+	return ok && strings.HasPrefix(rest, ".") && strings.HasSuffix(strings.ToLower(host), rest)
+}
+
 func hostIn(host string, hosts []string) bool {
 	for _, h := range hosts {
-		if strings.EqualFold(strings.TrimSuffix(host, "."), h) {
+		if strings.EqualFold(strings.TrimSuffix(host, "."), h) || wildcardMatches(host, h) {
 			return true
 		}
 	}
