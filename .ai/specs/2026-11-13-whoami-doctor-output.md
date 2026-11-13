@@ -77,7 +77,7 @@ The system SHALL report each conflict of the check catalog with its check id, st
 
 ##### Scenario: Personal helper and inherited token
 - WHEN `doctor --profile claude` runs with a global `credential.https://github.com.helper` and an inherited `GH_TOKEN`
-- THEN `git.helper.personal` is `warn` with the source `~/.gitconfig:<line>`, `env.credential` is `warn` naming `GH_TOKEN`, each has a `fix:` line, and the exit status is 0
+- THEN `git.helper.personal` is `warn` with the source `global ~/.gitconfig` (scope and file, as `git config --show-scope --show-origin` reports them), `env.credential` is `warn` naming `GH_TOKEN`, each has a `fix:` line, and the exit status is 0
 
 ##### Scenario: SSH remote after the rewrites
 - WHEN the repository's `origin` fetch URL resolves to `git@github.com:o/r.git` because of a personal `url.git@github.com:.insteadOf=https://github.com/`
@@ -122,18 +122,18 @@ Dashed edges are modules planned by the named issues. `internal/diagnose` depend
   - `Snapshot`, with the gathered inputs.
   - The checks, as pure functions `func(Snapshot) []Result`.
   - The pure `Redact(s string, p Patterns) string`, and `Guard(out []byte, p Patterns) error`.
-  - `RenderText` and `RenderJSON`, and `AbbreviateHome(path, home string) string`.
+  - `RenderText` and `RenderJSON`, and `AbbreviateHome(text, home string) string`, applied to every string of the report, free text included (the credential source's errors embed absolute paths), not only to path fields.
 
   Its `AGENTS.md` records the invariants: no report field holds a secret; every string passes `Redact`; output passes `Guard`; checks are pure; no forge names (labels and hosts come from the provider).
-- **Slices** `internal/diagnose/whoami` and `internal/diagnose/doctor`. Each has `contract.go`, `handler.go` (gather through narrow ports, then call the root's pure functions), `command.go`, and `handler_test.go`. `doctor` requires `--profile` (explicit selection, profile spec). Both take `--json`. Flag errors exit 2 (`SetFlagErrorFunc`), and the default of `run` stays 1 for other commands.
+- **Slices** `internal/diagnose/whoami` and `internal/diagnose/doctor`. Each has `contract.go`, `handler.go` (gather through narrow ports, then call the root's pure functions), `command.go`, and `handler_test.go`. `doctor` requires `--profile` (explicit selection, profile spec). Both take `--json`. Flag errors exit 2 (`SetFlagErrorFunc`). Both commands return the exit-code error type of the exec spec (which this spec extends to carry 1, 2 and 3, with an "already reported" flag), so `cmd/agent-id` sets the code without printing again. Every byte that these commands write to stderr, including the error line that `run` prints and cobra's usage errors (which echo flag values), passes `Redact` and `Guard`: `run` routes the error text of a command that declares itself diagnostic through the slice's sanitizer. The default of `run` stays 1 for other commands.
 - **Provider interface.** `internal/provider.Provider` as settled by the GitHub adapter (#15, PR #57: `Name`, `Host`, `Token`, `Identity`, `GitCredential`, `CLIEnvironment`, and `ErrRateLimited`), plus the two answers that the exec spec adds (`CredentialVariables`, `Ready`). This spec adds the following, settled with #15:
-  - `TokenPrefixes() []string`: already required by the profile spec for its secret scan, and reused here for `Patterns`.
+  - Token prefixes are **not** a provider method: the GitHub adapter registers them with the profile registry together with its `profile.SettingsValidator` (profile spec). `internal/diagnose` builds its `Patterns` from that registry (it already depends on `internal/profile`), so there is one source of prefixes.
   - `Describe() []Field`: the provider-specific `whoami` lines, read from the adapter's configuration and cached identity without a network call. For GitHub: `Identity` = the cached bot login, `Installation` = the installation id, `Credentials` = `GitHub App installation token`.
   - `VerifyIdentity(ctx) (IdentityCheck, error)`: the adapter compares its cached `identity` with the bot as the host reports it (the GitHub adapter's existing `Bot(ctx)`), and returns whether they match and the block update that refreshes the cache. `doctor` writes that update through the profile store; the profile spec's rule that a change of `app_id` or host drops `identity` stays in the adapter.
   - `Repositories(ctx, token) ([]string, error)`: the GitHub adapter's existing method, lifted onto the interface with `owner/name` strings. `doctor` checks that each remote's repository is in the list. It returns the provider failure classes.
 
-  The core never names `installation` or `GitHub`. The GitHub adapter supplies the labels.
-- **Token manager (#18).** `whoami` calls the same `Get(ctx, profile)` that the credential helper uses, which serves the cache or mints a token. `doctor` calls `provider.Token` directly, so the check proves that a mint works now, and does not store the result. Only `ExpiresAt` leaves the call. `provider.Token` already redacts its value under every `fmt` verb.
+  `Describe`, `VerifyIdentity` and `Repositories` are **new interface methods proposed by this spec**: the adapter spec (#15, A6) keeps `Repositories` adapter-only today. Adding them changes `internal/provider`, `providertest.Fake`, `providertest.RunContract`, `githubtest`, and the adapter in one step, with contract tests, as `internal/provider/AGENTS.md` requires. The core never names `installation` or `GitHub`. The GitHub adapter supplies the labels.
+- **Token manager (#18).** `whoami` calls the same `Get(ctx, profile)` that the credential helper uses, which serves the cache or mints a token. `doctor` calls `provider.Token` directly, so the check proves that a mint works now, and does not store the result. The token stays a local variable of the handler, used only for the `Repositories` call, and never enters the `Snapshot` or the `Report`; only `ExpiresAt` does. `whoami` can mint a token and write the token cache through the token manager, the same side effect as the first Git operation of a session. `provider.Token` already redacts its value under every `fmt` verb.
 - **Credential source (#16, merged in PR #53).** `doctor` calls `credential.Source.PrivateKeyPEM()` and maps its sentinel errors to `key.file` results (`ErrInvalidReference`, `ErrKeyNotFound`, `ErrKeyUnreadable`, `ErrInsecureKeyFile`, `ErrInvalidKey`; the error already names the path and the fix and never holds key material). On success it clears the returned bytes at once and reports `regular file, mode 0600 or stricter, parses`. No new credential API is needed.
 - **Git integration (#21, #22).** It exposes, as pure functions, the expected `GIT_CONFIG_*` entries for a profile and `ClassifyRemote(url, hostMapping)`. `ClassifyRemote` reports whether a URL is the provider's host over HTTPS, over SSH, through an SSH alias, or another host. `doctor` uses the same rewrite set that `exec` applies, so the two can never disagree.
 - **`internal/activation` (#20).** `ReadContext`, `CheckInheritedGit` and `ParseGitConfigParameters` are reused: `doctor` reports with the very functions that make `exec` refuse.
@@ -156,7 +156,7 @@ Activation:    exec
 ```
 
 - `Context` is `agent`, `agent (damaged: <reason>)` or `agent (incompatible context version <v>)`, from `activation.ReadContext`. The profile then comes from `AGENT_ID_ACTIVE_PROFILE`. This is a report of the active context, not a profile selection (profile spec).
-- `Provider` is `<provider name> (<host>)`. The brief prints only the host, and the provider name is added because the config can hold several providers (ADR #35).
+- `Provider` is `<provider name> (<host>)`. This deliberately changes the brief §7.4 example, which prints only the host: the provider name is added because the config can hold several providers (ADR #35).
 - `Identity` is the cached bot login, from the provider's `Describe()`: no network call. When it is missing, `Identity:      not resolved (run agent-id doctor --profile <name>)`.
 - `Installation` and `Credentials` are the provider's `Describe()` lines. Another provider brings its own labels.
 - `Token status` is one of:
@@ -194,7 +194,7 @@ JSON (`--json`), one object, schema version 1:
 }
 ```
 
-Outside a context: `{"schema":1,"context":"personal/unmanaged"}`, with every other member absent. Members are never removed or retyped within schema 1. A new member is allowed, and consumers must ignore members they do not know.
+Outside a context: `{"schema":1,"context":"personal/unmanaged"}`, with every other member absent. In a damaged or incompatible context, `context` is `"agent"`, `context_problem` is the reason string, and the members that could not be determined are `null` (never absent). An unresolved identity is `"identity": null`; a token that was not checked is `"token": {"status": "not checked", "expires_at": null, "class": "<reason class>"}`. Golden tests pin each of these shapes. Members are never removed or retyped within schema 1. A new member is allowed, and consumers must ignore members they do not know.
 
 ### `agent-id doctor --profile <name> [--json]`
 
@@ -208,9 +208,9 @@ ok    key.file             private key ~/.config/agent-id/keys/claude.pem: regul
 ok    provider.token       installation token minted (expires in 60m)
 ok    provider.identity    claude-dev[bot] matches the cached identity
 ok    provider.repo        installation can read cultofthecode/agent-id
-warn  git.helper.personal  credential helper "osxkeychain" for https://github.com (~/.gitconfig:12)
+warn  git.helper.personal  credential helper "osxkeychain" for https://github.com (global ~/.gitconfig)
       fix: none needed in agent mode: agent-id resets helpers for github.com; remove the line only if you do not use it yourself
-FAIL  git.remote.ssh       remote origin resolves to SSH (git@github.com:o/r.git) through url.git@github.com:.insteadOf (~/.gitconfig:20)
+FAIL  git.remote.ssh       remote origin resolves to SSH (git@github.com:o/r.git) through url.git@github.com:.insteadOf (global ~/.gitconfig)
       fix: remove that rule, or run the agent in a clone whose remote is HTTPS; agent-id exec refuses to start here
 warn  env.credential       GH_TOKEN is set in this shell
       fix: agent-id exec and env remove it from the agent; unset it in your shell startup files if you do not need it
@@ -238,13 +238,14 @@ The order below is the output order. `fail` means `exec` refuses, or agent mode 
 | `config.unsupported` | profiles of unregistered providers in the file | info, listing names | profile spec, Provider registry |
 | `key.file` | the key reference's file exists, is regular, is owned by the user, has mode `0600` or stricter, and parses | fail | brief §10; #16 |
 | `provider.token` | a fresh token can be minted | fail, with the class and the provider's hint | brief §7.1 |
-| `provider.identity` | the host's bot equals the cached identity; refresh the cache when it is missing or different | ok / warn "refreshed" / fail when it cannot be resolved | profile spec, Identity cache |
+| `provider.identity` | the host's bot equals the cached identity; refresh the cache when it is missing or different | ok / warn "refreshed" / warn when the host rate-limits the unauthenticated user lookup (`ErrRateLimited`) / fail when it cannot be resolved otherwise | profile spec, Identity cache |
 | `provider.repo` | the installation can read each repository of a remote on the provider's host | fail per repository; skip outside a repository | brief §7.1 |
 | `git.version` | `git --version` ≥ 2.43 | fail below, skip when Git is missing | O4 |
 | `git.remote.ssh` | D1: effective fetch and push URL of each remote, including `ssh -G` for an alias | fail (O1: `exec` refuses) | analysis §6 D1; O1 |
 | `git.remote.userinfo` | D2: user-info in a remote URL or `pushurl` | fail, URL printed with user-info replaced by `[redacted]` | D2 |
 | `git.extraheader` | D3: an `Authorization` header that survives agent-id's reset for a remote URL | fail; only the presence and the source location are printed | D3 |
 | `git.parameters` | D4: an inherited `GIT_CONFIG_PARAMETERS`, through `activation.ParseGitConfigParameters` | fail for a forbidden key (O2: `exec` refuses), warn otherwise; keys only | D4; O2 |
+| `git.helper.effective` | D4 (second part): the helper list that Git computes for `https://<host>/<repo>` (`git credential fill` is not run; `git config --get-urlmatch --get-all credential.helper` in the activated environment) is exactly agent-id's helper, whose command is built from `AGENT_ID_BIN` of that environment, not from `os.Executable` | fail | D4; C19b |
 | `git.helper.personal` | personal credential helpers that match the provider's host, from every scope | warn (neutralized in agent mode); helper name only (see redaction) | C1–C18 |
 | `git.signing` | personal commit or tag signing is configured | info (turned off in agent mode) | S1–S8 |
 | `git.ssh` | D5: `GIT_SSH_COMMAND` or `core.sshCommand` while a remote on the host is not HTTPS | info | D5; O3 |
@@ -254,10 +255,10 @@ The order below is the output order. `fail` means `exec` refuses, or agent mode 
 | `gh.binary` | `gh` on `PATH`; inside a context, the first `gh` is the agent-id shim (#23) | warn when missing; fail when, inside a context, another `gh` comes first | gh analysis |
 | `gh.host` | `GH_HOST` or `GH_REPO` names a host other than the profile's | warn | gh analysis, host rules |
 | `context.state` | inside a context: `activation.ReadContext` succeeds, and its profile equals `--profile` | fail when damaged; warn when the profile differs | exec spec |
-| `context.git` | D6: inside a context, `GIT_CONFIG_COUNT` equals `AGENT_ID_GIT_CONFIG_END`, and the entries from BASE to END equal the expected set for the profile | fail | D6; exec spec |
+| `context.git` | D6: inside a context, `GIT_CONFIG_COUNT` equals `AGENT_ID_GIT_CONFIG_END`, the entries from BASE to END equal the expected set for the profile, and `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL` equal the bot's | fail (a startup file that re-exported a personal identity breaks attribution) | D6; exec spec |
 | `context.shell` | always | info: shell functions and aliases named `git` or `gh` are invisible to a child process; run `type git gh` in the agent's shell | analysis R9–R10 |
 
-Checks that need a repository run in the working directory. Git runs with doctor's own environment, so that inside a context the effective configuration is the one the agent gets. Every gatherer has a timeout of 10 s. A gatherer that fails turns its checks into `skip`, with the reason, and never into `ok`.
+Checks that need a repository run in the working directory. **Which environment Git runs with:** inside a context, doctor's own environment, so the effective configuration is the one the agent gets. Outside a context (the pre-check before `exec`, exec spec OQ1), `activation.Activate` for `--profile` with no preflight checks, and Git runs with `Activation.Env`. D1 ("after the rewrite set"), D3 ("survives agent-id's reset") and the effective helper list are then evaluated exactly as the agent would see them. If `Activate` itself fails, the Git checks that need it are `fail` with the activation error (the same refusal `exec` would give). Every gatherer has a timeout of 10 s, and the whole command has a deadline of 60 s that also bounds the provider calls (the adapter's own limit is 30 s per request, and `Repositories` may page). A gatherer that **errors** (a timeout, Git missing, a non-zero exit) gives a `fail` result with id `gather.<name>` and the reason, and makes the exit status 1; only a check whose precondition is legitimately absent (no repository, no remote on the host) is `skip`. A gatherer that fails turns its other checks into `skip`, with the reason, and never into `ok`.
 
 ### Redaction
 
@@ -266,7 +267,7 @@ Checks that need a repository run in the working directory. Git runs with doctor
 | Source | What is collected | What is never collected |
 |---|---|---|
 | Environment | variable names; for the context variables of #20 and `GH_HOST`/`GH_REPO`, their values; for every other variable, the result of a pattern match | the value of any other variable |
-| `git config --list --show-scope --show-origin -z` | key, scope, origin (file and line); the values of `url.*`, `remote.*.url`, `remote.*.pushurl`, `core.sshCommand` and `credential.*.helper` | the values of `http.*.extraHeader`, `credential.*` other than `helper`, `user.signingKey` (presence only) |
+| `git config --list --show-scope --show-origin -z` | key, scope, origin (`file:<path>`, `command line:`, or `blob:`; Git 2.54 reports no line numbers); the values of `url.*`, `remote.*.url`, `remote.*.pushurl`, `core.sshCommand` and `credential.*.helper` | the values of `http.*.extraHeader`, `credential.*` other than `helper`, `user.signingKey` (presence only). Keys themselves can carry credentials in a URL subsection (`credential.https://u:tok@github.com.helper`, `url.https://tok@host/.insteadOf`); they are collected, and Layer 2 redacts their user-info before any output |
 | `GIT_CONFIG_PARAMETERS` | keys, through `ParseGitConfigParameters` | values |
 | Token | `ExpiresAt` | `Value` |
 | Key file | the sentinel class of `PrivateKeyPEM`'s error, or success | the key bytes beyond the call: cleared at once |
@@ -276,12 +277,12 @@ Checks that need a repository run in the working directory. Git runs with doctor
 
 1. A PEM block, from `-----BEGIN` to the matching `-----END …-----` or to the end of the string, becomes `[redacted]`.
 2. A JWT shape (`eyJ…` with three base64url segments) becomes `[redacted]`.
-3. Each registered token prefix followed by `[A-Za-z0-9_]*` becomes `[redacted]`. The prefixes are those of every registered provider (`TokenPrefixes`).
+3. Each registered token prefix followed by `[A-Za-z0-9_]*` becomes `[redacted]`. The prefixes are those that the provider adapters registered with the profile registry.
 4. The user-info of any `scheme://user[:password]@host` becomes `scheme://[redacted]@host`. SSH `user@host:` forms keep `git@`, because that user is not a secret.
 5. `Authorization: …`, `password=…`, and `oauth_token: …` up to the end of the line keep the label and get the value `[redacted]`.
 6. Control characters become `?`. Every echoed value is cut to 200 characters.
 
-**Layer 3: `Guard`.** It scans the final rendered bytes, text or JSON, with patterns 1–3 and the user-info pattern. On a match, the command writes nothing to stdout, writes `agent-id: output withheld: it matched a secret pattern (this is a bug; please report it without the output)` to stderr, and exits 3.
+**Layer 3: `Guard`.** It uses the same `Patterns` value as `Redact`, with the same exemption for `git@` (and any user-info without a password on an `ssh://` URL), so a D1 report with `ssh://git@github.com/o/r` is not withheld; a test renders such a report through `Guard`. `Guard` runs on every report string after `Redact` and before rendering, and on the final rendered text; JSON is rendered from strings that already passed, so no JSON unescaping is needed. A test also runs `Guard` over every static string of the catalog (titles, fixes), so no fix text can trip it. On a match, the command writes nothing to stdout, writes `agent-id: output withheld: it matched a secret pattern (this is a bug; please report it without the output)` to stderr, and exits 3.
 
 ## 📝 Edge Cases & Failure Scenarios
 
@@ -293,7 +294,7 @@ Checks that need a repository run in the working directory. Git runs with doctor
 | `doctor` outside any Git repository | Repository checks are `skip` ("not in a Git repository"). |
 | `doctor` in a repository with remotes on other hosts | Only remotes that `ClassifyRemote` assigns to the provider's host are checked for access and SSH. Others are ignored. |
 | `doctor --profile reviewer` inside a `claude` context | `context.state` is `warn` ("this shell is in the context of claude"). The other checks run for `reviewer`. |
-| A helper value `!f() { echo password=abc; }; f` | Shown as `f()`, the first word without `!`, and source `~/.gitconfig:7`. The rest is never collected. |
+| A helper value `!f() { echo password=abc; }; f` | Shown as `f()`, the first word without `!`, and source `global ~/.gitconfig`. The rest is never collected. |
 | A remote URL `https://user:ghp_x@github.com/o/r` | `git.remote.userinfo` fail with `https://[redacted]@github.com/o/r`. |
 | `doctor` while another `setup` writes the config | The identity refresh goes through the profile store's locked write. A concurrent change is preserved. |
 | The identity refresh fails to write (read-only file system) | `provider.identity` is `warn` with the write error. Other checks continue. |
@@ -334,7 +335,7 @@ Checks that need a repository run in the working directory. Git runs with doctor
 | A3 | Redaction design | Three layers: collection, `Redact`, `Guard`. | One missed pattern does not leak. | reversible |
 | A4 | Home path in output | Abbreviated to `~`. | A pasted report does not carry the user's account name into an issue of a public repository. | reversible |
 | A5 | Identity refresh | Only `identity`, through the store's locked write, reported as `warn`. | `ARCHITECTURE.md` and the profile spec assign it to `doctor`. | reversible |
-| A6 | New provider answers | `TokenPrefixes`, `Describe`, `VerifyIdentity`, and `Repositories` lifted from the GitHub adapter onto the interface. | Keeps every GitHub term in the adapter (ADR #35). | settled with the interface owners (#15 merged; the additions are a provider-interface change with contract tests)5 |
+| A6 | New provider answers | `Describe`, `VerifyIdentity`, and `Repositories` (lifted from the GitHub adapter) as new interface methods with contract tests; token prefixes from the profile registry. | Keeps every GitHub term in the adapter (ADR #35). | settled with the interface owners (#15 merged; the additions are a provider-interface change with contract tests)5 |
 
 ## 📋 Phasing
 
