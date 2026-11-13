@@ -3,10 +3,10 @@
 // and Bitbucket are later implementations of the same interface. Core
 // packages depend on this package only, never on a host-specific package.
 //
-// The interface is provisional: it holds what the test harness exercises,
-// one method per responsibility the ADR names (tokens, identity, the
-// per-host Git credential, CLI integration, host mapping). The GitHub adapter
-// (#15) settles it.
+// The interface holds one method per responsibility the ADR names (tokens,
+// identity, the per-host Git credential, CLI integration, host mapping). The
+// GitHub adapter (#15) settled it; the CLI variables to drop (#23) and the
+// SSH→HTTPS rewrites (#22) extend it with their tickets.
 package provider
 
 import (
@@ -24,6 +24,9 @@ var (
 	ErrForbidden    = errors.New("provider: the host denied access")
 	ErrNotFound     = errors.New("provider: the host does not know the agent's installation or account")
 	ErrUnavailable  = errors.New("provider: the host is unavailable")
+	// ErrRateLimited wraps ErrUnavailable, so that a caller that handles
+	// only ErrUnavailable still fails closed.
+	ErrRateLimited = fmt.Errorf("provider: the host is rate limiting the agent: %w", ErrUnavailable)
 )
 
 // Provider is one code host that gives an agent its own identity and

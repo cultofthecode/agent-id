@@ -25,7 +25,7 @@ type Subject struct {
 }
 
 // failures are the provider errors a provider must report through errors.Is.
-var failures = []error{provider.ErrUnauthorized, provider.ErrForbidden, provider.ErrNotFound, provider.ErrUnavailable}
+var failures = []error{provider.ErrUnauthorized, provider.ErrForbidden, provider.ErrNotFound, provider.ErrUnavailable, provider.ErrRateLimited}
 
 var (
 	namePattern   = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
@@ -98,6 +98,11 @@ func checkFailures(t *testing.T, s Subject) {
 		token, err := s.Provider.Token(context.Background())
 		if !errors.Is(err, failure) {
 			t.Errorf("Token() with %q: error %v, want errors.Is %q", failure, err, failure)
+		}
+		for _, other := range failures {
+			if other != failure && !errors.Is(failure, other) && errors.Is(err, other) {
+				t.Errorf("Token() with %q: error %v also matches %q, want one class of failure", failure, err, other)
+			}
 		}
 		if token != (provider.Token{}) {
 			t.Errorf("Token() with %q returned a token, want the zero Token", failure)
