@@ -1,10 +1,10 @@
-# Architecture — agent-id (aidentity)
+# Architecture — agent-id
 
-The code so far is the composition root in `cmd/aidentity` (root command and `--version`) and the test isolation helpers in `internal/testenv`. Every other module below is **planned**. This file records the target structure so that new code follows it. Rows marked **OPEN** are undecided: they mirror `PRODUCT_BRIEF.md` §14 and the design questions of §9.4, and code must not assume an answer. Keep this file current as the system changes; agents read it (through `AGENTS.md`) before structural changes.
+The code so far is the composition root in `cmd/agent-id` (root command and `--version`) and the test isolation helpers in `internal/testenv`. Every other module below is **planned**. This file records the target structure so that new code follows it. Rows marked **OPEN** are undecided: they mirror `PRODUCT_BRIEF.md` §14 and the design questions of §9.4, and code must not assume an answer. Keep this file current as the system changes; agents read it (through `AGENTS.md`) before structural changes.
 
 ## Purpose and scope
 
-aidentity binds an agent profile to Git identity, Git transport credentials, and GitHub API credentials for one process and its descendants (brief §6). The developer's terminal keeps its personal Git and `gh` configuration; a process started through `aidentity exec` (or a shell that loaded `aidentity env`) uses a GitHub App bot identity with installation tokens that are minted, cached, and refreshed automatically.
+agent-id binds an agent profile to Git identity, Git transport credentials, and GitHub API credentials for one process and its descendants (brief §6). The developer's terminal keeps its personal Git and `gh` configuration; a process started through `agent-id exec` (or a shell that loaded `agent-id env`) uses a GitHub App bot identity with installation tokens that are minted, cached, and refreshed automatically.
 
 In scope for the MVP (brief §8, Phase 1): one GitHub App profile, process-scoped activation, Git author and committer, Git transport credentials, `gh` token injection, token cache and refresh, fail-closed behavior, `whoami` and `doctor`, and a Claude Code `SessionStart` integration. GitHub.com, macOS and Linux, Bash and Zsh. Deferred (brief §8, MVP boundaries): Windows, GitHub Enterprise Server, custom Git hosts, managed team deployment, other providers. Not a goal (brief §6): an AI agent or orchestrator, a replacement for Git or `gh`, a password manager or IAM platform, a security sandbox in local mode, a continuation of GHAPP.
 
@@ -13,7 +13,7 @@ In scope for the MVP (brief §8, Phase 1): one GitHub App profile, process-scope
 ```mermaid
 flowchart TD
     Human[Developer terminal] --> Personal[Personal Git and gh configuration, unchanged]
-    Human --> Runtime[aidentity exec / aidentity env]
+    Human --> Runtime[agent-id exec / agent-id env]
     Runtime --> Agent[Claude Code / Codex / any process]
     Runtime --> Profile[Profile store]
     Profile --> Provider[GitHub App provider]
@@ -21,21 +21,21 @@ flowchart TD
     Agent --> Git[git]
     Agent --> GH[gh]
     Git --> Identity[Process-scoped author and committer]
-    Git --> Helper[aidentity credential helper]
-    GH --> Wrapper[aidentity gh injection]
+    Git --> Helper[agent-id credential helper]
+    GH --> Wrapper[agent-id gh injection]
     Helper --> Tokens
     Wrapper --> Tokens
     Tokens --> GitHub[api.github.com]
 ```
 
-The child environment is the only activation mechanism: aidentity never writes to `~/.gitconfig`, the system Git configuration, `~/.config/gh`, the ghapp configuration, shell startup files, or the repository's `.git/config`.
+The child environment is the only activation mechanism: agent-id never writes to `~/.gitconfig`, the system Git configuration, `~/.config/gh`, the ghapp configuration, shell startup files, or the repository's `.git/config`.
 
 ## Components
 
 The layout follows orbit: a vertical slice architecture adjusted to Go. A **module** is a bounded context under `internal/`. A **slice** is one user-visible operation: one Go package that holds its contract, handler, CLI command, and tests.
 
 ```text
-cmd/aidentity/             composition root: build adapters, wire slices, run            (exists)
+cmd/agent-id/              composition root: build adapters, wire slices, run            (exists)
 internal/
   testenv/                 test isolation: temporary HOME/XDG/Git/gh config, fake GitHub (exists)
   profile/                 module: profile config (non-secret metadata, key references) (planned)
@@ -44,19 +44,19 @@ internal/
     githubtest/            deterministic fake responses built on testenv.FakeGitHub
   token/                   module: token cache per host/app/installation/scope, refresh  (planned)
   activation/              module: child environment of exec and env (pure), activation  (planned)
-    exec/  env/            slices: aidentity exec, aidentity env
+    exec/  env/            slices: agent-id exec, agent-id env
   gitint/                  module: Git identity, process-scoped Git config, credential helper (planned)
-    credentialhelper/      slice: aidentity git-credential (the helper protocol)
+    credentialhelper/      slice: agent-id git-credential (the helper protocol)
   ghint/                   module: gh token injection, recursion guard, host selection   (planned)
   diagnose/                module: whoami, doctor (no secrets in output)                 (planned)
-  setup/                   slice module: aidentity setup github                          (planned)
+  setup/                   slice module: agent-id setup github                           (planned)
   integration/claude/      Claude Code SessionStart integration                          (planned)
   kernel/                  shared kernel: only what three or more modules need
 ```
 
 | Component | Location (planned) | Responsibility (brief §9.2) | Depends on |
 |---|---|---|---|
-| Composition root | `cmd/aidentity` | Builds the adapters, adds the cobra command of every slice, prints errors, sets the exit code. No behavior. | every module |
+| Composition root | `cmd/agent-id` | Builds the adapters, adds the cobra command of every slice, prints errors, sets the exit code. No behavior. | every module |
 | Test isolation | `internal/testenv` | Isolated environment, fake GitHub, port allocation in 18000–18999. Test files only. | — |
 | Profile store | `internal/profile` | Persist non-secret metadata and references to securely stored credentials; resolve the active profile. | `kernel` |
 | Credential source | `internal/credential` | Load the App private key from its reference; check file permissions; keyring backend behind an interface. | `kernel` |
@@ -76,7 +76,7 @@ internal/
 
 ### Dependency rules
 
-1. Nothing imports `cmd/aidentity`. Only `cmd/aidentity` imports an adapter (`internal/github`).
+1. Nothing imports `cmd/agent-id`. Only `cmd/agent-id` imports an adapter (`internal/github`).
 2. A slice imports the root package of its own module, the `internal/` of its own module, port packages, and `kernel`. A slice never imports another slice.
 3. A module uses another module only through that module's root package.
 4. `kernel` imports nothing from this repository.
@@ -89,7 +89,7 @@ depguard (`.golangci.yml`) enforces rule 6 today. Rules 1, 2, and 4 get depguard
 
 - Identity: `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL` from the resolved bot (`<slug>[bot]`, `<id>+<slug>[bot]@users.noreply.github.com`).
 - Configuration: only `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n`, appended after any inherited entries so that inherited process-scoped configuration is preserved or handled explicitly, never replaced blindly.
-- Credentials: an empty `credential.helper` entry resets inherited helpers for `https://github.com`, then the aidentity helper; `credential.useHttpPath` where repository scope matters. The helper answers only for `protocol=https` and the profile's host, and refuses any other host, look-alike host, or protocol (fail closed).
+- Credentials: an empty `credential.helper` entry resets inherited helpers for `https://github.com`, then the agent-id helper; `credential.useHttpPath` where repository scope matters. The helper answers only for `protocol=https` and the profile's host, and refuses any other host, look-alike host, or protocol (fail closed).
 - Transport: GitHub SSH remotes (`git@github.com:`, `ssh://git@github.com/`) are rewritten to HTTPS inside the context; push URLs and `http.extraHeader` are checked by `doctor`.
 - Signing: inherited personal commit and tag signing is turned off in agent mode unless an explicit agent signing configuration exists. Commit metadata is attribution, not proof of origin.
 
@@ -99,10 +99,10 @@ A known `gh` executable runs with a fresh installation token in `GH_TOKEN` on ea
 
 ## Data
 
-aidentity has no database.
+agent-id has no database.
 
-- **Profile config:** `$XDG_CONFIG_HOME/aidentity/` (default `~/.config/aidentity/`). Non-secret metadata and key references only. Format and schema: **OPEN** (brief §9.4 is illustrative YAML).
-- **Token cache:** `$XDG_CACHE_HOME/aidentity/` (or the state directory), mode `0600` files in a `0700` directory, keyed by host, App, installation, and scope; atomic writes and a lock. Installation tokens are bearer credentials, valid about one hour.
+- **Profile config:** `$XDG_CONFIG_HOME/agent-id/` (default `~/.config/agent-id/`). Non-secret metadata and key references only. Format and schema: **OPEN** (brief §9.4 is illustrative YAML).
+- **Token cache:** `$XDG_CACHE_HOME/agent-id/` (or the state directory), mode `0600` files in a `0700` directory, keyed by host, App, installation, and scope; atomic writes and a lock. Installation tokens are bearer credentials, valid about one hour.
 - **Private key:** a protected file (`0600`, refused otherwise) or an OS keyring entry (**OPEN**). The key can mint tokens for every installation of the App: its blast radius is larger than a token's; rotation and revocation are documented.
 - **Identity cache:** resolved bot login, numeric id, and email, cached with the profile, refreshed by `setup` and `doctor`.
 
@@ -115,7 +115,7 @@ aidentity has no database.
 
 ## Cross-cutting concerns
 
-- **Errors:** wrapped with `%w`, matched with `errors.Is`. Only `cmd/aidentity` prints errors and sets exit codes; `exec` returns the child's exit status unchanged. No `panic` for expected failures. Output goes to stdout, diagnostics to stderr.
+- **Errors:** wrapped with `%w`, matched with `errors.Is`. Only `cmd/agent-id` prints errors and sets exit codes; `exec` returns the child's exit status unchanged. No `panic` for expected failures. Output goes to stdout, diagnostics to stderr.
 - **Testing strategy:**
   - Unit tests for every pure security function, with hostile input: look-alike hosts, other protocols, unrelated repository paths, inherited personal tokens and helpers, `GIT_CONFIG_COUNT` already set, expired tokens, unreadable or world-readable keys.
   - Handler tests against `testenv.NewFakeGitHub` in an isolated environment (`testenv.Isolate`). `go test ./...` never reaches the network and never needs a GitHub account.
@@ -125,20 +125,20 @@ aidentity has no database.
 
 ## Key decisions
 
-Derived from `PRODUCT_BRIEF.md`; the brief is the record. Rows with status **OPEN** wait for the owner.
+Derived from `PRODUCT_BRIEF.md`; the brief is the record, except where a row cites a later decision of the owner on the tracker. Rows with status **OPEN** wait for the owner.
 
 | Date | Decision | Source | Status |
 |---|---|---|---|
 | 2026-11-12 | Go CLI, module `github.com/cultofthecode/agent-id`, cobra for the command tree (as in orbit) | owner's starter task; orbit D02/D23 | active |
 | 2026-11-12 | GitHub first; MVP targets GitHub.com, macOS/Linux, Bash/Zsh | brief §3 principle 6, §8 | active |
-| 2026-11-12 | Explicit `aidentity exec` is the canonical activation; `env` + Claude Code `SessionStart` is a convenience layer | brief §7.2–7.3, §14 profile selection | active |
+| 2026-11-12 | Explicit `agent-id exec` is the canonical activation; `env` + Claude Code `SessionStart` is a convenience layer | brief §7.2–7.3, §14 profile selection | active |
 | 2026-11-12 | Process-scoped Git configuration through `GIT_CONFIG_COUNT` and author/committer variables; no global changes | brief §9.3, §10 | active |
 | 2026-11-12 | Fail closed in agent mode; no silent fallback to personal credentials | brief §5, §8 | active |
 | 2026-11-12 | Local mode is attribution, not containment; hardened isolation is Phase 3 | brief §10, §14 credential leakage | active |
 | 2026-11-12 | Turn off inherited personal signing in agent mode; never claim verified commits | brief §9.3 | active |
 | 2026-11-12 | Start with existing GitHub Apps; guided or manifest registration is evaluated later | brief §14 onboarding | active |
 | 2026-11-12 | No runtime dependency on GHAPP and no requirement to install it | brief §1, §13 Phase 0 | active |
-| — | Product and binary name: `aidentity` (working) vs `agent-id`; config directory and env prefix follow it | brief §14 | **OPEN** |
+| 2026-11-12 | The product name is `agent-id` everywhere: binary `agent-id` (`cmd/agent-id`), config and cache directory `agent-id` (`$XDG_CONFIG_HOME/agent-id`, `$XDG_CACHE_HOME/agent-id`), environment prefix `AGENT_ID_`. The repository and module path stay. The package, domain and trademark availability check is a pre-launch item. | owner's decision (Jacob, 2026-11-12 22:40 Europe/Warsaw) on [#6](https://github.com/cultofthecode/agent-id/issues/6); supersedes the working name of brief §14 | active |
 | 2026-11-12 | License of agent-id: Apache-2.0 (`LICENSE`). No `NOTICE` file: agent-id reuses no GHAPP code (GHAPP audit, PR #31), and its Go dependencies ship no `NOTICE` (Apache-2.0 §4(d)). Release archives carry the dependency license texts (#11) | owner on #8; GHAPP audit, PR #31 | active |
 | 2026-11-13 | Distribution: open source, released through GitHub Releases and a Homebrew tap; the release pipeline is #11 | owner, [recorded on #11](https://github.com/cultofthecode/agent-id/issues/11#issuecomment-6845727450) | active |
 | — | Commercial model and hosting beyond the release channel | brief §14 | **OPEN** |
