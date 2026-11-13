@@ -102,6 +102,10 @@ func Activate(ctx context.Context, d Deps, r Request) (Activation, error) {
 	}
 	plan := PlanFor(r, a, paths)
 	plan = withGit(plan, git)
+	plan, err = withTransport(plan, a)
+	if err != nil {
+		return Activation{}, err
+	}
 	env, err := Build(r.Parent, plan)
 	if err != nil {
 		return Activation{}, err

@@ -1,6 +1,6 @@
 # Capability: exec
 
-`agent-id exec --profile <name> [--] <command> [args…]` starts one command, and only its process tree, in the agent context of a profile. Implemented by `internal/activation` and `internal/activation/exec` (#20, #68). In this version the child holds no App token: it is closed to the developer's credentials (fail closed), and the bot's Git and `gh` credentials come with #22 and #23.
+`agent-id exec --profile <name> [--] <command> [args…]` starts one command, and only its process tree, in the agent context of a profile. Implemented by `internal/activation` and `internal/activation/exec` (#20, #68). In this version the child holds no App token: it is closed to the developer's credentials (fail closed), and the bot's Git credentials come from the credential helper (#22, minted at use, never in the environment), and its `gh` token comes with #23.
 
 ## Requirement: Only the command's process tree is in agent mode
 The system SHALL start the command with the child environment of the resolved profile and SHALL NOT change the environment, the files, or the configuration of the invoking process.
