@@ -41,7 +41,7 @@ type Request struct {
 }
 
 // ParseRequest reads Git's credential protocol: key=value lines up to a blank
-// line or the end of r, at most 64 KiB and 64 lines. It refuses a NUL byte, a
+// line or the end of r, at most 64 KiB and 64 lines. It refuses a NUL or CR byte, a
 // line without "=", an empty key, an input over the limits, and a repeated
 // protocol, host, path, username, or password. Other keys, including the
 // url key, are ignored.
@@ -52,7 +52,7 @@ func ParseRequest(r io.Reader) (Request, error) {
 	for lines := 1; ; lines++ {
 		line, err := reader.ReadString('\n')
 		total += len(line)
-		if total > maxRequestBytes || lines > maxRequestLines+1 {
+		if total > maxRequestBytes {
 			return Request{}, fmt.Errorf("%w (too long)", ErrRequestInvalid)
 		}
 		if err != nil && !errors.Is(err, io.EOF) {
@@ -62,6 +62,9 @@ func ParseRequest(r io.Reader) (Request, error) {
 		line = strings.TrimSuffix(line, "\n")
 		if line == "" {
 			return req, nil
+		}
+		if lines > maxRequestLines {
+			return Request{}, fmt.Errorf("%w (too long)", ErrRequestInvalid)
 		}
 		if setErr := req.set(line); setErr != nil {
 			return Request{}, setErr
@@ -120,8 +123,9 @@ const (
 var repositoryPath = regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}/[A-Za-z0-9._-]{1,100}/?$`)
 
 // Decide says whether the profile's host may answer req. host is the
-// provider's host, for example "github.com". A look-alike host, a host with a
-// port, and a host with user-info are Skip, because they are not host. For
+// provider's host, for example "github.com". A look-alike host is Skip, because it is not
+// host. host with a port or user-info is Refuse, because Git sends these forms
+// for URLs that match the helper's scope. For
 // host itself the protocol must be exactly https, the path must be
 // owner/name or owner/name.git, and the request must carry no password. The
 // reason of a Refuse is a fixed string.
@@ -216,8 +220,10 @@ var profilePattern = regexp.MustCompile(`^[a-z](?:[a-z0-9-]{0,30}[a-z0-9])?$`)
 
 // TransportEntries returns, in order, the entries that install the helper for
 // https://host and rewrite its SSH remotes to HTTPS: the scoped helper
-// command, useHttpPath, and the insteadOf rules for ssh://git@host/ and, when
-// host has no port, git@host:. binary must be an absolute path without a
+// command, useHttpPath, and the insteadOf rules for ssh://git@host/,
+// ssh://host/, git+ssh://git@host/, ssh+git://git@host/ and, when host has no
+// port, git@host: and host:. The form ssh://git@ssh.host:443/ stays out: it
+// names a forge-specific alias that the provider would have to supply. binary must be an absolute path without a
 // control character; profile must be a valid profile name.
 func TransportEntries(binary, profile, host string) ([]Entry, error) {
 	switch {
@@ -232,10 +238,14 @@ func TransportEntries(binary, profile, host string) ([]Entry, error) {
 	entries := []Entry{
 		{"credential." + base + ".helper", "!" + shellQuote(binary) + " git-credential --profile " + profile},
 		{"credential." + base + ".useHttpPath", "true"},
-		{"url." + base + "/.insteadOf", "ssh://git@" + host + "/"},
+	}
+	for _, prefix := range []string{"ssh://git@", "ssh://", "git+ssh://git@", "ssh+git://git@"} {
+		entries = append(entries, Entry{"url." + base + "/.insteadOf", prefix + host + "/"})
 	}
 	if !strings.Contains(host, ":") {
-		entries = append(entries, Entry{"url." + base + "/.insteadOf", "git@" + host + ":"})
+		entries = append(entries,
+			Entry{"url." + base + "/.insteadOf", "git@" + host + ":"},
+			Entry{"url." + base + "/.insteadOf", host + ":"})
 	}
 	return entries, nil
 }
