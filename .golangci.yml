@@ -35,6 +35,23 @@ linters:
           deny:
             - pkg: github.com/cultofthecode/agent-id/internal/provider
               desc: the profile store imports no provider package, so that adapters can import it (ADR #35, profile-config spec)
+        token-uses-only-the-provider-port:
+          list-mode: strict
+          files:
+            - "**/internal/token/**"
+            - "!$test"
+          allow:
+            - $gostd
+            - github.com/cultofthecode/agent-id/internal/provider$
+        token-tests-use-only-the-provider-port-and-fakes:
+          list-mode: strict
+          files:
+            - "**/internal/token/**_test.go"
+          allow:
+            - $gostd
+            - github.com/cultofthecode/agent-id/internal/provider$
+            - github.com/cultofthecode/agent-id/internal/provider/providertest$
+            - github.com/cultofthecode/agent-id/internal/testenv$
         github-only-in-its-adapter:
           list-mode: lax
           files:

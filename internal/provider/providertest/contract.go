@@ -28,8 +28,9 @@ type Subject struct {
 var failures = []error{provider.ErrUnauthorized, provider.ErrForbidden, provider.ErrNotFound, provider.ErrUnavailable, provider.ErrRateLimited}
 
 var (
-	namePattern   = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
-	envVarPattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*=`)
+	namePattern    = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	subjectPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	envVarPattern  = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*=`)
 )
 
 // RunContract runs the contract of provider.Provider as subtests. Each subtest
@@ -42,6 +43,7 @@ func RunContract(t *testing.T, newSubject func(t *testing.T) Subject) {
 		run  func(t *testing.T, s Subject)
 	}{
 		{"names its provider and host", checkNames},
+		{"names its token subject", checkTokenSubject},
 		{"issues an unexpired fake token", checkToken},
 		{"reports the token lifetime", checkLifetime},
 		{"maps failures to provider errors and fails closed", checkFailures},
@@ -65,6 +67,17 @@ func checkNames(t *testing.T, s Subject) {
 	}
 	if host := s.Provider.Host(); host == "" || strings.ContainsAny(host, "/@: ") {
 		t.Errorf("Host() = %q, want a bare host name", host)
+	}
+}
+
+func checkTokenSubject(t *testing.T, s Subject) {
+	subject := s.Provider.TokenSubject()
+	if !subjectPattern.MatchString(subject) {
+		t.Errorf("TokenSubject() = %q, want %s", subject, subjectPattern)
+	}
+	mustToken(t, s)
+	if again := s.Provider.TokenSubject(); again != subject {
+		t.Errorf("TokenSubject() = %q after a token, want the stable %q", again, subject)
 	}
 }
 

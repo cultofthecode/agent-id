@@ -22,6 +22,7 @@ const (
 	FakeHost     = "git.agent-id.test"
 	FakeUsername = "agent-id-fake"
 	FakeCLIVar   = "FAKE_CLI_TOKEN"
+	FakeSubject  = "fake-installation"
 	defaultTTL   = time.Hour
 )
 
@@ -31,13 +32,14 @@ const (
 type Fake struct {
 	mu       sync.Mutex
 	lifetime time.Duration
+	subject  string
 	failure  error
 	tokens   []provider.Token
 }
 
 // NewFake returns a Fake whose tokens live one hour.
 func NewFake() *Fake {
-	return &Fake{lifetime: defaultTTL}
+	return &Fake{lifetime: defaultTTL, subject: FakeSubject}
 }
 
 // Name implements provider.Provider.
@@ -45,6 +47,22 @@ func (f *Fake) Name() string { return FakeName }
 
 // Host implements provider.Provider.
 func (f *Fake) Host() string { return FakeHost }
+
+// TokenSubject implements provider.Provider. It is FakeSubject unless
+// SetTokenSubject changed it.
+func (f *Fake) TokenSubject() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.subject
+}
+
+// SetTokenSubject sets the subject that TokenSubject reports, so that a test
+// can stand in for two installations with two fakes.
+func (f *Fake) SetTokenSubject(subject string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.subject = subject
+}
 
 // Token implements provider.Provider.
 func (f *Fake) Token(ctx context.Context) (provider.Token, error) {
