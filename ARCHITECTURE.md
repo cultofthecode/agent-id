@@ -1,6 +1,6 @@
 # Architecture — agent-id
 
-The code so far is the composition root in `cmd/agent-id` (root command and `--version`) and the test helpers in `internal/testenv`, `internal/provider/providertest`, and `internal/provider/github/githubtest`, with the provider interface in `internal/provider` and its GitHub adapter in `internal/provider/github` (#15). Every other module below is **planned**. This file records the target structure so that new code follows it. Rows marked **OPEN** are undecided: they mirror `PRODUCT_BRIEF.md` §14 and the design questions of §9.4, and code must not assume an answer. Keep this file current as the system changes; agents read it (through `AGENTS.md`) before structural changes.
+The code so far is the composition root in `cmd/agent-id` (root command and `--version`) and the test helpers in `internal/testenv`, `internal/provider/providertest`, and `internal/provider/github/githubtest`, with the provider interface in `internal/provider` and its GitHub adapter in `internal/provider/github` (#15), and the credential source in `internal/credential` (#16). Every other module below is **planned**. This file records the target structure so that new code follows it. Rows marked **OPEN** are undecided: they mirror `PRODUCT_BRIEF.md` §14 and the design questions of §9.4, and code must not assume an answer. Keep this file current as the system changes; agents read it (through `AGENTS.md`) before structural changes.
 
 ## Purpose and scope
 
@@ -39,7 +39,7 @@ cmd/agent-id/              composition root: build adapters, wire slices, run   
 internal/
   testenv/                 test isolation: temporary HOME/XDG/Git/gh config, network guard, fake host API, HTTPS Git server, bare repositories (exists)
   profile/                 module: profile config (non-secret metadata, key references) (planned)
-  credential/              module: private key sources: protected file; keyring OPEN     (planned)
+  credential/              module: private key sources: protected file; keyring OPEN     (exists, #16)
   provider/                code-host boundary (ADR #35): Provider interface, provider errors (exists; settled by #15)
     providertest/          provider contract (RunContract) and a provider-neutral Fake for core tests (exists)
     github/                adapter: GitHub App JWT, installation tokens, bot identity, gh  (exists, #15; profile block planned)
@@ -63,7 +63,7 @@ internal/
 | Provider contract | `internal/provider/providertest` | `RunContract`, which every provider passes, and `Fake`, the provider that core tests use. Test files only. | `provider`, `testenv` |
 | Fake GitHub App | `internal/provider/github/githubtest` | The App, installation-token, installation-repository, and bot-user endpoints with a per-test key and controllable expiry and failures; `App.Provider` puts it behind `provider.Provider`. Tests of the GitHub adapter only. | `provider`, `testenv` |
 | Profile store | `internal/profile` | Persist non-secret metadata and references to securely stored credentials; resolve the active profile. | `kernel` |
-| Credential source | `internal/credential` | Load the App private key from its reference; check file permissions; keyring backend behind an interface. Receives a `profile.KeyRef`; never parses the config and never knows the provider. | `profile`, `kernel` |
+| Credential source | `internal/credential` | Load the App private key from its reference; check file permissions; keyring backend behind an interface. Receives a `profile.KeyRef`; never parses the config and never knows the provider. Exists with the file source (`credential.File`, #16); until #17 adds `profile.KeyRef` it takes the path of a `file:` reference and imports no other module. | `profile`, `kernel` |
 | Provider interface | `internal/provider` | The port through which the core reaches a Git forge: authentication and tokens, bot identity, per-host credential helper data, CLI integration, host and URL mapping (see Provider abstraction). Defines no forge-specific type. Settled by #15 (spec `.ai/specs/2026-11-13-github-provider-adapter.md`), which added `ErrRateLimited`; #23 adds the CLI variables to drop and #22 the SSH→HTTPS mapping. | `kernel` |
 | GitHub adapter | `internal/provider/github` | Implements the provider interface for GitHub.com: sign the App JWT, mint installation tokens, resolve the bot login, numeric id and noreply email, list the installation's repositories, describe `gh` (exists, #15); decode and validate the `github` block of a profile (#9; planned, after #17). The only package with GitHub-specific code. | `provider`, `profile`, `kernel` |
 | Token manager | `internal/token` | Cache tokens with restrictive permissions, atomic writes and a cross-process lock; refresh ahead of expiry; never expose a token. | `provider`, `kernel` |
