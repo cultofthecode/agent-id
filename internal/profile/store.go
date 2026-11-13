@@ -219,3 +219,24 @@ func available(config Config) string {
 	}
 	return "available: " + strings.Join(config.Names(), ", ")
 }
+
+// Path returns the absolute configuration path this store reads and writes.
+// Unlike the package-level Path, which resolves the default location from
+// the environment, it reports the path the store was built with.
+func (s *Store) Path() string {
+	return s.path
+}
+
+// CheckName checks a profile name before any I/O: the inline-secret scan
+// with the registered token prefixes first, then the profile name rule. A
+// name that looks like a token or key fails with ErrInlineSecret and is
+// never echoed; any other invalid name fails with ErrConfigInvalid.
+func (s *Store) CheckName(name string) error {
+	if looksSecret(name, s.registry.tokenPrefixes()) {
+		return Errorf(ErrInlineSecret, "the profile name looks like a token or private key; it is not shown — remove it and revoke it if it was real")
+	}
+	if !validProfileName(name) {
+		return Errorf(ErrConfigInvalid, `invalid profile name %s: use 1–32 lowercase letters, digits or "-", starting with a letter and not ending with "-"`, Quote(name))
+	}
+	return nil
+}
