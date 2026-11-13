@@ -8,7 +8,8 @@ import (
 // specificity ranks how closely an http.<url>.* pattern matches a URL, in the
 // order of Git's urlmatch: the length of the host pattern first, so a
 // pattern with a wildcard label ranks below the exact host. The path length
-// comes next and the user length last.
+// comes next. A pattern with a user part (even an empty one) ranks above one
+// without; Git compares only whether the user matched.
 type specificity struct{ host, user, path int }
 
 func (a specificity) less(b specificity) bool {
@@ -66,7 +67,7 @@ func effectiveHeaders(entries []ConfigEntry, target gitURL) []string {
 
 // headerScope reports whether key is an http extraheader key that applies to
 // target. The specificity is nil for the generic http.extraheader. A pattern
-// that does not parse never applies; refuseUnparsable reports it separately.
+// that does not parse never applies; UnparsableHeaderScope reports it separately.
 func headerScope(key string, target gitURL) (*specificity, bool) {
 	section, sub, variable, ok := splitKey(key)
 	if !ok || !strings.EqualFold(section, "http") || !strings.EqualFold(variable, "extraheader") {
@@ -83,11 +84,11 @@ func headerScope(key string, target gitURL) (*specificity, bool) {
 		return nil, false
 	}
 	user := 0
-	if pattern.user != "" {
-		if pattern.user != target.user {
+	if pattern.hasUser {
+		if !target.hasUser || pattern.user != target.user {
 			return nil, false
 		}
-		user = len(pattern.user)
+		user = 1
 	}
 	pp := strings.TrimSuffix(pattern.path, "/")
 	tp := target.path

@@ -10,11 +10,13 @@ import (
 // decoded: a query and a fragment stay in it, as in Git.
 type gitURL struct {
 	scheme, user, host, port, path string
+	hasUser                        bool
 }
 
-// atHost returns u with its host replaced by host (a plain host name).
+// atHost returns u with its host replaced by host (a plain host name). The
+// host keeps a trailing dot, which counts in Git's ranking by host length.
 func (u gitURL) atHost(host string) gitURL {
-	u.host = strings.ToLower(strings.TrimSuffix(host, "."))
+	u.host = strings.ToLower(host)
 	return u
 }
 
@@ -73,6 +75,7 @@ func (u *gitURL) splitUser(authority string) (string, bool) {
 	}
 	user, _, _ := strings.Cut(userinfo, ":")
 	var ok bool
+	u.hasUser = true
 	u.user, ok = escape(user)
 	return hostport, ok
 }
@@ -98,7 +101,7 @@ func (u *gitURL) splitHostPort(hostport string, glob bool) bool {
 	if !validHost(host, glob) || !validPort(port) {
 		return false
 	}
-	u.host = strings.ToLower(strings.TrimSuffix(host, "."))
+	u.host = strings.ToLower(host)
 	u.port = port
 	if (u.scheme == "http" && port == "80") || (u.scheme == "https" && port == "443") {
 		u.port = ""
@@ -140,13 +143,24 @@ func validPort(p string) bool {
 	return n <= 65535
 }
 
-// normalizePath escapes path as Git does and resolves "." and ".." segments.
+// normalizePath escapes path as Git does and resolves "." and ".." segments
+// in the part before the first "?" or "#". Git copies a query and a fragment
+// unchanged.
 func normalizePath(path string) (string, bool) {
 	esc, ok := escape(path)
 	if !ok {
 		return "", false
 	}
-	segments := strings.Split(esc, "/")
+	head, tail := esc, ""
+	if i := strings.IndexAny(esc, "?#"); i >= 0 {
+		head, tail = esc[:i], esc[i:]
+	}
+	resolved, ok := resolveDots(head)
+	return resolved + tail, ok
+}
+
+func resolveDots(path string) (string, bool) {
+	segments := strings.Split(path, "/")
 	out := make([]string, 0, len(segments))
 	for i, seg := range segments {
 		last := i == len(segments)-1

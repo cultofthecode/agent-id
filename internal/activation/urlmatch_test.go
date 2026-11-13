@@ -175,6 +175,7 @@ func TestUrlmatchAgreesWithGit(t *testing.T) {
 		"HTTPS://github.com/org/", "ftp://github.com/", "https://github.com/x?a=1", "https://github.com/x?", "https://github.com/x/", "https://github.com/x",
 		"https://github.com/a%7Eb", "https://github.com/a~b", "https://github.com/a%5Bb", "https://github.com/a[b", "https://github.com/a%C3%A9",
 		"https://github.com/a%c3%a9", "https://github.com/é",
+		"https://@github.com/", "https://:p@github.com/", "https://github.com../", "https://github.com/x?/../", "https://github.com/x#/../", "https://github.com/x/../y?/./z",
 	}
 	targets := []string{
 		"https://github.com/org/sub/r", "https://github.com/org/sub", "https://github.com/org/sub/", "https://github.com/org/sub?", "https://github.com/org/sub?/r",
@@ -185,7 +186,7 @@ func TestUrlmatchAgreesWithGit(t *testing.T) {
 		"http://github.com/r", "https://u@github.com/r", "https://u:p@github.com/r", "https://us%20er@github.com/org/r", "https://uA@github.com/r", "https://u%40x@github.com/r",
 		"https://other@github.com/r", "https://gist.github.com/x/y", "https://gist.github.com/r", "https://ssh.github.com/r", "https://sub.gist.github.com/r",
 		"https://a.b.c/r", "https://example.com/r", "https://[::1]/r", "https://[::1]:8443/r", "ftp://github.com/r", "https://github.com/a@b/r",
-		"https://github.com/a~b/r", "https://github.com/a%7Eb/r", "https://github.com/a[b/r", "https://github.com/a%5Bb/r", "https://github.com/a%C3%A9/r", "https://github.com/%C3%A9/r",
+		"https://github.com/a~b/r", "https://github.com/a%7Eb/r", "https://github.com/a[b/r", "https://github.com/a%5Bb/r", "https://github.com/a%C3%A9/r", "https://github.com/%C3%A9/r", "https://@github.com/r", "https://:p@github.com/r", "https://github.com../r", "https://github.com/x?/../",
 	}
 	groups := map[string][]string{}
 	for _, p := range patterns {
@@ -284,12 +285,14 @@ func TestRealGitSendsWhatTheCheckPredicts(t *testing.T) {
 		{"tab in the path", entries("http."+base+"/org/a\tb/.extraheader", "X-L: 1")},
 		{"DEL in the path", entries("http."+base+"/org/a\x7fb/.extraheader", "X-L: 1")},
 		{"space in the user", entries("http://"+userHost+"/.extraheader", "X-L: 1")},
+		{"reset with an empty user", entries("http."+base+"/org/sub/.extraheader", "X-L: 1", "http.http://@"+host+"/org/sub/.extraheader", "")},
+		{"reset with dot segments in a query", entries("http."+base+"/org/.extraheader", "X-L: 1", "http."+base+"/org/x?/../.extraheader", "")},
 		{"plain header at the host", entries("http."+base+"/.extraheader", "X-L: 1")},
 		{"header then host reset", entries("http."+base+"/.extraheader", "X-L: 1", "http."+base+"/.extraheader", "")},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, rawURL := range []string{base + "/org/sub/r.git", base + "/org/a%09b/r.git", base + "/org/a%7Fb/r.git", "http://us%20er@" + host + "/org/r.git"} {
+			for _, rawURL := range []string{base + "/org/sub/r.git", base + "/org/r.git", base + "/org/a%09b/r.git", base + "/org/a%7Fb/r.git", "http://us%20er@" + host + "/org/r.git"} {
 				mu.Lock()
 				sent = nil
 				mu.Unlock()
@@ -309,5 +312,112 @@ func TestRealGitSendsWhatTheCheckPredicts(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The three fail-open cases that the review of PR #101 found in the first
+// version of the matcher. Each reset must not remove the header, because Git
+// ranks or matches the pattern differently.
+func TestReviewExamplesOfPR101(t *testing.T) {
+	hdr := "X-L: 1"
+	type tc struct{ name, header, reset, url string }
+	cases := []tc{
+		{"trailing dot ranks above the baseline", "https://github.com./", "https://github.com/", "https://github.com/org/r"},
+		{"two trailing dots never match", "https://github.com/org/", "https://github.com../", "https://github.com/org/r"},
+		{"two trailing dots, wildcard", "https://*.github.com/", "https://*.github.com../", "https://gist.github.com/org/r"},
+		{"empty user", "https://github.com/org/", "https://@github.com/org/", "https://github.com/org/r"},
+		{"empty user with a password", "https://github.com/org/", "https://:pw@github.com/org/", "https://github.com/org/r"},
+		{"empty user, wildcard", "https://*.github.com/", "https://@*.github.com/", "https://gist.github.com/r"},
+		{"dot segments in a query", "https://github.com/org/", "https://github.com/org/x?/../", "https://github.com/org/r"},
+		{"dot segments in a fragment", "https://github.com/org/", "https://github.com/org/x#/../", "https://github.com/org/r"},
+		{"dot segments in a query, wildcard", "https://*.github.com/", "https://*.github.com/x?/../", "https://gist.github.com/r"},
+	}
+	for _, c := range cases {
+		e := entries("http."+c.header+".extraheader", hdr, "http."+c.reset+".extraheader", "")
+		if got := EffectiveHeaders(e, c.url); !slices.Equal(got, []string{"X-L"}) {
+			t.Errorf("%s: headers %v", c.name, got)
+		}
+	}
+	e := entries("http.https://github.com/org/.extraheader", hdr, "http.https://github.com/org/x?/../.extraheader", "")
+	if got := scopedNames(e, "github.com"); !slices.Equal(got, []string{"X-L"}) {
+		t.Errorf("scoped headers %v", got)
+	}
+}
+
+// TestUrlmatchRankAgreesWithGit compares which of two entries wins. Git
+// prints the value of the best match, so with the header "X-L: 1" first and a
+// reset (here "X-L: 2") second, the header survives exactly when Git prints
+// "X-L: 1".
+func TestUrlmatchRankAgreesWithGit(t *testing.T) {
+	testenv.Isolate(t)
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not on PATH")
+	}
+	headers := []string{
+		"https://github.com/", "https://github.com./", "https://github.com/org/", "https://*.github.com/", "https://*.github.com/x/", "https://github.com/org/x/",
+		"https://u@github.com/", "https://@github.com/", "https://github.com/org/x?", "https://*.com/", "https://github.*/",
+	}
+	resets := []string{
+		"https://github.com/", "https://github.com./", "https://github.com../", "https://github.com/org/", "https://github.com/org/x/", "https://github.com/org/x?/../",
+		"https://github.com/org/x#/../", "https://github.com/org/x?", "https://@github.com/", "https://:pw@github.com/", "https://u@github.com/", "https://u:p@github.com/",
+		"https://*.github.com/", "https://*.github.com../", "https://@*.github.com/", "https://*.github.com/x?/../", "https://*.github.com/x/", "https://*.com/", "https://*.com./",
+		"https://github.*/", "https://*.*/", "https://GITHUB.com:443/", "https://github.com/org/./x", "https://github.com/org/%2e/x/",
+	}
+	targets := []string{
+		"https://github.com/org/r", "https://github.com/org/x/r", "https://github.com./org/r", "https://github.com../org/r", "https://u@github.com/org/r",
+		"https://@github.com/org/r", "https://gist.github.com/x/y", "https://gist.github.com/r", "https://ssh.github.com/r", "https://gist.github.com./r", "https://github.com/org/x?",
+	}
+	var (
+		mu  sync.Mutex
+		wg  sync.WaitGroup
+		sem = make(chan struct{}, 8)
+		n   int
+	)
+	dir := t.TempDir()
+	compared := 0
+	for _, h := range headers {
+		for _, r := range resets {
+			n++
+			cfg := filepath.Join(dir, fmt.Sprintf("gitconfig-%d", n))
+			wg.Add(1)
+			sem <- struct{}{}
+			go func() {
+				defer func() { <-sem; wg.Done() }()
+				if _, ok := parseGitURL(h, true); !ok {
+					return
+				}
+				if _, ok := parseGitURL(r, true); !ok {
+					return
+				}
+				_ = os.Remove(cfg)
+				for _, kv := range [][2]string{{"http." + h + ".extraheader", "X-L: 1"}, {"http." + r + ".extraheader", "X-L: 2"}} {
+					if exec.Command("git", "config", "--file", cfg, "--add", kv[0], kv[1]).Run() != nil {
+						return
+					}
+				}
+				for _, target := range targets {
+					if _, ok := parseGitURL(target, false); !ok {
+						continue
+					}
+					var buf bytes.Buffer
+					cmd := exec.Command("git", "config", "--file", cfg, "--get-urlmatch", "http.extraheader", target)
+					cmd.Stdout = &buf
+					_ = cmd.Run()
+					gitKeeps := strings.TrimSpace(buf.String()) == "X-L: 1"
+					ours := len(EffectiveHeaders(entries("http."+h+".extraheader", "X-L: 1", "http."+r+".extraheader", ""), target)) > 0
+					mu.Lock()
+					compared++
+					if gitKeeps != ours {
+						t.Errorf("header %q, reset %q, URL %q: agent-id keeps the header = %v, git = %v", h, r, target, ours, gitKeeps)
+					}
+					mu.Unlock()
+				}
+			}()
+		}
+	}
+	wg.Wait()
+	t.Logf("compared %d rankings with git", compared)
+	if compared < 2000 {
+		t.Errorf("only %d rankings compared", compared)
 	}
 }
