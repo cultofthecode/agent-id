@@ -2,7 +2,7 @@
 
 - **Issue:** #13 (E02-T01), epic #2, Phase 1
 - **Date:** 2026-11-12
-- **Status:** research result and proposal. It feeds `internal/gitint` and the credential helper (E02-S08). The OPEN row "Supported Git paths and documented bypasses" of `ARCHITECTURE.md` stays OPEN until the owner accepts or changes it. Section 8 lists the points that need the owner's decision.
+- **Status:** research result; the open points O1–O4 were decided on 2026-11-13 ([decision on #22](https://github.com/cultofthecode/agent-id/issues/22#issuecomment-6845770922)). It feeds `internal/gitint` and the credential helper (E02-S08). `ARCHITECTURE.md` records the Git paths and documented bypasses as a decision. Section 8 lists the decisions.
 - **Inputs:** `PRODUCT_BRIEF.md` §9.3, §10, §14; `ARCHITECTURE.md` (Git integration, Security model)
 - **Experiment:** [`2026-11-12-git-precedence-matrix.sh`](2026-11-12-git-precedence-matrix.sh)
 
@@ -91,7 +91,7 @@ What the experiment established, as rules that `internal/gitint` and `doctor` ca
 | C15–C16 | `includeIf "hasconfig:remote.*.url:https://github.com/**"` file with a helper | it answers (C15) | aid (C16) | Neutralized |
 | C17–C18 | inherited `GIT_CONFIG_COUNT` entry with a helper | it answers (C17) | aid appended after it → aid (C18) | Neutralized |
 | C19 | inherited `GIT_CONFIG_PARAMETERS` that adds a helper | — | aid answers first (C19) | Neutralized |
-| C19b | inherited `GIT_CONFIG_PARAMETERS` that resets and adds a helper | — | **inherited helper answers** | Doctor; agent-id's handling is owner decision O2 |
+| C19b | inherited `GIT_CONFIG_PARAMETERS` that resets and adds a helper | — | **inherited helper answers** | Doctor; `exec` refuses it when it carries credential, URL, HTTP, or signing keys (decision O2) |
 | C20 | agent runs `git -c credential.helper=X` | — | aid answers first | Neutralized |
 | C20b | agent runs `git -c credential.https://github.com.helper= -c …helper=X` | — | **X answers** | Bypass (agent's action) |
 | C21 | URL with embedded `user:token` | — | **embedded credentials used; no helper is called** | Doctor (D2) |
@@ -117,7 +117,7 @@ aid rewrites in U1–U12: `url.https://github.com/.insteadOf` = `git@github.com:
 | U1 | `git@github.com:o/r`, `ssh://git@github.com/o/r` | rewritten to `https://github.com/o/r.git` | Neutralized |
 | U1 | `github.com:o/r`, `ssh://github.com/o/r`, `ssh://git@ssh.github.com:443/o/r`, `git+ssh://git@github.com/o/r` | **not rewritten by the two forms** | Neutralized by the extended set (U13) |
 | U13 | the four above, plus `ssh+git://git@github.com/` and `git://github.com/` | all rewritten to HTTPS by the extended set (the `git://` row only because the probe adds that rewrite) | Neutralized; `git://` is left out of section 5 deliberately |
-| U2–U4 | personal `url.git@github.com:.insteadOf=https://github.com/` | **SSH for fetch and push**, even with aid rewrites and an aid identity rule `https://github.com/` → itself | Doctor (D1); SSH fallback is owner decision O3 |
+| U2–U4 | personal `url.git@github.com:.insteadOf=https://github.com/` | **SSH for fetch and push**, even with aid rewrites and an aid identity rule `https://github.com/` → itself | Doctor (D1); `exec` refuses it (decisions O1, O3) |
 | U5 | personal longer-prefix rule `https://github.com/myorg/` → SSH | **SSH**; a longer prefix always wins | Doctor (D1) |
 | U6–U8 | personal `url.git@github.com:.pushInsteadOf=https://github.com/` | **push URL is SSH**, even with an aid `pushInsteadOf` identity rule | Doctor (D1) |
 | U9–U10 | repository `remote.origin.pushurl=git@github.com:o/r.git` | SSH without aid (U9); HTTPS with aid rewrites (U10) | Neutralized |
@@ -270,24 +270,24 @@ These rows cannot be neutralized through Git configuration. Each check follows t
 None of these can be prevented in local mode. They match brief §10: local mode is attribution and convenience, not containment.
 
 - The agent changes Git's configuration for its own command: `git -c credential.<host>.helper= -c …` (C20b), `git commit --author` (I4), `git commit -S` (S3), `git push` to a URL with embedded credentials (C21).
-- A personal `insteadOf`/`pushInsteadOf` or an SSH host alias sends GitHub traffic over SSH with the developer's key (U2–U8, U12). `doctor` detects it (D1); whether agent-id blocks it is O3.
+- A personal `insteadOf`/`pushInsteadOf` or an SSH host alias sends GitHub traffic over SSH with the developer's key (U2–U8, U12). `doctor` detects it (D1), and `exec` refuses to start while a GitHub remote resolves to SSH (decisions O1, O3).
 - A path-scoped `http.<url>.extraHeader` (H7). `doctor` detects it (D3).
 - Shell startup files and shell functions of the agent's own shell: `~/.zshenv` for every `zsh -c`, `.bashrc`/`.zshrc` for interactive shells, `BASH_ENV` (R1–R10). They can unset the entries, export another `GH_TOKEN`, or wrap `git` and `gh`.
 - Any process that removes the environment entirely (`env -i`) or calls a different `git` binary.
 
-## 8. Open points for the owner
+## 8. Decisions on the open points
 
-These are not decided here. Each needs the owner's answer on the follow-up ticket before code depends on it.
+Decided on 2026-11-13 by the project manager under the owner's delegation of technical decisions ([decision on #22](https://github.com/cultofthecode/agent-id/issues/22#issuecomment-6845770922)). The decisions follow the fail-closed rule of E02-S11 and can be reversed before the first release. They affect #20 (`exec`), #22 (HTTPS and SSH), and #24 (`doctor`). The questions are kept below the decisions as the record.
 
-- **O1 — SSH remotes outside the rewrite set.** Section 5 rewrites seven SSH forms. Should agent-id cover only these, or also refuse (in `exec`) a repository whose GitHub remote still resolves to SSH after the set? The latter would turn D1 from a warning into a fail-closed start.
-- **O2 — inherited `GIT_CONFIG_PARAMETERS`.** It overrides agent-id (C19b). The options are to refuse to start, to remove the variable from the child environment, or to report it only in `doctor`. The first two change the environment that `exec` and `env` emit, which needs the owner's yes (`AGENTS.md`, Ask first). Recommendation: refuse to start when the variable contains a `credential`, `url`, `http`, or signing key; otherwise keep it and report it.
-- **O3 — SSH fallback after a personal rewrite.** Git configuration cannot win against a personal `https://github.com/` → SSH rule (U2–U8). The options are:
+- **O1 — SSH remotes outside the rewrite set. Decided: fail closed.** `agent-id exec` refuses to start in a repository whose GitHub remote still resolves to SSH after the rewrite set. The error names the remote and points to `agent-id doctor`, and D1 changes from a warning to a refusal. *Question:* Section 5 rewrites seven SSH forms. Should agent-id cover only these, or also refuse (in `exec`) a repository whose GitHub remote still resolves to SSH after the set? The latter would turn D1 from a warning into a fail-closed start.
+- **O2 — inherited `GIT_CONFIG_PARAMETERS`. Decided: the recommendation below.** `exec` refuses to start when the variable contains a `credential`, `url`, `http`, or signing key. Otherwise it keeps the variable and `doctor` reports it. The variable is never removed silently. *Question:* It overrides agent-id (C19b). The options are to refuse to start, to remove the variable from the child environment, or to report it only in `doctor`. The first two change the environment that `exec` and `env` emit, which needs the owner's yes (`AGENTS.md`, Ask first). Recommendation: refuse to start when the variable contains a `credential`, `url`, `http`, or signing key; otherwise keep it and report it.
+- **O3 — SSH fallback after a personal rewrite. Decided: (a) for the MVP.** `doctor` documents and detects the fallback (D1), and with O1 `exec` blocks it. The `GIT_SSH_COMMAND` shim (b) moves to Phase 3 hardening (#4). *Question:* Git configuration cannot win against a personal `https://github.com/` → SSH rule (U2–U8). The options are:
   - (a) document it and detect it in `doctor` (D1);
   - (b) set `GIT_SSH_COMMAND` to an agent-id shim that refuses GitHub hosts and runs the developer's SSH command for every other host. This would need handling of an inherited `GIT_SSH_COMMAND` (K4);
   - (c) `core.sshCommand=false`, which blocks SSH to every host (K3).
 
   Recommendation: (a) for the MVP, with (b) evaluated as part of hardening.
-- **O4 — minimum Git version.** Everything in section 5 behaves the same on Git 2.43 and 2.54. Should 2.43 (Ubuntu 24.04) be the documented minimum? Older versions are not tested.
+- **O4 — minimum Git version. Decided: yes.** Git 2.43 is the documented minimum. Older versions are not supported or tested. *Question:* Everything in section 5 behaves the same on Git 2.43 and 2.54. Should 2.43 (Ubuntu 24.04) be the documented minimum? Older versions are not tested.
 
 ## 9. Follow-ups
 
