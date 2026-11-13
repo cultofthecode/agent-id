@@ -1,6 +1,6 @@
 # agent-id exec — the child environment contract
 
-> ⚠️ Superseded by `.ai/specs/2026-11-13-env-claude-session-start.md` (2026-11-13) — sections: Architecture (`Activate` return type). Current state: see the new spec.
+> ⚠️ Superseded by `.ai/specs/2026-11-13-env-claude-session-start.md` (2026-11-13) — sections: Architecture (the `Activate` return type and the new `Plan.Unshadow` field). Partly superseded: everything else in this spec stands.
 
 Issue: #20 (E02-S06). Implemented by #20; extended by #21 (Git identity), #22 (Git transport), #23 (`gh` injection); reused by #26 (`agent-id env`) and read by #24 (`whoami`, `doctor`).
 
