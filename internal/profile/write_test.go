@@ -320,6 +320,20 @@ func TestWriteRefusesASymlinkThatChangesUnderTheLock(t *testing.T) {
 	checkEntries(t, filepath.Dir(second), "config.json")
 }
 
+func TestWriteRefusesAnInsecureTargetDirectory(t *testing.T) {
+	env := testenv.Isolate(t)
+	path := writeFile(t, env, exampleConfig, 0o600)
+	target := filepath.Join(env.Home, "dotfiles", "config.json")
+	moveAndLink(t, path, target)
+	chmod(t, filepath.Dir(target), 0o770)
+	err := NewStore(path, acmeRegistry(t)).Write(addAcme("writer", 7))
+	checkError(t, err, ErrInsecurePermissions, "chmod 700")
+	checkEntries(t, filepath.Dir(target), "config.json")
+	if data, err := os.ReadFile(target); err != nil || string(data) != exampleConfig {
+		t.Errorf("the target changed: %q, %v", data, err)
+	}
+}
+
 func TestWriteReportsAFailedDirectorySyncAsApplied(t *testing.T) {
 	env := testenv.Isolate(t)
 	path := writeFile(t, env, exampleConfig, 0o600)
@@ -338,6 +352,7 @@ func TestWriteReportsAFailedDirectorySyncAsApplied(t *testing.T) {
 }
 
 func TestWriteErrorOfAFailedRename(t *testing.T) {
+	testenv.Isolate(t)
 	err := writeError(errors.New("rename failed"))
 	checkError(t, err, ErrConfigInvalid, "cannot write: rename failed")
 	if strings.Contains(err.Error(), "the change was written") {

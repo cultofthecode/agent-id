@@ -309,8 +309,13 @@ func TestLooksSecretJWT(t *testing.T) {
 		{"eyJ inside a word", "file:/keys/MoneyJar.prod.pem", false},
 		{"eyJ inside a word with a long tail", "file:/keys/MoneyJarAndMoreLetters.production.pem", false},
 		{"eyJ at a boundary with a short first segment", "file:/keys/eyJar.prod.pem", false},
-		{"eyJ inside a hyphenated word", "file:/keys/key-eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.pem", false},
-		{"eyJ inside an underscored word", "file:/keys/x_eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.pem", false},
+		{"JWT after a hyphen", "file:/keys/key-" + header + "." + payload + ".pem", true},
+		{"JWT after an underscore", "file:/keys/x_" + header + "." + payload + ".pem", true},
+		{"JWT after a percent-encoded space", "Bearer%20" + header + "." + payload + ".sig", true},
+		{"JWT after a percent-encoded equals sign", "https://x.test/?id_token%3D" + header + "." + payload + ".sig", true},
+		{"JWT after a lowercase percent-escape", "a%3d" + header + "." + payload + ".sig", true},
+		{"eyJ inside a hyphenated word", "file:/keys/key-MoneyJar.prod.pem", false},
+		{"eyJ after a percent-escape with a short first segment", "file:/keys/a%20eyJar.prod.pem", false},
 		{"one-character payload", "file:/keys/" + header + ".x.pem", false},
 	}
 	for _, c := range cases {
