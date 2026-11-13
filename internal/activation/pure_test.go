@@ -416,6 +416,27 @@ func TestReviewRegressions(t *testing.T) {
 			t.Error("a wildcard pattern for a Git host was not found")
 		}
 	})
+	t.Run("host patterns match label by label", func(t *testing.T) {
+		for _, pat := range []string{"*.*.com", "*.github.*", "gist.*.com", "*.*.*", "*.github.com"} {
+			e := entries("http.https://"+pat+"/.extraheader", "Authorization: Basic x")
+			if got := EffectiveHeaders(e, "https://gist.github.com/"); len(got) != 1 {
+				t.Errorf("%s: %v", pat, got)
+			}
+			if got := ScopedHeaders(e, []string{"gist.github.com"}); len(got) != 1 {
+				t.Errorf("%s scoped: %v", pat, got)
+			}
+		}
+		for _, pat := range []string{"*.com", "*", "*.*", "*.*.*.com", "github.com"} {
+			e := entries("http.https://"+pat+"/.extraheader", "Authorization: Basic x")
+			if got := EffectiveHeaders(e, "https://gist.github.com/"); len(got) != 0 {
+				t.Errorf("%s must not match gist: %v", pat, got)
+			}
+		}
+		e := entries("http.https://*.github.com/.extraheader", "Authorization: Basic x", "http.https://*.com/.extraheader", "")
+		if got := EffectiveHeaders(e, "https://gist.github.com/"); len(got) != 1 {
+			t.Errorf("a shorter wildcard must not clear a longer one: %v", got)
+		}
+	})
 	t.Run("a trailing dot does not hide the host", func(t *testing.T) {
 		for _, raw := range []string{"git@github.com.:o/r.git", "ssh://git@github.com./o/r.git", "https://github.com./o/r.git"} {
 			if !ClassifyRemoteURL(raw, []string{"github.com"}).Provider {

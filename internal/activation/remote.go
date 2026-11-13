@@ -134,11 +134,11 @@ func (c *remoteChecker) rewrites(ctx context.Context, dir string, child []string
 func (c *remoteChecker) checkHostHeaders(entries []ConfigEntry) error {
 	for _, h := range c.a.GitHosts() {
 		for _, name := range EffectiveHeaders(entries, "https://"+h+"/") {
-			return failf(ErrRemoteHeader, "%s gets an extra HTTP header (%s) from an http.extraheader entry that agent-id cannot reset; remove that entry", h, name)
+			return failf(ErrRemoteHeader, "Git host %s gets an extra HTTP header (%s) from an http.extraheader entry that agent-id cannot reset; remove that entry", h, name)
 		}
 	}
 	for _, name := range ScopedHeaders(entries, c.a.GitHosts()) {
-		return failf(ErrRemoteHeader, "%s gets an extra HTTP header (%s) from a path-scoped http.extraheader entry that agent-id cannot reset; remove that entry", c.a.Host(), name)
+		return failf(ErrRemoteHeader, "%s gets an extra HTTP header (%s) from a path-, user- or host-pattern-scoped http.extraheader entry that agent-id cannot reset; remove that entry", c.a.Host(), name)
 	}
 	return nil
 }

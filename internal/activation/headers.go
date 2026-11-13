@@ -74,8 +74,7 @@ func headerScope(key string, target *url.URL) (*specificity, bool) {
 	if err != nil || pattern.Host == "" || !strings.EqualFold(pattern.Scheme, target.Scheme) {
 		return nil, false
 	}
-	exact := strings.EqualFold(pattern.Hostname(), target.Hostname())
-	if (!exact && !wildcardMatches(pattern.Hostname(), target.Hostname())) || port(pattern) != port(target) {
+	if !hostPatternMatches(pattern.Hostname(), target.Hostname()) || port(pattern) != port(target) {
 		return nil, false
 	}
 	user := 0
@@ -90,11 +89,7 @@ func headerScope(key string, target *url.URL) (*specificity, bool) {
 	if pp != "" && tp != pp && !strings.HasPrefix(tp, pp+"/") {
 		return nil, false
 	}
-	hostRank := 1
-	if exact {
-		hostRank = len(pattern.Hostname()) + 1
-	}
-	return &specificity{host: hostRank, user: user, path: len(pp)}, true
+	return &specificity{host: len(pattern.Hostname()), user: user, path: len(pp)}, true
 }
 
 func port(u *url.URL) string {
@@ -143,16 +138,26 @@ func ScopedHeaders(entries []ConfigEntry, hosts []string) []string {
 	return out
 }
 
-// wildcardMatches reports whether pattern is a "*.suffix" host pattern that
-// matches host.
-func wildcardMatches(pattern, host string) bool {
-	rest, ok := strings.CutPrefix(strings.ToLower(pattern), "*")
-	return ok && strings.HasPrefix(rest, ".") && strings.HasSuffix(strings.ToLower(host), rest)
+// hostPatternMatches reports whether pattern, a host pattern of
+// http.<url>.*, matches host as Git does: label by label, with the same
+// number of labels, where "*" matches exactly one label.
+func hostPatternMatches(pattern, host string) bool {
+	pl := strings.Split(strings.ToLower(strings.TrimSuffix(pattern, ".")), ".")
+	hl := strings.Split(strings.ToLower(strings.TrimSuffix(host, ".")), ".")
+	if len(pl) != len(hl) {
+		return false
+	}
+	for i := range pl {
+		if pl[i] != "*" && pl[i] != hl[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func hostIn(host string, hosts []string) bool {
 	for _, h := range hosts {
-		if strings.EqualFold(strings.TrimSuffix(host, "."), h) || wildcardMatches(host, h) {
+		if hostPatternMatches(host, h) {
 			return true
 		}
 	}
