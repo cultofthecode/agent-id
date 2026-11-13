@@ -473,18 +473,15 @@ func (r *run) deleteBranch(branch string) {
 	}
 }
 
-// diagnostics runs whoami and doctor inside an agent context. exec already fails on a
-// secret-looking line. The explicit check keeps the key path out of the
-// output too.
+// diagnostics runs whoami and doctor inside an agent context and requires
+// exit 0. exec already fails the test on a token or key shape in the output.
+// doctor prints the key file path by design, so the check does not forbid it.
 func (r *run) diagnostics(t *testing.T) {
 	t.Helper()
-	for _, args := range [][]string{{"whoami"}, {"doctor"}} {
+	for _, args := range [][]string{{"whoami"}, {"doctor", "--profile", profileName}} {
 		res := r.asBot(profileName, append([]string{r.binary}, args...)...)
-		if res.code == 3 {
-			t.Fatalf("agent-id %s: the output guard refused the output (exit 3)", args[0])
-		}
-		if strings.Contains(res.out, r.cfg.keyPath) {
-			t.Errorf("agent-id %s prints the private key path", args[0])
+		if res.code != 0 {
+			t.Fatalf("agent-id %s: exit %d (3 means the output guard withheld the report)\n%s", args[0], res.code, res.out)
 		}
 	}
 }

@@ -9,7 +9,7 @@ The test proves four things on a real GitHub repository:
 3. The bot pushes a branch and opens a PR, and GitHub shows the bot as the PR author.
 4. With an invalid App key, the bot push fails and no branch appears.
 
-The run also checks that no command output holds a token or key shape. `testenv.Main` hashes the personal Git and `gh` configuration before and after the run, and fails the run when a file changed.
+The run also fails when a command output holds a token or key shape. `testenv.Main` hashes the personal Git and `gh` configuration before and after the run, and fails the run when a file changed.
 
 ## Status of the push steps
 
@@ -73,7 +73,7 @@ Without `AGENT_ID_E2E_PUSH`:
 PASS
 ```
 
-With `AGENT_ID_E2E_PUSH=1`, the PR subtest passes too. Save the output of the run as the transcript for the issue. The output holds no token, so it is safe to attach. Read it before you attach it.
+With `AGENT_ID_E2E_PUSH=1`, the PR subtest passes too. Save the output of the run as the transcript for the issue. The output holds no token. It can hold the absolute path of your key file (the setup summary and `doctor` print it). Replace that path with `<key>` before you attach the output, and read it once.
 
 ## What the test creates
 
