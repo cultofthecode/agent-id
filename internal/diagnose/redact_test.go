@@ -24,6 +24,20 @@ func TestRedact(t *testing.T) {
 		{"prefix of the fake provider", "token fake_xyz.", "token [redacted]."},
 		{"user-info with password", "https://user:pw@github.com/o/r", "https://[redacted]@github.com/o/r"},
 		{"user-info that is a token", "https://abc@github.com/o/r", "https://[redacted]@github.com/o/r"},
+		{"at sign in the password", "https://user:p@ss@host/o/r", "https://[redacted]@host/o/r"},
+		{"several at signs without a path", "https://a@b@host", "https://[redacted]@host"},
+		{"user-info stops at the query", "https://host/?e=a@b", "https://host/?e=a@b"},
+		{"user-info stops at the fragment", "https://host#a@b", "https://host#a@b"},
+		{"user-info does not run past a space", "https://host x@y", "https://host x@y"},
+		{"quoted authorization", `{"Authorization": "Bearer abc.def"}`, `{"Authorization": [redacted]`},
+		{"single-quoted authorization", "'authorization': 'Basic abc'", "'authorization': [redacted]"},
+		{"bare bearer", "sent Bearer abcdefgh12345 upstream", "sent Bearer [redacted] upstream"},
+		{"bearer in prose", "a bearer of news", "a bearer of news"},
+		{"token equals", "url?token=abc123", "url?token= [redacted]"},
+		{"quoted token", `{"token": "abc"}`, `{"token": " [redacted]`},
+		{"json token object is kept", `{"token":{"status":"valid"}}`, `{"token":{"status":"valid"}}`},
+		{"token in prose is kept", "cache: token: expired", "cache: token: expired"},
+		{"access token", "access_token: abc", "access_token: [redacted]"},
 		{"ssh user is kept", "ssh://git@github.com/o/r", "ssh://git@github.com/o/r"},
 		{"ssh user with a password", "ssh://git:pw@github.com/o/r", "ssh://[redacted]@github.com/o/r"},
 		{"scp-like user is kept", "git@github.com:o/r.git", "git@github.com:o/r.git"},
@@ -49,7 +63,7 @@ func TestRedact(t *testing.T) {
 func TestRedactOutputAlwaysPassesGuard(t *testing.T) {
 	hostile := []string{
 		"ghs_x", "-----BEGIN", fakeJWT, "https://a:b@h/", "https://tok@h/", "Authorization: Bearer x", "password=x", "oauth_token: x",
-		"credential.https://u:ghp_x@github.com.helper", "url.https://tok@host/.insteadOf", "GH_TOKEN=ghs_aaaa\nAuthorization: x",
+		"credential.https://u:ghp_x@github.com.helper", "https://u:p@ss@h/", `"Authorization": "Bearer x"`, "Bearer abcdefgh12345", "token=abc", "url.https://tok@host/.insteadOf", "GH_TOKEN=ghs_aaaa\nAuthorization: x",
 	}
 	for _, in := range hostile {
 		if err := testPatterns.Guard([]byte(testPatterns.Redact(in))); err != nil {
@@ -73,6 +87,19 @@ func TestGuard(t *testing.T) {
 		{"user-info", "https://u:p@github.com/", true},
 		{"authorization value", "Authorization: Bearer x", true},
 		{"password value", "password=hunter2", true},
+		{"redacted label then a source", "Authorization: [redacted] (environment)", false},
+		{"redacted label in json", `{"detail":"Authorization: [redacted]","fix":"x"}`, false},
+		{"redacted label then a comma", "Authorization: [redacted], next", false},
+		{"redacted label then a value", "Authorization: [redacted] hunter2", true},
+		{"redacted label glued to text", "password=[redacted]hunter2", true},
+		{"second label after a redacted one", `{"detail":"Authorization: [redacted]","fix":"password=hunter2"}`, true},
+		{"label in the note after the marker", "Authorization: [redacted] (password=hunter2)", true},
+		{"label after a semicolon", "password: [redacted]; Authorization: Basic abc", true},
+		{"two redacted labels", `{"a":"Authorization: [redacted]","b":"password= [redacted]"}`, false},
+		{"password at sign", "https://user:p@ss@host/", true},
+		{"quoted authorization", `"Authorization": "Bearer x"`, true},
+		{"bare bearer", "Bearer abcdefgh12345", true},
+		{"token label", "token=abc", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

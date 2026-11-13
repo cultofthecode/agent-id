@@ -23,6 +23,10 @@ type Activator interface {
 	// Ready reports, without a network call, whether the profile can be
 	// activated. Its error carries the adapter's hint.
 	Ready() error
+	// Identity returns the bot's commit author and committer from the
+	// profile's cache, with no network call and no key read. It fails when
+	// the cache is missing or malformed.
+	Identity() (Identity, error)
 	// CheckCLI decides, as a pure function of the CLI's arguments and the
 	// parent environment, whether the shim may start the CLI for the agent
 	// (#23). It returns nil to allow and a *CLIRefusal to refuse. It reads

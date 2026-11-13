@@ -38,6 +38,9 @@ func TestCheckKeyFileFailsClosedWhenACLIsUnknown(t *testing.T) {
 	if strings.Contains(err.Error(), "boom") {
 		t.Errorf("error = %q echoes the system error", err)
 	}
+	if strings.Contains(err.Error(), "chmod") {
+		t.Errorf("error = %q promises a chmod fix for an unreadable ACL", err)
+	}
 }
 
 func addACL(t *testing.T, path string) {

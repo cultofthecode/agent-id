@@ -39,8 +39,8 @@ func checkKeyFile(state fileState) error {
 
 func checkACL(state fileState) error {
 	if state.aclErr != nil {
-		return fmt.Errorf("%s: %w: the access control list of the file cannot be determined; run chmod -N %s and try again",
-			describe(state), ErrInsecureKeyFile, fixTarget(state))
+		return fmt.Errorf("%s: %w: the access control list of the file cannot be determined (the file system may not support it); keep the key on a local file system, for example under your home directory",
+			describe(state), ErrInsecureKeyFile)
 	}
 	if state.acl {
 		return fmt.Errorf("%s: %w: the file has an extended ACL that can grant access the mode bits do not show; run chmod -N %s",
