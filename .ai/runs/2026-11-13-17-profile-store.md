@@ -54,3 +54,8 @@ PR: #52
 - [x] 1.6 Load and Resolve — a2dbbbf
 - [x] 1.7 Write — 64b6b43
 - [x] 1.8 Record the decision and archive the Delta — 73bf6cf
+
+### Review fixes
+
+- [x] R.1 Merge main and apply the #44 profile-name rule — 450fee7
+- [x] R.2 Address the review findings (validator classes, missing-file marker, FIFO, symlink chain, dangling symlink, directory mode, reserved provider names) — 9ec23eb
