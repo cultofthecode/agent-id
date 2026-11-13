@@ -14,6 +14,8 @@ type fileState struct {
 	owner      uint32
 	ownerKnown bool
 	user       uint32
+	acl        bool
+	aclErr     error
 }
 
 func checkKeyFile(state fileState) error {
@@ -31,6 +33,18 @@ func checkKeyFile(state fileState) error {
 	if state.owner != state.user {
 		return fmt.Errorf("%s: %w: owned by uid %d, not by the current user (uid %d); keep the key in a file you own with mode 0600",
 			describe(state), ErrInsecureKeyFile, state.owner, state.user)
+	}
+	return checkACL(state)
+}
+
+func checkACL(state fileState) error {
+	if state.aclErr != nil {
+		return fmt.Errorf("%s: %w: the access control list of the file cannot be determined; run chmod -N %s and try again",
+			describe(state), ErrInsecureKeyFile, fixTarget(state))
+	}
+	if state.acl {
+		return fmt.Errorf("%s: %w: the file has an extended ACL that can grant access the mode bits do not show; run chmod -N %s",
+			describe(state), ErrInsecureKeyFile, fixTarget(state))
 	}
 	return nil
 }
