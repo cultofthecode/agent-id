@@ -22,6 +22,7 @@ import (
 	"github.com/cultofthecode/agent-id/internal/activation"
 	activationexec "github.com/cultofthecode/agent-id/internal/activation/exec"
 	"github.com/cultofthecode/agent-id/internal/credential"
+	"github.com/cultofthecode/agent-id/internal/diagnose"
 	"github.com/cultofthecode/agent-id/internal/profile"
 	"github.com/cultofthecode/agent-id/internal/provider"
 	"github.com/cultofthecode/agent-id/internal/provider/github"
@@ -145,6 +146,7 @@ func buildRootWith(onboarders []provider.Onboarder, openStore func() (setup.Stor
 		},
 	}
 	root.AddCommand(setup.NewCommand(&setup.Handler{Onboarders: onboarders, OpenStore: openStore}))
+	root.AddCommand(diagnosticCommands(github.ProfileRegistration(), openProvider)...)
 	root.AddCommand(activationexec.NewCommand(execHandler))
 	return withVersion(root, versionText(version, commit, debug.ReadBuildInfo))
 }
@@ -152,6 +154,15 @@ func buildRootWith(onboarders []provider.Onboarder, openStore func() (setup.Stor
 // openStore returns the production profile store: the configuration at the
 // default location with the production registry.
 func openStore() (setup.Store, error) {
+	store, err := openProfileStore()
+	if err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
+// openProfileStore returns the profile store at the default location.
+func openProfileStore() (*profile.Store, error) {
 	registry, err := newRegistry()
 	if err != nil {
 		return nil, err
@@ -161,6 +172,15 @@ func openStore() (setup.Store, error) {
 		return nil, err
 	}
 	return profile.NewStore(path, registry), nil
+}
+
+// openProvider returns the provider of a profile. The credential source
+// loads the key, so that a key problem keeps its class.
+func openProvider(p profile.Profile) (provider.Provider, error) {
+	if p.Provider != github.ProfileRegistration().Name {
+		return nil, fmt.Errorf("provider %s is not supported by this agent-id", profile.Quote(p.Provider))
+	}
+	return github.FromProfile(p, loadKey)
 }
 
 // loadKey loads the private key that ref names through the credential
@@ -181,6 +201,16 @@ func newRegistry() (*profile.Registry, error) {
 	return profile.NewRegistry(github.ProfileRegistration())
 }
 
+// exitWith writes the message of a diagnostic command's exit error, which
+// has already passed Redact and Guard, and returns its exit code. An error
+// without a message was reported on stdout.
+func exitWith(stderr io.Writer, exit *diagnose.ExitError) int {
+	if exit.Message != "" {
+		_, _ = fmt.Fprintf(stderr, "%s: %s\n", commandName, exit.Message)
+	}
+	return exit.Code
+}
+
 // run executes root with args, writes output to stdout and diagnostics to
 // stderr, and returns the exit code.
 func run(ctx context.Context, root *cobra.Command, args []string, stdout, stderr io.Writer) int {
@@ -188,6 +218,10 @@ func run(ctx context.Context, root *cobra.Command, args []string, stdout, stderr
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	if err := root.ExecuteContext(ctx); err != nil {
+		var exit *diagnose.ExitError
+		if errors.As(err, &exit) {
+			return exitWith(stderr, exit)
+		}
 		if errors.Is(err, context.Canceled) {
 			return exitFailure
 		}
