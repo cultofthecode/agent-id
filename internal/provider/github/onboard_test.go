@@ -109,7 +109,7 @@ func checkNoSetupSecret(t *testing.T, app *githubtest.App, text string) {
 		tokens = append(tokens, token.Value)
 	}
 	checkNoSecret(t, text, tokens...)
-	if strings.Contains(text, "ghs_") || strings.Contains(text, pemMarker) {
+	if strings.Contains(text, "ghs_") || strings.Contains(text, "-----BEGIN") {
 		t.Errorf("%q holds a token prefix or a PEM marker", text)
 	}
 }
@@ -344,6 +344,7 @@ func TestParseSetupValues(t *testing.T) {
 		{"relative path", "rel/k.pem", "/work", "file:/work/rel/k.pem"},
 		{"relative path upwards", "../k.pem", "/work/sub", "file:/work/k.pem"},
 		{"file reference", "file:/keys/k.pem", "/work", "file:/keys/k.pem"},
+		{"a word containing eyJ", "~/keys/MoneyJar.prod.pem", "/work", "file:~/keys/MoneyJar.prod.pem"},
 	}
 	for _, tt := range accepted {
 		values, err := parseSetupValues(with(fieldPrivateKey, tt.value), tt.dir)

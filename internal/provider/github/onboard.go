@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -33,12 +32,6 @@ const (
 
 // ErrSetupValue is the class of a setup value that Check refuses.
 var ErrSetupValue = errors.New("github: invalid setup value")
-
-// pemMarker starts every PEM block.
-const pemMarker = "-----BEGIN"
-
-// jwtPattern matches a JSON Web Token.
-var jwtPattern = regexp.MustCompile(`eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*`)
 
 // setupFailure is an onboarding error whose text is a message for the user
 // alone and whose class is the error it wraps, so that errors.Is works
@@ -171,14 +164,15 @@ func keyReference(value, dir string) (string, error) {
 }
 
 // refuseSecret refuses a value of field that looks like a token, a JWT, or
-// a PEM block, or holds a control or format character. The value is never
+// a PEM block (the profile store's inline-secret rule with the GitHub token
+// prefixes), or holds a control or format character. The value is never
 // echoed.
 func refuseSecret(field, value string) error {
-	if strings.Contains(value, pemMarker) || jwtPattern.MatchString(value) || slices.ContainsFunc(tokenPrefixes, func(prefix string) bool { return strings.Contains(value, prefix) }) {
-		return failf(ErrSetupValue, "--%s looks like a token or key; it is not shown — remove it and revoke it if it was real", field)
-	}
 	if strings.ContainsFunc(value, func(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) }) {
 		return failf(ErrSetupValue, "--%s contains a control character; it is not shown", field)
+	}
+	if profile.LooksSecret(value, tokenPrefixes) {
+		return failf(ErrSetupValue, "--%s looks like a token or key; it is not shown — remove it and revoke it if it was real", field)
 	}
 	return nil
 }

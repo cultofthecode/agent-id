@@ -46,3 +46,17 @@ func TestStorePath(t *testing.T) {
 		t.Errorf("Path = %q, want %q", got, path)
 	}
 }
+
+func TestLooksSecret(t *testing.T) {
+	testenv.Isolate(t)
+	for _, s := range []string{acmePrefix + "x", "-----BEGIN", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln", "a\nb"} {
+		if !LooksSecret(s, []string{acmePrefix}) {
+			t.Errorf("LooksSecret(%q) = false", s)
+		}
+	}
+	for _, s := range []string{"/keys/MoneyJar.prod.pem", "claude", "file:~/k.pem"} {
+		if LooksSecret(s, []string{acmePrefix}) {
+			t.Errorf("LooksSecret(%q) = true", s)
+		}
+	}
+}

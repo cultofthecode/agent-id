@@ -12,6 +12,7 @@ import (
 	"testing"
 	"unicode"
 
+	"github.com/cultofthecode/agent-id/internal/profile"
 	"github.com/cultofthecode/agent-id/internal/provider"
 	"github.com/cultofthecode/agent-id/internal/testenv"
 )
@@ -123,19 +124,13 @@ type OnboarderSubject struct {
 	Calls func() int
 }
 
-// jwtShape matches a JSON Web Token.
-var jwtShape = regexp.MustCompile(`eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*`)
-
 // hostPattern is a lowercase DNS host name of at least two labels.
 var hostPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
 
-// LooksSecret reports whether s contains one of tokenPrefixes, a PEM marker,
-// or a JWT shape.
+// LooksSecret reports whether s looks like token or key material by the
+// profile store's rule (profile.LooksSecret) with tokenPrefixes.
 func LooksSecret(s string, tokenPrefixes []string) bool {
-	if strings.Contains(s, "-----BEGIN") || jwtShape.MatchString(s) {
-		return true
-	}
-	return slices.ContainsFunc(tokenPrefixes, func(prefix string) bool { return strings.Contains(s, prefix) })
+	return profile.LooksSecret(s, tokenPrefixes)
 }
 
 // secretShapes returns values that look like secrets: a fake token, one per
