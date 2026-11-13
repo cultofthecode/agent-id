@@ -224,7 +224,7 @@ func verify(ctx context.Context, p *Provider, values setupValues) (BotUser, []st
 	if err != nil {
 		return BotUser{}, nil, setupError(err, values, false)
 	}
-	listed, err := p.Repositories(ctx, token)
+	listed, err := p.ListRepositories(ctx, token)
 	if err != nil {
 		return BotUser{}, nil, setupError(err, values, false)
 	}

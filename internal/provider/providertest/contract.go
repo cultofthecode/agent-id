@@ -51,6 +51,9 @@ func RunContract(t *testing.T, newSubject func(t *testing.T) Subject) {
 		{"resolves a commit identity", checkIdentity},
 		{"answers the Git credential helper for its host", checkGitCredential},
 		{"gives the CLI the token", checkCLIEnvironment},
+		{"describes itself without a secret", checkDescribe},
+		{"verifies the cached identity", checkVerifyIdentity},
+		{"lists the repositories as owner/name", checkRepositories},
 		{"never prints a token", checkRedaction},
 	}
 	for _, c := range cases {
@@ -170,6 +173,61 @@ func checkCLIEnvironment(t *testing.T, s Subject) {
 	}
 	if holders != 1 {
 		t.Errorf("CLIEnvironment() passes the token in %d variables, want exactly one", holders)
+	}
+}
+
+func checkDescribe(t *testing.T, s Subject) {
+	token := mustToken(t, s)
+	fields := s.Provider.Describe()
+	if len(fields) == 0 {
+		t.Fatal("Describe() returned no field")
+	}
+	for _, f := range fields {
+		if f.Label == "" || strings.ContainsAny(f.Label+f.Value, "\n\r") {
+			t.Errorf("Describe() has a field %q that is empty or spans lines", f.Label)
+		}
+		if strings.Contains(f.Value, token.Value) || testenv.IsFakeToken(f.Value) {
+			t.Errorf("Describe() field %q holds a token", f.Label)
+		}
+	}
+}
+
+func checkVerifyIdentity(t *testing.T, s Subject) {
+	check, err := s.Provider.VerifyIdentity(context.Background())
+	if err != nil {
+		t.Fatalf("VerifyIdentity(): %v", err)
+	}
+	if check.Bot == "" {
+		t.Error("VerifyIdentity() reports no bot")
+	}
+	if check.Match != (check.Refresh == nil) {
+		t.Errorf("VerifyIdentity() Match = %v with Refresh set = %v, want Refresh only when the cache differs", check.Match, check.Refresh != nil)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := s.Provider.VerifyIdentity(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("VerifyIdentity() with a canceled context: error %v, want context.Canceled", err)
+	}
+}
+
+func checkRepositories(t *testing.T, s Subject) {
+	token := mustToken(t, s)
+	repositories, err := s.Provider.Repositories(context.Background(), token)
+	if err != nil {
+		t.Fatalf("Repositories(): %v", err)
+	}
+	for _, r := range repositories {
+		if owner, name, ok := strings.Cut(r, "/"); !ok || owner == "" || name == "" || strings.Contains(name, "/") {
+			t.Errorf("Repositories() returned %q, want owner/name", r)
+		}
+	}
+	if _, err := s.Provider.Repositories(context.Background(), provider.Token{Value: testenv.FakeToken("unissued")}); !errors.Is(err, provider.ErrUnauthorized) {
+		t.Errorf("Repositories() with a token the host did not issue: error %v, want ErrUnauthorized", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := s.Provider.Repositories(ctx, token); !errors.Is(err, context.Canceled) {
+		t.Errorf("Repositories() with a canceled context: error %v, want context.Canceled", err)
 	}
 }
 

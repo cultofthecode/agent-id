@@ -144,14 +144,19 @@ func TestNewRegistry(t *testing.T) {
 	if got := registry.Supported(); !slices.Equal(got, []string{"acme", "zeta"}) {
 		t.Errorf("Supported = %v", got)
 	}
-	if got := registry.tokenPrefixes(); !slices.Equal(got, []string{"zz_"}) {
-		t.Errorf("tokenPrefixes = %v, want a copy of the registered prefixes", got)
+	if got := registry.TokenPrefixes(); !slices.Equal(got, []string{"zz_"}) {
+		t.Errorf("TokenPrefixes = %v, want a copy of the registered prefixes", got)
+	}
+	got := registry.TokenPrefixes()
+	got[0] = "changed"
+	if again := registry.TokenPrefixes(); !slices.Equal(again, []string{"zz_"}) {
+		t.Errorf("TokenPrefixes after the caller changed its result = %v, want the registered prefixes", again)
 	}
 	if !registry.Supports("acme") || registry.Supports("gitlab") {
 		t.Error("Supports does not match the registrations")
 	}
 	var none *Registry
-	if none.Supports("acme") || none.Supported() != nil || none.tokenPrefixes() != nil {
+	if none.Supports("acme") || none.Supported() != nil || none.TokenPrefixes() != nil {
 		t.Error("a nil registry supports a provider")
 	}
 }
