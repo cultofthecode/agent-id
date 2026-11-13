@@ -27,13 +27,17 @@ A new module `internal/token`, standard library only (no new module dependency).
    {"version":1,"provider":"github","host":"github.com","subject":"app-1-installation-2","scope":"full","token":"ghs_…","expires_at":"2026-11-13T08:00:00Z"}
    ```
 
-4. **Directory checks** (`checkDir`, pure over `fs.FileInfo` and the user id). `Manager` creates the directory chain with mode `0700` (`os.MkdirAll` does not change existing directories). Then it `Lstat`s the `tokens` directory: it must be a real directory (not a symlink), owned by the current user, with no group or other bits. Otherwise every call fails with `ErrInsecureCache`, whose message names the path and the fix (`chmod 700 <dir>` or remove it) (A6). agent-id never `chmod`s a directory it did not just create.
+4. **Directory checks** (`checkDir`, pure over the mode, the owner, and the user id). `Manager.Dir` must be an absolute path, otherwise `ErrNoCacheDir` (a relative path would put tokens into the working directory, usually a repository). `Manager` creates the directory chain with mode `0700` (`os.MkdirAll` does not change existing directories). Then it `Lstat`s two directories:
+   - `tokens` (`Manager.Dir`): a real directory (not a symlink), owned by the current user, with no group or other bits;
+   - its parent (`agent-id`): a real directory owned by the current user with no group or other **write** bit, so that no other user can swap `tokens` for a symlink after the check. `$XDG_CACHE_HOME` itself is not checked: a symlinked `~/.cache` is normal.
+
+   Otherwise every call fails with `ErrInsecureCache`, whose message names the path and the fix (`chmod 700 <dir>` or remove it) (A6). agent-id never `chmod`s a directory it did not just create.
 5. **Reading an entry** (`readEntry`, then the pure `decodeEntry(data, key)`): open with `O_RDONLY|O_NOFOLLOW`; `fstat` the descriptor: a regular file, owned by the current user, mode exactly `0600` (no other bits); at most 64 KiB; strict JSON (unknown members, duplicates, and wrong types rejected); `version` 1; the stored key equals the requested key; a valid token value (item 8) and a non-zero `expires_at`. Any failure, including a missing file, is a **cache miss**, never an error and never a partial read: the entry is replaced by a fresh mint (corrupt cache → refetch). Decoding errors are replaced by fixed messages and never wrap the parser error, which can repeat the input.
-6. **Freshness** (`fresh(entry, now, margin)`, pure): an entry is served only while `now + margin < expires_at`. `Manager.Margin` defaults to 5 minutes (`DefaultMargin`) and is a field, set in code, not a flag or config key.
+6. **Freshness** (`fresh(entry, now, margin)`, pure): an entry is served only while `now + margin < expires_at`. `Manager.Margin` defaults to 5 minutes (`DefaultMargin`) and is a field, set in code, not a flag or config key. A zero or negative `Margin` or `LockTimeout` selects the default, so a negative margin can never serve an expired token.
 7. **Token(ctx, src)** — the one public operation:
    1. Build the key, resolve and check the directory.
    2. Read the entry without a lock. Fresh → return it. A reader never sees a partial file, because writers replace the file with `rename`.
-   3. Otherwise take an exclusive `flock` on the lock file (`syscall.Flock`, macOS and Linux, as in the profile-config spec). The wait polls with `LOCK_NB` every 20 ms and ends with the context, or after `Manager.LockTimeout` (default 30 s) with `ErrLockTimeout`. The kernel releases the lock when its process dies, so a crashed process never leaves a stale lock.
+   3. Otherwise take an exclusive `flock` on the lock file (`syscall.Flock`, macOS and Linux, as in the profile-config spec). The lock file is opened with `O_RDWR|O_CREATE|O_NOFOLLOW`, mode `0600`; a symlink, a non-regular file, or another user's file fails with `ErrInsecureCache`. The wait polls with `LOCK_NB` every 20 ms and ends with the context, or after `Manager.LockTimeout` (default 60 s, longer than the adapter's 30 s HTTP timeout, so that waiters outlast one slow mint) with `ErrLockTimeout`. The kernel releases the lock when its process dies, so a crashed process never leaves a stale lock.
    4. Re-read the entry under the lock. Fresh → another process has just refreshed it; return it (this is what turns 20 concurrent misses into one mint).
    5. Mint with `src.Token(ctx)`. A failure returns an error that wraps the provider error (`errors.Is(err, provider.ErrUnauthorized)` and the other classes still hold) and the zero `Token`. No retry, no backoff, and no stale fallback: an entry inside the margin is not served even if it has not expired yet (A5).
    6. Check the minted token (item 8). It must also be fresh at `now`: a token whose lifetime is not longer than the margin (an expired `expires_at`, or a clock that is far off) fails with `ErrUnusableToken`, because serving it would make every later call mint again.
@@ -58,7 +62,7 @@ type Source interface { // satisfied by every provider.Provider
 type Key struct{ Provider, Host, Subject, Scope string }
 
 const DefaultMargin = 5 * time.Minute
-const DefaultLockTimeout = 30 * time.Second
+const DefaultLockTimeout = 60 * time.Second
 
 var (
 	ErrInvalidKey    = errors.New("token: invalid cache key")
@@ -71,8 +75,8 @@ var (
 
 type Manager struct {
 	Dir         string           // from Dir(os.Getenv)
-	Margin      time.Duration    // zero means DefaultMargin
-	LockTimeout time.Duration    // zero means DefaultLockTimeout
+	Margin      time.Duration    // zero or negative means DefaultMargin
+	LockTimeout time.Duration    // zero or negative means DefaultLockTimeout
 	Now         func() time.Time // nil means time.Now
 }
 
@@ -152,8 +156,8 @@ The token manager SHALL store each entry in a `0600` file inside a `0700` direct
 ## 📝 Architecture
 
 - **New module** `internal/token` (planned in `ARCHITECTURE.md` with the dependencies `provider`, `kernel`; it uses only `provider`). Its consumers, `internal/gitint` (#22), `internal/cliint` (#23), and `internal/diagnose` (#24), are planned; nothing calls it in this PR, and the composition root wires it with its first consumer.
-- **Provider interface** gains `TokenSubject() string` (A1). The change touches `internal/provider` (interface and doc), `providertest` (contract check and `Fake`, which gains `SetTokenSubject` for the two-installation test), `githubtest` (`App.Provider`), and the GitHub adapter. The contract adds: the subject matches the key pattern above, is stable across calls, and two fake installations give two subjects.
-- **No GitHub knowledge in core.** `internal/token` never sees an App ID, a host constant, or a token prefix. depguard's `github-only-in-its-adapter` rule already forbids the import; review checks the rest.
+- **Provider interface** gains `TokenSubject() string` (A1). The change touches `internal/provider` (interface and doc), `providertest` (contract check and `Fake`, which gains `SetTokenSubject` for the two-installation test), `githubtest` (`App.Provider`), and the GitHub adapter. The contract adds: the subject matches `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$` (the pattern is repeated in `providertest`, because it cannot import `internal/token`) and is stable across calls. That two installations give two subjects is tested in the GitHub adapter's and `internal/token`'s own tests, because `providertest.Subject` has no control for a second installation.
+- **No GitHub knowledge in core.** `internal/token` never sees an App ID, a host constant, or a token prefix. depguard's `github-only-in-its-adapter` rule already forbids the import; a new depguard rule limits `internal/token` to `internal/provider` among this repository's packages; review checks the rest.
 
 ## 📝 Edge Cases & Failure Scenarios
 
@@ -161,7 +165,9 @@ The token manager SHALL store each entry in a `0600` file inside a `0700` direct
 |---|---|
 | `XDG_CACHE_HOME` relative or empty, `HOME` set | `$HOME/.cache/agent-id/tokens`. |
 | Neither variable usable | `ErrNoCacheDir`; no mint. |
-| Cache directory (or `tokens`) is a symlink, has group/other bits, or another owner | `ErrInsecureCache` naming the path and the fix; no read, no mint. |
+| `Manager.Dir` relative or empty | `ErrNoCacheDir`; nothing created. |
+| `tokens` is a symlink, has group/other bits, or another owner; or its parent `agent-id` is a symlink, group/other-writable, or another user's | `ErrInsecureCache` naming the path and the fix; no read, no mint. |
+| Lock file is a symlink, a FIFO, or another user's | `ErrInsecureCache`; no mint. |
 | Entry is a symlink, FIFO, directory, another owner's file, or not `0600` | Miss; replaced by `rename` (the symlink itself is replaced, its target is never written). |
 | Entry larger than 64 KiB, truncated, wrong `version`, unknown or duplicate member, stored key differs, token empty or with control characters, `expires_at` zero | Miss; replaced. |
 | Entry expired or inside the margin | Refresh under the lock. |
@@ -195,8 +201,8 @@ These are security-model details beyond the brief. Each is the most reversible, 
 | A1 | How does core key the cache without knowing GitHub's App and installation IDs? | New `provider.Provider.TokenSubject()`; GitHub returns `app-<appID>-installation-<installationID>`. | Keeps forge fields in the adapter (rule 7) and satisfies the two-installation criterion. | reversible |
 | A2 | Cache location on macOS | `$XDG_CACHE_HOME/agent-id/tokens`, default `~/.cache/agent-id/tokens`, not `~/Library/Caches`. | Matches the config directory and `ARCHITECTURE.md` (Data); one rule for both platforms. | reversible |
 | A3 | Refresh margin | 5 minutes, a `Manager` field. | The issue's example; a long `git push` fits inside it. | reversible |
-| A4 | Lock wait | `flock` polled until the context ends or 30 s. | Refreshing is one HTTP request; 30 s matches the adapter's HTTP timeout. | reversible |
-| A5 | Serve a still-valid token inside the margin when the refresh fails? | No: fail closed with the provider error. | A revoked App or installation shows at once; the request was to fail closed after an error. | reversible; recommend keeping |
+| A4 | Lock wait | `flock` polled until the context ends or 60 s. | Refreshing is one HTTP request bounded by the adapter's 30 s timeout; waiters must outlast it. | reversible |
+| A5 | Serve a still-valid token inside the margin when the refresh fails? | No: fail closed with the provider error. | Once a refresh is due, a revoked App or installation shows at the next call instead of five minutes later; the request was to fail closed after an error. A cached token is still served for up to ~55 minutes without asking the host; dropping it early on a rejection is the credential helper's `erase` (#22). | reversible; recommend keeping |
 | A6 | Cache directory not private or not the user's | Fail with `ErrInsecureCache`; never `chmod` an existing directory. | Writing a token into a readable directory leaks it; silently fixing modes hides a misconfiguration. | reversible; recommend keeping |
 | A7 | Cache write fails after a successful mint | Fail with `ErrCacheWrite`; discard the token. | One code path; a cache that silently stops working would mint on every call and hit rate limits unnoticed. | reversible |
 | A8 | Public surface | `Token` only; no `Status`, `Forget`, or `Erase` yet. | No consumer exists; `doctor` (#24) and the credential helper's `erase` (#22) add what they need. | reversible |
@@ -211,7 +217,7 @@ One implementation PR (`Closes #18`), `risk-high`. Each phase leaves the gate gr
 
 ## 📋 Implementation Plan
 
-Every test calls `testenv.Isolate(t)` first (it points `XDG_CACHE_HOME` and `HOME` into the test root), uses `providertest.Fake` or a test-local source that issues `testenv.FakeToken` values, and injects the clock. No test reads a real token or reaches the network. Run the gate in an isolated environment after each step.
+Every test calls `testenv.Isolate(t)` first (it points `XDG_CACHE_HOME` and `HOME` into the test root), uses `providertest.Fake` or a test-local source that issues `testenv.FakeToken` values, and injects the clock. `providertest.Fake` sets expiries from the real clock, so tests that move the injected clock use a test-local source whose expiry is relative to that clock, and seed cache entries directly with `encodeEntry`/`writeEntry` (a 2-minute token can never be written through `Manager`, which rejects it). Tests that rely on a read-only directory skip when run as root. No test reads a real token or reaches the network. Run the gate in an isolated environment after each step.
 
 ### Phase 1 — provider interface
 
@@ -219,12 +225,12 @@ Every test calls `testenv.Isolate(t)` first (it points `XDG_CACHE_HOME` and `HOM
 
 ### Phase 2 — `internal/token`
 
-2. **Key and directory.** `Key`, `KeyFor`, `keyName` (canonical encoding + SHA-256), `Dir(getenv)`, `checkDir`. Hostile tables: key fields with `/`, `..`, NUL, newline, spaces, empty, 129 characters; `XDG_CACHE_HOME` relative/empty, `HOME` empty/relative; directories with modes `0750`/`0705`/`0777`, a symlink, a file in place of the directory (other owner covered by a pure test of `checkDir` with a fake `fs.FileInfo` uid).
+2. **Key and directory.** `Key`, `KeyFor`, `keyName` (canonical encoding + SHA-256), `Dir(getenv)`, `checkDir`, the parent check. Hostile tables: key fields with `/`, `..`, NUL, newline, spaces, empty, 129 characters; `XDG_CACHE_HOME` relative/empty, `HOME` empty/relative; `Manager.Dir` relative; `tokens` with modes `0750`/`0705`/`0777`, a symlink, a file in place of the directory; a parent `agent-id` with mode `0777`/`0757` or replaced by a symlink (other owner covered by pure tests with a fake uid).
 3. **Entry codec.** `decodeEntry` and `encodeEntry` (pure), `checkValue`, `fresh`. Table: truncated, unknown member, duplicate member, wrong types, version 2, other key, empty or 4097-character token, token with `\n`/`\x00`/space/non-ASCII, zero or unparsable `expires_at`; freshness at exactly the margin boundary. Assert that no error string contains the token.
 4. **File I/O.** `readEntry` (`O_NOFOLLOW`, `fstat` checks, 64 KiB cap) and `writeEntry` (temp file, `0600`, `fsync`, `rename`, directory `fsync`). Tests: modes after a write, no leftover temp file, symlinked entry replaced without touching its target, a `0644` entry ignored, a read-only directory gives `ErrCacheWrite` and leaves no temp file.
-5. **Lock and Manager.** `lockKey` (`flock` with `LOCK_NB` polling, context, `LockTimeout`) and `Manager.Token`. Tests with an injected clock and `providertest.Fake`: the AC scenarios (30 min → no mint; 2 min → one mint, cached; two subjects → two tokens, no crossing); expired entry; each provider error wrapped and fail-closed with the old entry not served; a token valid for less than the margin → `ErrUnusableToken`; a held lock (second descriptor in the test) → `ErrLockTimeout` with a short timeout, and context cancellation; every error checked for every issued token value.
-6. **Process test.** `TestMain` calls `testenv.Main(m)` and dispatches a child mode when its environment variable is set. The parent starts 20 copies of the test binary (`os.Args[0]`) with the isolated environment; each child runs `Manager.Token` with a test source that appends one line to a shared mint log (`O_APPEND`) and sleeps 100 ms in the mint, then prints the SHA-256 of its token (never the token). Assert one mint line and 20 identical hashes; scan all output for the `testenv.FakeTokenPrefix`.
+5. **Lock and Manager.** `lockKey` (`flock` with `LOCK_NB` polling, context, `LockTimeout`) and `Manager.Token`. Tests with an injected clock and `providertest.Fake`: the AC scenarios (30 min → no mint; a seeded 2-minute entry → one mint, cached; two subjects → two tokens, no crossing); expired entry; each provider error wrapped and fail-closed with the old entry not served; a token valid for less than the margin → `ErrUnusableToken`; a held lock (second descriptor in the test) → `ErrLockTimeout` with a short timeout, and context cancellation; a symlinked lock file → `ErrInsecureCache`; negative `Margin` behaves as the default; every error checked for every issued token value.
+6. **Process test.** `TestMain` calls `testenv.Main(m)` and dispatches a child mode when its environment variable is set. The parent starts 20 copies of the test binary (`os.Args[0]`) with the isolated environment; each child waits on a start barrier (polls for a "go" file that the parent creates once all 20 have reported ready), then runs `Manager.Token` with a test source that appends one line to a shared mint log (`O_APPEND`), sleeps 200 ms, and issues a value unique to its process (`testenv.FakeToken` with the PID), then prints the SHA-256 of its token (never the token). Assert exactly one mint line and 20 identical hashes, so 20 mints cannot pass as one; scan all output for the `testenv.FakeTokenPrefix`.
 
 ### Phase 3 — documentation
 
-7. **Docs and archive.** `internal/token/AGENTS.md` (invariants: core only, fail closed, `0600`/`0700`, atomic rename, `flock`, no logger, no secret in errors, pure decisions). `AGENTS.md`: the overview sentence and a task-routing row for `internal/token`. `ARCHITECTURE.md`: components tree and table (token exists), the interface line in the provider row, a Key decisions row for A1–A8. Archive the Delta into `.ai/specs/capabilities/token-cache.md`.
+7. **Docs and archive.** A depguard rule: `internal/token` imports no package of this repository except `internal/provider` (test files also `providertest` and `testenv`). `internal/token/AGENTS.md` (invariants: core only, fail closed, `0600`/`0700`, atomic rename, `flock`, no logger, no secret in errors, pure decisions). `AGENTS.md`: the overview sentence and a task-routing row for `internal/token`. `ARCHITECTURE.md`: components tree and table (token exists), the interface line in the provider row, a Key decisions row for A1–A8. Archive the Delta into `.ai/specs/capabilities/token-cache.md`.
