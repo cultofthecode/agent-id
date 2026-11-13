@@ -572,7 +572,7 @@ Technical decisions taken by this spec, recorded for override:
 ## 📋 Phasing
 
 - **Phase 1 — pure core (`internal/activation`).** Context reading, nesting decision, inherited Git checks, builder, binary path, `LookPath`. Independently shippable and fully unit-tested; no command yet. Needs nothing beyond the repository.
-- **Phase 2 — the `exec` slice.** Command, handler, exit-code mapping, process tests. Needs #17 (profile store) and #15 (the GitHub adapter supplies the drop list and readiness); handler tests use `providertest.Fake` until then.
+- **Phase 2 — the `exec` slice.** Command, handler, exit-code mapping, process tests. Needs #17 (profile store) and #15 (the GitHub adapter supplies the drop list and readiness); handler tests use the fake `Activator` of `providertest` until then.
 - **Phase 3 — record.** `ARCHITECTURE.md` and the capability archive.
 
 ## 📋 Implementation Plan
