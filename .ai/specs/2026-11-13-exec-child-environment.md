@@ -4,6 +4,13 @@
 
 > 🔒 Amended by #68 (2026-11-13): `exec` fails closed from its first merge. The child never reaches the developer's credentials through Git or `gh`, independently of #21–#23. See [Neutral credential baseline](#-neutral-credential-baseline-68). The amendment replaces the delivery-order rule "no release may contain `exec` before #21, #22, and #23", and it moves O1 from #22 into #20.
 
+> 🔧 Amended by the follow-up PR for #69–#77 (2026-11-13; post-merge review of #48, findings M1–M8 and N1; #87 in part). Each amendment is marked `(#NN)` in place. In short: the `GIT_CONFIG_COUNT` rule and the idempotence property (#69); re-entry removes the previous plan's own `PATH` directories and `Set` names, recorded in two new context variables (#70); no inherited environment value is echoed in an error (#71); the parent environment is normalized to unique names before any decision (#72); the "Git entries changed" scenario is tested where it can fail (#73); the full O2 refused set is in `ARCHITECTURE.md` (#74); the three conflicts with the GitHub adapter spec are settled (#75); the owner's sign-off of contract v1 is pending (#76, OQ5); `ENOENT` from `execve` is 127 (#77).
+
+> 🔀 **Supersedes** (#75) `.ai/specs/2026-11-13-github-provider-adapter.md`, step 6 (Git and CLI: "Dropping inherited variables stays with `internal/cliint` (#23)") and the "Interface" bullet ("Nothing else changes… the variables to drop (#23)"), as follows:
+> 1. **`GH_HOST` is in the drop list.** The adapter's `CLIEnvironment` returns `GH_TOKEN` and `GH_HOST`, and the contract requires the drop list to contain every name `CLIEnvironment` returns. GitHub's list is `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN`, `GH_HOST`. `GH_HOST` is a host pin, not a secret; it is dropped so that an inherited personal `GH_HOST` cannot steer `gh` to another host. The child then has no `GH_HOST`, and `gh` defaults to `github.com`, where it meets the decoy token. #23 sets `GH_HOST` per `gh` invocation.
+> 2. **The drop list belongs to #20, not #23.** #68 made the neutral baseline part of #20, and the baseline needs the list. **#20 adds the exec-only answers** (`CredentialVariables`, `Ready`, `GitHosts`, `NeutralCLI`, `TokenPrefixes`), but not to `provider.Provider`: they go on a second port, `provider.Activator` (see Architecture). The adapter spec's "nothing else changes" therefore still holds for `provider.Provider`.
+> 3. **`exec` never reads the private key.** The adapter's `New` takes the PEM bytes, so every `exec` would read the key if it built a `Provider`. Instead, the adapter builds an `Activator` from the profile alone (GitHub: `NewActivator`), with no key and no network. A `Provider` is built only by code that mints tokens (#22, #23).
+
 Issue: #20 (E02-S06). Implemented by #20; extended by #21 (Git identity), #22 (Git transport), #23 (`gh` injection); reused by #26 (`agent-id env`) and read by #24 (`whoami`, `doctor`).
 
 Extends: `.ai/specs/2026-11-12-profile-config.md` (it consumes `Resolve` and decides the consumer rule for an unresolved identity that the profile spec left to #20).
@@ -15,7 +22,7 @@ The developer needs to start one agent process, and only that process tree, unde
 Decisions this spec follows:
 
 - **Nested exec with a different profile is an explicit error that names both profiles; there is no override in the MVP. The same profile is idempotent** (project manager, 2026-11-13, on #20; owner delegated technical decisions).
-- **O1–O4 of the Git precedence analysis** (project manager, 2026-11-13, on #20, #22, #24): O1 — `exec` refuses a repository whose GitHub remote still resolves to SSH after the rewrite set; O2 — refuse an inherited `GIT_CONFIG_PARAMETERS` that sets `credential`, `url`, `http`, or signing keys, otherwise keep it; O3 — SSH fallback is documented and detected (`doctor`), the `GIT_SSH_COMMAND` shim is Phase 3; O4 — Git 2.43 is the minimum.
+- **O1–O4 of the Git precedence analysis** (project manager, 2026-11-13, on #20, #22, #24): O1 — `exec` refuses a repository whose GitHub remote still resolves to SSH after the rewrite set; O2 — refuse an inherited `GIT_CONFIG_PARAMETERS` that sets `credential`, `url`, `http`, or signing keys (as decided; widened by this spec to the `gpg`, `include` and `includeif` sections and `core.askpass` (review of #86), see Inherited Git process configuration, #74), otherwise keep it; O3 — SSH fallback is documented and detected (`doctor`), the `GIT_SSH_COMMAND` shim is Phase 3; O4 — Git 2.43 is the minimum.
 - **Explicit selection only** (brief §14; profile spec): `--profile` is required. The context variable that `exec` sets is a marker for descendants and diagnostics, never a way to select a profile.
 - **Provider abstraction** (ADR #35): `internal/activation` names no forge; the variables to drop and the hint for an unresolved identity come from the provider adapter.
 - **Fail closed from the first merge** (project manager, 2026-11-13, #68, from the post-merge review of #48, finding F1). From its first version, `exec` neutralizes personal credentials in the child:
@@ -38,10 +45,10 @@ Decisions this spec follows:
 
 1. **Command.** `agent-id exec --profile <name> [--] <command> [args…]`. Flag parsing stops at the first non-flag argument, so `agent-id exec --profile claude claude --resume` works without `--`; `--` stays accepted. `--profile` is required. `exec` has no other flag.
 2. **Read the inherited context** (pure). Decide fresh start, idempotent re-entry (same profile), or refusal (different profile, damaged or unknown context). Nesting is decided first, so a refused nested start names both profiles even when the inner profile is also not ready.
-3. **Resolve.** Load the config and `Resolve(name)` (profile spec). Take the provider for the profile. Ask it whether the profile is ready to activate: in the MVP, the GitHub adapter answers "not ready" when `github.identity` is missing, with its own hint (`run agent-id setup github --profile <name>`). `exec` refuses such a profile and never resolves the identity over the network.
+3. **Resolve.** Load the config and `Resolve(name)` (profile spec). Take the provider's key-free `Activator` for the profile (#75). Ask it whether the profile is ready to activate: in the MVP, the GitHub adapter answers "not ready" when `github.identity` is missing, with its own hint (`run agent-id setup github --profile <name>`). `exec` refuses such a profile and never resolves the identity over the network.
 4. **Check the inherited Git process configuration** (pure). Refuse a malformed `GIT_CONFIG_COUNT` set (G2–G4 of the analysis) and an inherited `GIT_CONFIG_PARAMETERS` that sets a forbidden key (O2).
 5. **Prepare the neutral directories** (#68). Ensure that the empty `gh` configuration directory and the `gh` stub directory exist, are owned by the user, and are private. See [Neutral credential baseline](#-neutral-credential-baseline-68).
-6. **Build** the child environment with one pure function from the parent environment and an activation plan (below). The result never contains a token or key.
+6. **Build** the child environment with one pure function from the parent environment and an activation plan (below). The parent is first normalized to unique names (#72). The result never contains a token or key.
 7. **Remote checks** (#68; O1, D2, D3). With the **child** environment and in the working directory, refuse a remote on the provider's host when it resolves to SSH (O1), carries a password in its user-info (D2), or gets an `Authorization` header that survives the plan's reset (D3). The rewrites of #22 count automatically, because the check runs with the child's `GIT_CONFIG_*` entries. Later stories may register further checks in the same list, in a fixed order.
 
 Steps 2–7 are one root-package function, `activation.Activate`, so that `agent-id env` (#26) runs exactly the same pipeline (dependency rule 2: a slice never imports another slice).
@@ -59,7 +66,7 @@ Steps 2–7 are one root-package function, `activation.Activate`, so that `agent
 | `Profile` | the resolved profile name | #20 |
 | `Mechanism` | `exec` or `env` | #20, #26 |
 | `Binary` | absolute path of the running agent-id binary | #20 |
-| `Drop` | variable names removed from the child: the core part (`GIT_ASKPASS`, `SSH_ASKPASS`, #68) plus the provider's `CredentialVariables()`, which must be non-empty (an empty provider list is `ErrPlanUnsafe`, fail closed) | the provider (CLI integration: `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN` for GitHub) — #20 wires it |
+| `Drop` | variable names removed from the child: the core part (`GIT_ASKPASS`, `SSH_ASKPASS`, #68) plus the provider's `CredentialVariables()`, which must be non-empty (an empty provider list is `ErrPlanUnsafe`, fail closed) | the provider (CLI integration: `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN`, `GH_HOST` for GitHub, #75) — #20 wires it |
 | `Set` | variables set in the child | #21 (author and committer) |
 | `GitConfig` | ordered `key=value` entries appended to the process-scoped Git configuration | #21 (signing), #22 (helper reset, helper, `useHttpPath`, `extraHeader` reset, SSH rewrites, `core.askPass`) |
 | `PathPrepend` | directories prepended to `PATH` | #23 (the `gh` shim directory) |
@@ -70,7 +77,7 @@ In #20, `Profile`, `Mechanism`, `Binary` and `Drop` are filled, plus the **neutr
 
 **Invariant.** `exec` never starts a child in which Git or `gh`, used through the supported paths, can reach the developer's credentials. This holds from the first merge of #20, whether or not #21, #22 and #23 have landed. It is enforced by the plan below and by the refusals of step 7, and tested by #25. It does not depend on release discipline. #21–#23 later replace the neutral entries with the bot's identity, helper and shim. They never remove the baseline, so the invariant holds at every point in between.
 
-#20 contributes these plan entries (`<host>` is the provider's `Host()`). Forge-specific values (the CLI's configuration variable, the decoy variables and their value, the CLI binary name for the stub) come from the provider through a new interface method, `NeutralCLI() NeutralCLI{ConfigDirVar string; Decoys map[string]string; Binary string; ForbiddenConfigFiles []string}` (GitHub: `GH_CONFIG_DIR`; `GH_TOKEN` and `GH_ENTERPRISE_TOKEN` → `agent-id-no-token`; `gh`; `hosts.yml`). `providertest.RunContract` requires: every decoy name is one of `CredentialVariables()`; every decoy value passes the `Build` secret guard and has no registered token prefix; `Binary` and `ConfigDirVar` are non-empty; the core creates the directories generically under `<cache>/agent-id/<provider>/`, so no GitHub name lives outside the adapter (ADR #35):
+#20 contributes these plan entries (`<host>` is the provider's `Host()`). Forge-specific values (on the key-free `Activator`, #75: the CLI's configuration variable, the decoy variables and their value, the CLI binary name for the stub) come from the provider through the interface method `NeutralCLI() NeutralCLI{ConfigDirVar string; Decoys map[string]string; Binary string; ForbiddenConfigFiles []string}` (GitHub: `GH_CONFIG_DIR`; `GH_TOKEN` and `GH_ENTERPRISE_TOKEN` → `agent-id-no-token`; `gh`; `hosts.yml`). `providertest.RunContract` requires: every decoy name is one of `CredentialVariables()`; every decoy value passes the `Build` secret guard and has no registered token prefix; `Binary` and `ConfigDirVar` are non-empty; the core creates the directories generically under `<cache>/agent-id/<provider>/`, so no GitHub name lives outside the adapter (ADR #35):
 
 | Plan field | Entry | Closes | Replaced later by |
 |---|---|---|---|
@@ -80,7 +87,7 @@ In #20, `Profile`, `Mechanism`, `Binary` and `Drop` are filled, plus the **neutr
 | `Set` | `GIT_TERMINAL_PROMPT=0` | Git's terminal prompt for a username or password | stays |
 | refusal (step 7) | a `~/.netrc` (or `$HOME/.netrc` of the child) with a `machine` entry for a provider host, or a `default` entry | Git's HTTP transport reads `.netrc` itself, with no helper involved, so none of the resets above stop it (found by the independent review of #80 on Git 2.54: the server received `Authorization: Basic` from a fake `.netrc`) | stays |
 | `Drop` (core part) | `GIT_ASKPASS`, `SSH_ASKPASS` | An IDE's askpass answering for the developer (A1, A4). `GIT_TERMINAL_PROMPT=0` does not stop these. | stays |
-| `Drop` (provider part) | `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN` (`CredentialVariables`, must be non-empty) | Inherited personal tokens | #23 sets the bot token per `gh` invocation, never in the environment |
+| `Drop` (provider part) | `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN`, `GH_HOST` (`CredentialVariables`, must be non-empty and contain every name `CLIEnvironment` returns, #75) | Inherited personal tokens, and an inherited host pin | #23 sets the bot token per `gh` invocation, never in the environment |
 | `Set` (provider's `NeutralCLI`) | GitHub: `GH_CONFIG_DIR=<cache>/agent-id/github/cli-config` | The developer's `hosts.yml` and per-user lookups (gh analysis, steps 3–4) | stays; #23 keeps it |
 | `Set` (provider's `NeutralCLI`) | GitHub: `GH_TOKEN=agent-id-no-token` and `GH_ENTERPRISE_TOKEN=agent-id-no-token`: fixed, non-secret decoys with no token prefix | The keychain fallback of `gh` however it is started: by absolute path, or through a `PATH` that a startup file re-prepends (`brew shellenv`). `gh` takes `GH_TOKEN` (or, for other hosts, `GH_ENTERPRISE_TOKEN`) before `hosts.yml` and the keyring (gh analysis, token order), so it sends the decoy and GitHub answers 401. Verified offline with `gh auth token`, which printed the decoy although a `hosts.yml` with a fake token was present. | #23's shim replaces `GH_TOKEN` with the bot token for each invocation |
 | `PathPrepend` (provider's `NeutralCLI`) | `<cache>/agent-id/github/neutral-bin`, holding the `gh` stub | Gives a clear agent-id message instead of `gh`'s 401 when `gh` is started by name. The decoy, not the stub, is what closes the keychain path. | #23 replaces the stub with the shim in its own directory, prepended before this one |
@@ -100,7 +107,7 @@ In #20, `Profile`, `Mechanism`, `Binary` and `Drop` are filled, plus the **neutr
 
   `exec` writes the file atomically (temporary file, `0700`, `rename`) when it is missing or its content differs. A symlink or a file owned by someone else is refused. The stub is a self-contained script, not a link to the agent-id binary, so an upgrade or removal of the binary cannot leave a dangling entry. A dangling entry would let the shell fall through to the real `gh`.
 
-**Remote checks (step 7).** The remote checks below run only inside a Git work tree (`git rev-parse --is-inside-work-tree` with the child environment), and are skipped outside one or when `git` is not installed: then there is no Git path at all. For each remote, `exec` reads the effective fetch URL (`git ls-remote --get-url <remote>`) and every push URL (`git remote get-url --push --all <remote>`) with the child environment, so the effective `insteadOf`/`pushInsteadOf` rules apply. Remotes are not the only path: a global `url.<ssh>.insteadOf=https://<host>/` rewrite would send every later `git clone https://<host>/…` of the agent over SSH with the developer's key. So step 7 also evaluates the rewrite rules of the system, global and command scopes (`git config --list -z --show-origin` with the child environment, run twice: in an empty directory outside any repository, and in the working directory, so that a global `includeIf "gitdir:…"` rewrite and the starting repository's own rules are seen) with a pure `RewritesToSSH(entries, "https://<host>/")`. It evaluates fetch and push separately, as Git does (verified on Git 2.54 in the review of #80): fetch uses only the longest matching `insteadOf`; push first applies the longest matching `pushInsteadOf`, and falls back to `insteadOf` only when no `pushInsteadOf` matches; an explicit `pushurl` is not subject to `pushInsteadOf` and is covered by the per-remote O1 check. It refuses (`ErrSSHRewrite`) when the provider's HTTPS base, or any path under it, would be rewritten to SSH. A URL belongs to the provider when its host (scheme form, or the `[user@]host:path` scp form) matches one of the provider's `GitHosts()` (new interface method; GitHub: `github.com`, `ssh.github.com`) case-insensitively, or when it is an SSH alias whose `ssh -G <alias>` `hostname` matches.
+**Remote checks (step 7).** The remote checks below run only inside a Git work tree (`git rev-parse --is-inside-work-tree` with the child environment), and are skipped outside one or when `git` is not installed: then there is no Git path at all. For each remote, `exec` reads the effective fetch URL (`git ls-remote --get-url <remote>`) and every push URL (`git remote get-url --push --all <remote>`) with the child environment, so the effective `insteadOf`/`pushInsteadOf` rules apply. Remotes are not the only path: a global `url.<ssh>.insteadOf=https://<host>/` rewrite would send every later `git clone https://<host>/…` of the agent over SSH with the developer's key. So step 7 also evaluates the rewrite rules of the system, global and command scopes (`git config --list -z --show-origin` with the child environment, run twice: in an empty directory outside any repository, and in the working directory, so that a global `includeIf "gitdir:…"` rewrite and the starting repository's own rules are seen) with a pure `RewritesToSSH(entries, "https://<host>/")`. It evaluates fetch and push separately, as Git does (verified on Git 2.54 in the review of #80): fetch uses only the longest matching `insteadOf`; push first applies the longest matching `pushInsteadOf`, and falls back to `insteadOf` only when no `pushInsteadOf` matches; an explicit `pushurl` is not subject to `pushInsteadOf` and is covered by the per-remote O1 check. It refuses (`ErrSSHRewrite`) when the provider's HTTPS base, or any path under it, would be rewritten to SSH. A URL belongs to the provider when its host (scheme form, or the `[user@]host:path` scp form) matches one of the provider's `GitHosts()` (a method of the key-free `Activator`; GitHub: `github.com`, `ssh.github.com`) case-insensitively, or when it is an SSH alias whose `ssh -G <alias>` `hostname` matches.
 
 | Check | Refuses when | Error |
 |---|---|---|
@@ -173,6 +180,10 @@ The system SHALL exit with 125 when agent-id fails before starting the command, 
 - WHEN the command is `does-not-exist`
 - THEN the exit status is 127 and stderr is `agent-id: exec: "does-not-exist": command not found`
 
+##### Scenario: Missing script interpreter (#77)
+- WHEN the command is a regular, executable script found in `PATH` (or named with `/`) whose first line is `#!/nonexistent/interpreter`, so that `execve` returns `ENOENT` after a successful lookup
+- THEN the exit status is 127 (as `env(1)` and the shells report it) and stderr is `agent-id: exec: "<command>": interpreter or loader not found`; a script that exists but is not executable gives 126 when it is named with `/`, and is skipped by the `PATH` lookup (127 if nothing else matches) otherwise
+
 ##### Scenario: Missing profile flag
 - WHEN `agent-id exec -- true` runs
 - THEN the exit status is 125 and the message is `agent-id: exec: --profile is required`
@@ -196,6 +207,14 @@ The system SHALL remove from the child environment every variable that the profi
 - WHEN the provider of a profile declares no credential variables
 - THEN the exit status is 125 (`ErrPlanUnsafe`) and the command does not run
 
+##### Scenario: Inherited GH_HOST dropped (#75)
+- WHEN the parent has `GH_HOST=ghe.example.test` and the profile's provider is `github`
+- THEN the command has no `GH_HOST`
+
+##### Scenario: Duplicate names in the parent (#72)
+- WHEN the parent environment (built by the test through the `Execer`'s `envp`, not through a shell) holds `GH_TOKEN` twice with two fake personal values, `GITHUB_TOKEN` three times (a fake value last), and the entries `GH_TOKEN` (no `=`) and `=x`
+- THEN the command has exactly one `GH_TOKEN`, equal to the decoy, no `GITHUB_TOKEN`, no entry without `=`, and every name occurs once
+
 Inherited variables that agent-id does not know (for example `HOMEBREW_GITHUB_API_TOKEN`) pass through unchanged; `doctor` reports inherited token-shaped values (#24), and widening the drop list is OQ3.
 
 #### ADDED Requirement: Nested exec
@@ -205,6 +224,14 @@ The system SHALL rebuild the environment idempotently when an exec runs inside a
 - WHEN `agent-id exec --profile claude -- agent-id exec --profile claude -- env` runs
 - THEN the inner environment equals the outer one: the same `GIT_CONFIG_COUNT`, the same entries, and no duplicate `PATH` element
 
+##### Scenario: Idempotent for an inherited count of 0 or empty (#69)
+- WHEN `Build` runs twice with the same plan on a parent that has `GIT_CONFIG_COUNT=0`, `GIT_CONFIG_COUNT=` (empty), or no count, once with an empty `Plan.GitConfig` and once with a non-empty one
+- THEN `Build(Build(E, p), p)` equals `Build(E, p)`, and the child's `GIT_CONFIG_COUNT` is the canonical decimal `BASE + len(Plan.GitConfig)` on both paths
+
+##### Scenario: Re-entry with a changed plan (#70)
+- WHEN the outer context was built with `AGENT_ID_BIN=/a/agent-id`, `PathPrepend=[/x/shim-a]` and `Set={FOO}`, and the inner `Build` runs with `AGENT_ID_BIN=/b/agent-id`, `PathPrepend=[/x/shim-b]` and `Set={BAR}`
+- THEN the inner `PATH` holds `/x/shim-b` once and no `/x/shim-a`, `FOO` is absent, `BAR` is set, and `AGENT_ID_BIN` is `/b/agent-id` (unit level: the fixed #20 plan has one fixed shape, so a process test cannot change it)
+
 ##### Scenario: Different profile is an error
 - WHEN `agent-id exec --profile reviewer -- true` runs inside a context of profile `claude`
 - THEN the exit status is 125, the command does not run, and the message names `claude` and `reviewer`
@@ -213,16 +240,22 @@ The system SHALL rebuild the environment idempotently when an exec runs inside a
 - WHEN a startup file of the agent's shell unset `GIT_CONFIG_COUNT`, or another tool appended entries after agent-id's, and `agent-id exec --profile claude -- true` runs in that shell
 - THEN the exit status is 125 (`ErrContextInvalid`) and no inherited entry is dropped
 
+The check compares `GIT_CONFIG_COUNT` with `AGENT_ID_GIT_CONFIG_END`, so it refuses an appended entry for any plan, and an unset or changed count whenever `END > 0`. Only one state passes vacuously: an unset count with `BASE == END == 0`, which needs an empty `Plan.GitConfig` and no inherited entries (#73). The scenario "a startup file unset the count" therefore cannot fail there. It is **unit-level** for an arbitrary plan (the tables cover a non-empty plan, an appended entry, and the vacuous state as a documented accepted case, not a special case in code), and the **process test** belongs to the first ticket whose plan carries Git entries. Under #68 that is #20 itself: the baseline contributes three entries (`credential.helper`, `extraHeader`, `core.askPass` resets), so the process test of step 8 runs in #20 and cannot pass vacuously. Were the baseline ever removed from #20's plan, the process test would move to #22 and #20 would have no such test.
+
 ##### Scenario: Unknown context version
 - WHEN the parent has `AGENT_ID_CONTEXT=2`
 - THEN the exit status is 125 and the message says that the context comes from an incompatible agent-id
 
 #### ADDED Requirement: Inherited Git process configuration
-The system SHALL refuse to start when the inherited `GIT_CONFIG_COUNT` set is malformed, or when an inherited `GIT_CONFIG_PARAMETERS` sets a `credential.*`, `url.*`, `http.*`, `include.*`, `includeIf.*`, signing key, or `core.askPass`, and SHALL keep every other inherited `GIT_CONFIG_*` entry and `GIT_CONFIG_PARAMETERS` unchanged.
+The system SHALL refuse to start when the inherited `GIT_CONFIG_COUNT` set is malformed, or when an inherited `GIT_CONFIG_PARAMETERS` sets a `credential.*`, `url.*`, `http.*`, `gpg.*`, `include.*`, `includeIf.*`, signing key, or `core.askPass`, and SHALL keep every other inherited `GIT_CONFIG_*` entry and `GIT_CONFIG_PARAMETERS` unchanged.
 
 ##### Scenario: Malformed count
 - WHEN the parent has `GIT_CONFIG_COUNT=2` and no `GIT_CONFIG_KEY_1`
 - THEN the exit status is 125 and the message names `GIT_CONFIG_KEY_1` without printing any value
+
+##### Scenario: Token-shaped count (#71)
+- WHEN the parent has `GIT_CONFIG_COUNT` set to `testenv.FakeToken` (and, in a second case, to a fake `github_pat_…` value)
+- THEN the exit status is 125, the message names only `GIT_CONFIG_COUNT`, and it contains no substring of the value of 8 or more characters
 
 ##### Scenario: Forbidden parameter
 - WHEN the parent has `GIT_CONFIG_PARAMETERS="'credential.helper'='store'"`
@@ -230,7 +263,7 @@ The system SHALL refuse to start when the inherited `GIT_CONFIG_COUNT` set is ma
 
 ##### Scenario: Include in parameters
 - WHEN the parent has `GIT_CONFIG_PARAMETERS="'include.path'='/tmp/x.gitconfig'"` or an `includeIf.<condition>.path` key
-- THEN the exit status is 125 and the message names `include.path` (`includeIf.<condition>.path`)
+- THEN the exit status is 125 and the message names `include.path`, or `includeIf.<…>.path` with the condition omitted (#71)
 
 ##### Scenario: Harmless parameter kept
 - WHEN the parent has `GIT_CONFIG_PARAMETERS="'core.pager'='less'"`
@@ -276,7 +309,7 @@ The system SHALL start the command only with the neutral credential baseline in 
 - THEN the exit status is 125 (`ErrRemoteCredentials` or `ErrRemoteHeader`), and the message contains neither `secret` nor the header value
 
 ##### Scenario: Neutral directories are checked
-- WHEN `<cache>/agent-id/gh-config` is a symlink, is group-writable, or contains `hosts.yml`, or `neutral-bin/gh` is a symlink
+- WHEN `<cache>/agent-id/github/cli-config` is a symlink, is group-writable, or contains `hosts.yml`, or `neutral-bin/gh` is a symlink
 - THEN the exit status is 125 (`ErrNeutralDir`), and nothing is changed
 
 #### ADDED Requirement: Unresolved identity
@@ -314,11 +347,11 @@ flowchart LR
       PathPrepend []string
   }
   type GitConfigEntry struct{ Key, Value string }
-  type Context struct{ Version, Profile, Mechanism, Binary string; GitConfigBase, GitConfigEnd int } // the inherited context, if any
+  type Context struct{ Version, Profile, Mechanism, Binary string; GitConfigBase, GitConfigEnd int; PathPrepend, SetNames []string } // the inherited context, if any
   type Deps struct {
       Profiles  ProfileResolver // narrow port: Resolve(name) → the profile's provider name and host; satisfied by internal/profile (#17)
-      Providers ProviderSource  // narrow port: the provider.Provider for a resolved profile; built by the composition root
-      Neutral   NeutralDirs     // narrow port: ensures and checks the gh-config and neutral-bin directories (#68)
+      Providers ProviderSource  // narrow port: the key-free provider.Activator for a resolved profile (#75); built by the composition root
+      Neutral   NeutralDirs     // narrow port: ensures and checks the `cli-config` and `neutral-bin` directories (#68)
       Checks    []Check         // remote checks run with the child environment (#68: O1, D2, D3)
   }
   type Request struct {
@@ -336,13 +369,16 @@ flowchart LR
   ```
   It also owns the sentinel errors below, `ResolveBinary`, and `LookPath(env)` that uses the child's `PATH`. It imports `internal/provider` (the port) and no adapter.
 - **`internal/activation/exec`** (slice, new): `contract.go` (`Input{Profile string; Argv []string}`, the exit-code error type), `handler.go` (dependencies: `activation.Deps` and an `Execer`; it calls `activation.Activate`, `LookPath`, then `Execer.Exec`), `command.go` (cobra, `SetInterspersed(false)`, `SetFlagErrorFunc` wrapping flag errors as 125, `--profile` checked by the handler, not `MarkFlagRequired`), `handler_test.go`. The slice imports only `internal/activation` and ports (dependency rule 2); it does not import `internal/profile`. Only the `Execer` that calls `syscall.Exec` sits behind a `darwin || linux` build tag, so every package still compiles on other platforms.
-- **`cmd/agent-id`** registers the slice, builds `activation.Deps` (the profile store, and the provider for a profile from the adapter registered for its `provider` name), and maps the slice's exit-code error to the process exit code. It currently returns 1 for every error (`cmd/agent-id/main.go`, `run`); it gains an error type that carries a code (`ExitCode() int`), used by `exec` only.
-- **Provider interface** (ADR #35). `internal/provider.Provider` exists on `main` as a provisional interface (PR #32): `Name`, `Host`, `Token`, `Identity`, `GitCredential`, `CLIEnvironment`; the GitHub adapter (#15) settles it. `exec` needs two more answers, which #20 proposes to add to it, together with `providertest.Fake`, `providertest.RunContract`, and `githubtest.App.Provider`:
-  - `CredentialVariables() []string` — the CLI-integration variables the core must remove from any child (the names that `CLIEnvironment` sets, plus their aliases). GitHub: `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN`. The contract test requires a non-empty list that contains every name `CLIEnvironment` returns.
+- **`cmd/agent-id`** registers the slice, builds `activation.Deps` (the profile store, and the `Activator` for a profile from the adapter registered for its `provider` name), and maps the slice's exit-code error to the process exit code. It currently returns 1 for every error (`cmd/agent-id/main.go`, `run`); it gains an error type that carries a code (`ExitCode() int`), used by `exec` only.
+- **Provider ports** (ADR #35; settled by #75). `internal/provider.Provider` exists on `main` (`Name`, `Host`, `Token`, `Identity`, `GitCredential`, `CLIEnvironment`; settled by the GitHub adapter, #15) and **`exec` does not change it**. `exec` needs answers that depend on the profile only, never on the private key, so they live on a second, key-free port, `provider.Activator`, which the adapter builds from the profile alone (GitHub: `NewActivator`; it reads no key and makes no request). #20 adds the port, a contract suite for it in `providertest`, a fake `Activator`, and a `githubtest` control for the identity cache so that the suite can exercise `Ready`:
+  - `CredentialVariables() []string` — the CLI-integration variables the core must remove from any child: the names that `CLIEnvironment` sets, plus their aliases. GitHub: `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN`, `GH_HOST`. The contract requires a non-empty list that contains every name `CLIEnvironment` returns, so a provider cannot add a variable to `CLIEnvironment` and forget to drop it.
   - `Ready(ctx) error` — whether the profile can be activated without a network call; GitHub: the identity cache is present. Its error carries the adapter's hint.
-  The provider source builds a `provider.Provider` from the resolved profile, including its cached identity, and for `exec` it must neither read the private key nor touch the network (keys are loaded lazily by `Token`). `githubtest.App.Provider` gains a control for the identity cache so that the contract suite can exercise `Ready`. The production wiring of #20 therefore needs the GitHub adapter (#15): the GitHub drop list is the adapter's data, and a test in `cmd/agent-id` must prove that the production registry removes an inherited `GH_TOKEN`; without it, `exec` would fail open.
+  - `GitHosts() []string` (#68) — the host names whose Git remotes belong to the provider (GitHub: `github.com`, `ssh.github.com`; the "host and URL mapping" of ADR #35). The contract requires a non-empty list that contains `Host()`.
+  - `NeutralCLI() NeutralCLI` (#68), as defined above.
+  - `TokenPrefixes() []string` — the registered token prefixes for the secret guard of `Build`, so the core hard-codes no GitHub prefix.
+
+  The `ProviderSource` port of `Deps` returns the `Activator` for a resolved profile; the composition root builds it from the adapter registered for the profile's `provider` name. Phase 1 needs none of it. The production wiring of #20 needs the GitHub adapter (#15): the GitHub drop list is the adapter's data, and a test in `cmd/agent-id` must prove that the production registry removes an inherited `GH_TOKEN`; without it, `exec` would fail open.
 - **Remote checks** (step 7) are values of `type Check func(ctx context.Context, dir string, child []string) error`, run with the **child** environment in a fixed order. #20 registers O1, D2 and D3 (#68). They live in `internal/activation`, which runs `git` and `ssh` through a narrow `Runner` port so the decisions stay pure: `ClassifyRemoteURL(url, gitHosts)` and `HasPassword(url)` are table-tested. Later stories may append checks.
-- **Provider interface, one more method** (#68): `GitHosts() []string`, the host names whose Git remotes belong to the provider. For GitHub these are `github.com` and `ssh.github.com`. This is the "host and URL mapping" responsibility of ADR #35. `providertest.RunContract` requires a non-empty list that contains `Host()`.
 - **Dependencies on other work:** #17 (profile store) and #15 (GitHub adapter: drop list and readiness) are required before the `exec` command is registered; Phase 1 (the pure core) needs neither. Until #21–#23 land, a started command has the neutral credential baseline (#68): it cannot reach personal credentials, and Git and `gh` fail with agent-id's messages instead of acting as anyone.
 
 ## 📝 API Contracts
@@ -356,7 +392,7 @@ agent-id exec --profile <name> [--] <command> [args…]
 | Input | Rule | Failure |
 |---|---|---|
 | `--profile` | required (checked by the handler: `--profile is required`); resolved through the profile store, which validates the name | 125, the store's message (`ErrProfileNotFound`, `ErrConfigNotFound`, `ErrUnsupportedProvider`, …) |
-| `<command>` | required; looked up with the child's `PATH` unless it contains `/` | 125 when absent; 127 when not found (non-executable files in `PATH` are skipped); 126 when a name with `/` exists but cannot be executed, or `execve` fails |
+| `<command>` | required; looked up with the child's `PATH` unless it contains `/` | 125 when absent; 127 when not found (non-executable files in `PATH` are skipped), and also when `execve` returns `ENOENT` after a successful lookup (a script whose `#!` interpreter, or a binary whose loader, is missing; or the file removed in between), as `env(1)` and the shells report it (#77); 126 when a name with `/` exists but cannot be executed, or `execve` fails with any other error (`EACCES`, `ENOEXEC`, `ELOOP`, `ENOTDIR`, `E2BIG`, …) |
 | other flags | none; anything after the first non-flag argument belongs to the command | — |
 
 ### Exit status
@@ -365,8 +401,8 @@ agent-id exec --profile <name> [--] <command> [args…]
 |---|---|
 | the command's | always, once the command started (`execve` succeeded) |
 | 125 | agent-id failed before starting the command: usage, config, profile, nesting, inherited Git configuration, neutral directories, remote checks, binary path |
-| 126 | the command was found but `execve` failed (permission denied, not an executable format) |
-| 127 | the command was not found in the child's `PATH` |
+| 126 | the command was found but `execve` failed with an error other than `ENOENT` (permission denied, not an executable format) |
+| 127 | the command was not found in the child's `PATH`, or `execve` returned `ENOENT` (missing interpreter or loader, #77) |
 
 `exec` writes nothing to stdout. On failure it writes exactly one line to stderr, `agent-id: exec: <message>`, printed by `cmd/agent-id`.
 
@@ -374,7 +410,8 @@ agent-id exec --profile <name> [--] <command> [args…]
 
 Starting from the parent environment, in this order:
 
-1. Remove every `AGENT_ID_*` variable, every variable in `Plan.Drop`, and, on re-entry, the previous contribution (step 3 of Build below).
+0. **Normalize** (#72). Reduce the parent to one value per name. An entry without `=` or with an empty name is discarded: a child cannot read it as a variable, and no later step could match it. When a name occurs more than once, the **last** occurrence wins (the value that bash and zsh children use) and the others are discarded. Go's `os.Environ` keeps the first and a libc `getenv` may differ, so the tests assert uniqueness and the decoy, not which duplicate won; the spec's rule is for the builder's output. Names compare byte for byte, case-sensitively. Every reader of the parent environment (`ReadContext`, `CheckInheritedGit`, `Build`) uses this one view, `NormalizeEnv` (pure), so a check and the child can never see different values. The output has unique names, and every later step acts on a name exactly once: `Drop`, the `AGENT_ID_*` removal, `Set`, the context variables, `GIT_CONFIG_*` and `PATH` apply to **every** occurrence of a name because there is only one. No earlier occurrence of a dropped name, such as a second `GH_TOKEN`, survives.
+1. Remove every `AGENT_ID_*` variable, every variable in `Plan.Drop`, and, on re-entry, the previous contribution recorded by the inherited context (see Reading the inherited context).
 2. Set the context variables:
 
    | Variable | Value | Consumers |
@@ -385,18 +422,22 @@ Starting from the parent environment, in this order:
    | `AGENT_ID_BIN` | absolute path of the agent-id binary | the credential helper entry (#22) and the `gh` shim (#23) |
    | `AGENT_ID_GIT_CONFIG_BASE` | the number of inherited `GIT_CONFIG_*` entries before agent-id's (an integer ≥ 0); always set | re-entry, `doctor` check D6 |
    | `AGENT_ID_GIT_CONFIG_END` | `GIT_CONFIG_COUNT` right after agent-id's append (`BASE + len(Plan.GitConfig)`); always set | re-entry, `doctor` check D6 |
+   | `AGENT_ID_PATH_PREPEND` | the `Plan.PathPrepend` directories in order, joined with `:`; always set; the empty string is the empty list (#70) | re-entry, `doctor` |
+   | `AGENT_ID_SET_NAMES` | the names in `Plan.Set`, sorted, without duplicates, and joined with `,`; always set; the empty string is the empty list (#70) | re-entry, `doctor` |
 
-   No variable selects a profile: commands that need a profile still take `--profile` (profile spec). The credential helper and the shim receive their profile on their own command line (#22, #23), not from these variables. `AGENT_ID_ACTIVE_PROFILE` is a deliberately different name from the reserved, non-existent selection variable `AGENT_ID_PROFILE` (profile spec).
+   No variable selects a profile: commands that need a profile still take `--profile` (profile spec). The credential helper and the shim receive their profile on their own command line (#22, #23), not from these variables. `AGENT_ID_ACTIVE_PROFILE` is a deliberately different name from the reserved, non-existent selection variable `AGENT_ID_PROFILE` (profile spec). The two variables of #70 are part of contract version 1: version 1 has not been released and the owner has not signed it off (OQ5), so there is no compatibility rule for a context without them; such a context is damaged.
 3. Set `Plan.Set`.
-4. Append `Plan.GitConfig` after the inherited entries: `GIT_CONFIG_KEY_<base+i>`, `GIT_CONFIG_VALUE_<base+i>`, `GIT_CONFIG_COUNT=<base+len>`. With an empty `Plan.GitConfig` the inherited count is left as it was (unset stays unset).
+4. Append `Plan.GitConfig` after the inherited entries: `GIT_CONFIG_KEY_<base+i>`, `GIT_CONFIG_VALUE_<base+i>`. **`GIT_CONFIG_COUNT` is always written**, as the canonical decimal `base+len(Plan.GitConfig)`, also when `Plan.GitConfig` is empty (#69). An inherited `0`, empty, or unset count is the same state (base 0), and every path through `Build` (fresh, re-entry, empty or non-empty plan) normalizes it identically, which is what makes `Build` idempotent. The child of a parent with no count therefore has `GIT_CONFIG_COUNT=0`; Git reads it as no entries.
 5. Prepend `Plan.PathPrepend` to `PATH`, after removing every existing `PATH` element equal to one of them.
 
 Everything else is inherited unchanged, including `GIT_CONFIG_PARAMETERS` that passed the O2 check, `SSH_AUTH_SOCK`, and `GIT_SSH_COMMAND` (O3: documented, detected by `doctor`). The builder is the security decision (`ARCHITECTURE.md`, dependency rule 5) and has these properties, each a table or property test:
 
-- **Idempotent:** `Build(Build(E, p), p) == Build(E, p)` for every `E` and `p` for which `Build` succeeds (the re-entry path).
+- **Idempotent:** `Build(Build(E, p), p) == Build(E, p)` for every `E` and `p` for which `Build` succeeds (the re-entry path), including a parent with an inherited count of `0`, empty, or unset, and an empty `p.GitConfig` (#69).
+- **Changed-plan re-entry** (#70): `Build(Build(E, p1), p2) == Build(E, p2)` when every name in `p1.Set` is in `p2.Set` or absent from `E`, `E`'s `PATH` has no element equal to a `p1.PathPrepend` directory, and `E` has no `GIT_CONFIG_KEY_i`/`VALUE_i` at or above its count, and `p1.Drop ⊆ p2.Drop` (a name dropped, or a `PATH` element removed as a duplicate, by the first pass is not restored). The `Set` exception is deliberate: a name that only the previous plan set is unset on re-entry, not restored to the developer's value, which agent-id never recorded (fail-safe).
+- **Unique names** (#72): the output has no repeated name, for any `E`, including duplicates and entries without `=`.
 - **Append-only for Git:** inherited entries `0…base-1` are byte-identical in the result.
 - **Order-stable:** the output is sorted by variable name, so equal inputs give equal outputs (golden tests, #26 rendering).
-- **Secret-free:** the builder rejects a plan whose `Set`, `GitConfig`, or `PathPrepend` value contains a registered token prefix, `-----BEGIN`, a JWT shape, a newline, or a NUL byte (`ErrPlanUnsafe`). This is a guard against a future contributor's bug, not input validation of user data.
+- **Secret-free:** the builder rejects a plan whose `Set`, `GitConfig`, or `PathPrepend` value contains a registered token prefix, `-----BEGIN`, a JWT shape, a newline, or a NUL byte, a `Set` name that is not `^[A-Za-z_][A-Za-z0-9_]*$` or that starts with `AGENT_ID_` or `GIT_CONFIG_` or is `PATH`, or a `PathPrepend` element that is not an absolute path, contains `:`, or repeats an earlier element, or a repeated `Set` name (`ErrPlanUnsafe`; #70, the recorded lists need unambiguous separators). This is a guard against a future contributor's bug, not input validation of user data.
 
 ### Reading the inherited context
 
@@ -406,16 +447,22 @@ Everything else is inherited unchanged, including `GIT_CONFIG_PARAMETERS` that p
 | `AGENT_ID_CONTEXT=1`, `AGENT_ID_ACTIVE_PROFILE` equals `--profile` | re-entry: Build removes the previous contribution, then applies the plan |
 | `AGENT_ID_CONTEXT=1`, a different valid profile | `ErrNestedProfile` |
 | `AGENT_ID_CONTEXT` any other value | `ErrContextInvalid` (incompatible version) |
-| `AGENT_ID_CONTEXT=1`, but `AGENT_ID_ACTIVE_PROFILE` missing or not a valid name, or `AGENT_ID_GIT_CONFIG_BASE`/`_END` missing, not integers, or `BASE > END` | `ErrContextInvalid` (damaged) |
-| `AGENT_ID_CONTEXT=1`, same profile, but `GIT_CONFIG_COUNT` (unset counts as 0) differs from `AGENT_ID_GIT_CONFIG_END` | `ErrContextInvalid` (Git entries changed after activation: a startup file unset them, R8, or another tool appended after agent-id) |
+| `AGENT_ID_CONTEXT=1`, but `AGENT_ID_ACTIVE_PROFILE` missing or not a valid name, or `AGENT_ID_GIT_CONFIG_BASE`/`_END` missing, not integers, or `BASE > END`, or `AGENT_ID_PATH_PREPEND`/`AGENT_ID_SET_NAMES` missing, a recorded directory that is not absolute, or a recorded name that fails the `Set` name rule, or a recorded list with a duplicate entry or an unsorted name list (#70; an empty string is the empty list, not a list with one empty entry) | `ErrContextInvalid` (damaged) |
+| `AGENT_ID_CONTEXT=1`, same profile, but `GIT_CONFIG_COUNT` (unset or empty counts as 0) differs from `AGENT_ID_GIT_CONFIG_END` | `ErrContextInvalid` (Git entries changed after activation: a startup file unset them, R8, or another tool appended after agent-id) |
 
-Removing the previous contribution on re-entry means: with `GIT_CONFIG_COUNT == AGENT_ID_GIT_CONFIG_END` verified above, drop `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` for `BASE ≤ n < END` and set `GIT_CONFIG_COUNT` to the base (unset it when the base is 0), and remove the plan's `PathPrepend` directories from `PATH`. The context variables are a convenience for a cooperating process tree, not a security boundary: an agent can unset them and start another profile (brief §10; a documented bypass).
+Removing the previous contribution on re-entry uses **only what the inherited context recorded**, never the current plan (#69, #70):
+
+- **Git.** With `GIT_CONFIG_COUNT == AGENT_ID_GIT_CONFIG_END` verified above, drop `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` for `BASE ≤ n < END`. The count is then written by step 4 exactly as on a fresh start, so an inherited `0` or empty count gives the same result on both paths (#69).
+- **`PATH`.** Remove every element equal to a directory in `AGENT_ID_PATH_PREPEND`, all occurrences, whatever the current plan prepends. A re-entry with a different `AGENT_ID_BIN` (allowed) or a refreshed plan leaves no old shim directory behind (#70).
+- **`Set`.** Remove every name in `AGENT_ID_SET_NAMES`, then apply the current `Plan.Set`. A name that only the previous plan set is unset, not restored.
+
+On a fresh start, a stray `AGENT_ID_PATH_PREPEND` or `AGENT_ID_SET_NAMES` without `AGENT_ID_CONTEXT` is removed with the other stray `AGENT_ID_*` variables and never used. The context variables are a convenience for a cooperating process tree, not a security boundary: an agent can edit them, unset them, or start another profile, and an edited list only changes the agent's own child (brief §10; a documented bypass).
 
 ### Inherited Git process configuration
 
 - **`GIT_CONFIG_COUNT`** (G2–G4): when present, it must be a decimal integer `0 ≤ n ≤ 1000` or the empty string (0, as in Git); the cap of 1000 is agent-id policy, stricter than Git, and `GIT_CONFIG_KEY_i` and `GIT_CONFIG_VALUE_i` must exist for every `i < n` (an empty value is allowed, as in Git). Otherwise `ErrInheritedGitConfig` naming the variable that is missing or bad. A `GIT_CONFIG_KEY_i`/`VALUE_i` with `i ≥ n` is left alone (Git ignores it), and the append overwrites it.
 - **`GIT_CONFIG_PARAMETERS`** (O2): parsed with Git's own quoting (`'key'='value'` pairs, the older `'key=value'` form, and a bare `'key'` meaning true, separated by spaces, with the `'\''` and `'\!'` escapes of Git's `sq_dequote`). A key is forbidden when, compared case-insensitively, its section is `credential`, `url`, `http`, `gpg`, `include`, or `includeif` (an include can pull in any of the others, and Git reads it after `GIT_CONFIG_COUNT`), or it is `commit.gpgsign`, `tag.gpgsign`, `tag.forcesignannotated`, `push.gpgsign`, `user.signingkey`, or `core.askpass` (it would override the `core.askPass` reset of the baseline; review of #86). A forbidden key or an unparseable value → `ErrInheritedGitConfig`. Anything else is kept unchanged and reported by `doctor` (D4).
-- Messages name a variable or the **section and variable** of a key (`credential.<url>.helper`), never a value and never the URL subsection, because both can hold credentials (C21, U11 of the analysis).
+- **Messages never echo an inherited environment value** (#71). They name variables, never values; among the variables of this contract the only inherited text printed is a profile name that passed the profile-name rule (`ErrNestedProfile`), and the context version is reported as `AGENT_ID_CONTEXT is not 1`, not echoed. The remote-check messages of step 7 are a separate class: they name remote names, configuration keys, file paths (including the file named by `$NETRC`, and the paths derived from `HOME` or `XDG_*` that the profile store and `ErrNeutralDir` print), aliases and header names, never a header value, password or user-info. For a bad or out-of-range `GIT_CONFIG_COUNT` the text is `inherited GIT_CONFIG_COUNT is not a decimal integer from 0 to 1000`: the raw string is not printed, not even cut, because a cut is not a redaction (a classic token is 40 characters, under the 64-character cut). For a missing entry the message names `GIT_CONFIG_KEY_<i>` or `GIT_CONFIG_VALUE_<i>`, where `<i>` is the integer parsed and bounded to 0..1000, never raw text. For `GIT_CONFIG_PARAMETERS` the message names the **section** of the forbidden key and, only when the variable is one of `helper`, `usehttppath`, `username`, `extraheader`, `insteadof`, `pushinsteadof`, `path`, `program`, `signingkey`, `gpgsign`, `forcesignannotated`, `askpass`, that variable (`credential.helper`). A section is spelled in lower case, as compared (`includeif`). It never prints a subsection (a URL or an include condition, shown as `<…>`), any other component, or a value, because they can hold credentials (C21, U11 of the analysis).
 
 ### Errors
 
@@ -427,23 +474,23 @@ Removing the previous contribution on re-entry means: with `GIT_CONFIG_COUNT == 
 | profile store sentinels | 125 | the store's message, unchanged |
 | `ErrProfileNotReady` (wraps the adapter's error) | 125 | `profile "reviewer": bot identity is not resolved; run agent-id setup github --profile reviewer` (the hint text is the adapter's) |
 | `ErrNestedProfile` | 125 | `already in an agent context for profile "claude"; refusing to start profile "reviewer" inside it (nested exec with a different profile is not supported); start it from a terminal outside the agent context` |
-| `ErrContextInvalid` | 125 | `the inherited agent context is <damaged: AGENT_ID_ACTIVE_PROFILE is missing \| from an incompatible agent-id (AGENT_ID_CONTEXT=2)>; start from a terminal outside the agent context` |
-| `ErrInheritedGitConfig` | 125 | `inherited GIT_CONFIG_COUNT=2 has no GIT_CONFIG_KEY_1; every git command would fail; fix or unset the GIT_CONFIG_* variables` / `inherited GIT_CONFIG_PARAMETERS sets credential.<url>.helper, which would override agent-id's credentials; unset GIT_CONFIG_PARAMETERS or remove that setting (agent-id doctor shows its source)` |
+| `ErrContextInvalid` | 125 | `the inherited agent context is <damaged: AGENT_ID_ACTIVE_PROFILE is missing \| from an incompatible agent-id (AGENT_ID_CONTEXT is not 1)>; start from a terminal outside the agent context` |
+| `ErrInheritedGitConfig` | 125 | `inherited GIT_CONFIG_COUNT is not a decimal integer from 0 to 1000; every git command would fail; fix or unset the GIT_CONFIG_* variables` / `inherited GIT_CONFIG_COUNT requires GIT_CONFIG_KEY_1, which is not set; every git command would fail; fix or unset the GIT_CONFIG_* variables` / `inherited GIT_CONFIG_PARAMETERS sets credential.<…>.helper, which would override agent-id's credentials; unset GIT_CONFIG_PARAMETERS or remove that setting (agent-id doctor shows its source)` (#71: no inherited value, no subsection) |
 | a remote check's error from a later story | 125 | the check's message |
 | `ErrBinaryPath` | 125 | `cannot determine the path of the agent-id binary: <reason>` |
 | `ErrPlanUnsafe` | 125 | `internal error: activation plan contains a forbidden value in <variable>` (never the value) |
 | `ErrNeutralDir` (#68) | 125 | `<path>: <is a symlink \| is writable by group or others \| is owned by another user \| contains hosts.yml>; agent-id keeps this directory private and empty of credentials; <fix>` |
 | `ErrSSHRemote` (#68, O1) | 125 | `remote "origin" reaches github.com over SSH (<scp form \| ssh:// \| alias "<alias>">)<, through <rule key> from <scope> <file>>; the agent would use your SSH key; use an HTTPS remote (agent-id doctor shows details)` |
 | `ErrRemoteCredentials` (#68, D2) | 125 | `remote "origin" has a password in its URL; remove it (git remote set-url origin https://<host>/<owner>/<repo>.git)` (the URL is printed with the user-info replaced by `[redacted]`; `<host>` and `<owner>/<repo>` come from the remote, never a hard-coded host) |
-| `ErrRemoteHeader` (#68, D3) | 125 | `remote "origin" gets an extra HTTP header (<header name>) from <scope> <file> that agent-id cannot reset; remove that http.<url>.extraheader entry` |
+| `ErrRemoteHeader` (#68, D3) | 125 | `remote "origin" gets an extra HTTP header (<header name>) on <host> from <scope> <file> that agent-id cannot reset; remove that http.<url>.extraheader entry` |
 | `ErrRemoteHeader` (#100, unparsable pattern) | 125 | `an http.<url>.extraheader entry from <scope> <file> has a URL pattern that agent-id cannot parse as Git does, so Git may send its header to a Git host; remove that entry` |
 | `ErrSSHRewrite` (#68, O1) | 125 | `<rule key> from <scope> <file> rewrites https://<host>/ to SSH; the agent would use your SSH key for every clone; remove the rule or scope it to a repository` |
 | `ErrNetrc` (#68) | 125 | `<path> has credentials for <host> (or a default entry), which Git would send for the agent; move it aside while the agent runs` |
 | `ErrRemoteCheck` (#68) | 125 | `cannot check remote "origin" (<timeout \| ssh -G failed \| git failed>); refusing to start` |
-| `ErrCommandNotFound` | 127 | `"<command>": command not found` / `"<command>" resolves to a relative path through an empty or "." PATH entry; use ./<command>` |
-| `ErrCommandNotExecutable` | 126 | `"<command>": <permission denied \| exec format error>` |
+| `ErrCommandNotFound` | 127 | `"<command>": command not found` / `"<command>": interpreter or loader not found` (`ENOENT` from `execve` after a successful lookup, #77) / `"<command>" resolves to a relative path through an empty or "." PATH entry; use ./<command>` |
+| `ErrCommandNotExecutable` | 126 | `"<command>": <permission denied \| exec format error \| …the errno text of any other execve failure>` (never `ENOENT`, which is 127, #77) |
 
-Echoed values are cut to 64 characters with control characters replaced by `?`, as in the profile spec.
+Echoed values from the profile config are cut to 64 characters with control characters replaced by `?`, as in the profile spec. No inherited environment value, and no Git configuration value, is echoed (#71; names and paths per the rule above).
 
 `LookPath(env)` follows Go's `exec.LookPath` semantics on the child's `PATH`: a name with `/` is used as given (126 when it exists but cannot be executed, 127 when it does not exist); otherwise each `PATH` element is tried in order, non-executable files and directories are skipped, and no match is 127. A match through a relative element (empty, `.`, or any path not starting with `/`) is a relative path and is refused (127, as Go's `exec.ErrDot`), so a command never runs from the current directory by accident.
 
@@ -476,10 +523,14 @@ Echoed values are cut to 64 characters with control characters replaced by `?`, 
 | Ctrl-C in an interactive agent | Delivered once, to the agent only: agent-id is no longer running. |
 | The agent-id binary is removed or upgraded during a long session | Later helper or shim invocations fail closed (Git and `gh` report a failed helper); `AGENT_ID_BIN` prefers the stable symlink to make this rare. |
 | `exec` on Windows | Not supported (brief §8); only the `Execer` is built for darwin and linux, and elsewhere `exec` fails with 125. |
+| The parent holds `GH_TOKEN` twice, or an entry `GH_TOKEN` without `=` (#72) | The entry without `=` is discarded; the duplicates collapse to the last value, and a dropped name is dropped in every occurrence. The child has one `GH_TOKEN`, the decoy. |
+| Inherited `GIT_CONFIG_COUNT=0` or empty (#69) | Treated as base 0 and rewritten to the canonical count, so an `exec` inside an `exec` gives the same environment as one `exec`. |
+| Nested exec with a different agent-id binary or a refreshed plan (#70) | The previous shim directories and `Set` names are removed using the recorded lists; the new plan's are applied. |
+| A script whose shebang interpreter is missing (#77) | 127 `interpreter or loader not found`. |
 
 ## 📝 Risks & Impact Review
 
-- **Contract.** The variable names, the contract version `1`, the exit codes 125–127, and the append rule are consumed by `env` (#26), `whoami`/`doctor` (#24), the Claude Code hook, and user scripts. A later change needs `AGENT_ID_CONTEXT=2` and a re-entry rule for version 1. This is the "environment that `exec` and `env` emit" of `AGENTS.md` (Ask first): the owner's sign-off on this spec is that confirmation.
+- **Contract.** The variable names, the contract version `1`, the exit codes 125–127, and the append rule are consumed by `env` (#26), `whoami`/`doctor` (#24), the Claude Code hook, and user scripts. A later change needs `AGENT_ID_CONTEXT=2` and a re-entry rule for version 1. This is the "environment that `exec` and `env` emit" of `AGENTS.md` (Ask first): the owner's confirmation is **pending** (#76, OQ5; #86 merged without it). The spec records no sign-off of contract v1 (variable names, version `1`, exit codes 125–127, the append rule and the always-written count, the #68 and #70 amendments); the decisions so far were taken under delegation, and merging this spec is not that confirmation. the follow-up code of #69–#72 and the first release wait for the answer.
 - **Intermediate state on `main`** (amended by #68). Between #20 and #21–#23, a command started by `exec` cannot reach the developer's credentials through Git or `gh` on the supported paths: Git has no helper, no prompt, no personal header and no `.netrc` credentials for the provider, no SSH remote or rewrite to SSH; `gh` has a decoy token and an empty configuration. The documented bypasses (Not covered, above) remain, as everywhere in local mode. The guarantee is the enforced invariant of the neutral credential baseline, tested by #25, not a release rule. An earlier version of this spec relied on the prose rule "no release may contain `exec` before #21, #22, and #23", which the post-merge review of #48 (F1) classed as a fail-open blocker.
 - **Generic helper reset** (#68, decision 1). Inside the agent context the developer's credential helpers for every host are off, not only the provider's. This is deliberate: the reset is the fail-closed baseline. The agent's access to other hosts is outside the MVP (brief §8).
 - **Not a security boundary** (brief §10). The agent can unset the markers, call another binary, or start a shell that rewrites the environment; `exec` controls only what it starts. The spec claims nothing more.
@@ -496,7 +547,7 @@ Echoed values are cut to 64 characters with control characters replaced by `?`, 
 
 ## Open Questions (owner) — recommendations applied
 
-These change product behavior, not the design's structure. The spec applies the recommendation; each is reversible before the first release and does not block the spec. The implementation of the affected step waits for an answer only if the owner disagrees.
+These change product behavior, not the design's structure. The spec applies the recommendation (except OQ5, a governance record that only the owner can give); each is reversible before the first release and does not block the spec. The implementation of the affected step waits for an answer only if the owner disagrees.
 
 | # | Question | Recommendation (applied) | Why | Confirm? |
 |---|---|---|---|---|
@@ -504,6 +555,7 @@ These change product behavior, not the design's structure. The spec applies the 
 | OQ2 | Should `exec` resolve a missing bot identity over the network on start, instead of refusing? | **No, refuse** with the adapter's `setup` hint. | The profile spec proposed this; no network on start (OQ1); a silent resolution would hide a half-configured profile. | owner, non-blocking |
 | OQ3 | Should `exec` also remove inherited variables that are not the CLI's credential variables but commonly hold a personal GitHub token (`HOMEBREW_GITHUB_API_TOKEN`, `GITHUB_PERSONAL_ACCESS_TOKEN` of the GitHub MCP server, …)? | **No in the MVP:** remove only the provider's CLI credential variables; `doctor` reports every inherited value with a registered token prefix (#24). | The drop list stays a provider contract with a test; an open-ended name list would be incomplete anyway, and removing variables other tools rely on changes their behavior; local mode is not a sandbox (brief §10). | owner, non-blocking (security model) |
 | OQ4 | (#68) How is the unkeyed keychain lookup of a `gh` started by absolute path closed? | **Resolved: a non-secret decoy `GH_TOKEN` (and `GH_ENTERPRISE_TOKEN`) from the provider's `NeutralCLI`**, plus the stub for a clear message. | The owner's Definition of Done for #20 (13.11) requires that the child cannot reach the keychain entry `gh:github.com`; the stub alone does not meet it (the independent review of #80, M3). This narrows decision 4 of #68: no *developer or bot* token is in the environment until #23, only a fixed decoy. | owner approve on #80 |
+| OQ5 | (#76) Do you sign off environment contract v1: the variable names including the two added by #70, version `1`, exit codes 125–127, the append rule with the always-written `GIT_CONFIG_COUNT`, and the #68 amendment? | **Yes, confirm it in a comment on #20 or on this spec PR, and make it a condition of the first release**: #86 already implements the contract (merged), so the follow-up code that adds the #69–#72 changes is the last cheap moment to change it. | `AGENTS.md` (Ask first) puts the environment that `exec` and `env` emit under the owner's confirmation. Changes are cheap before the first release; after it they need `AGENT_ID_CONTEXT=2` and a re-entry rule for version 1. | **owner, blocking for the first release and for the follow-up code of #69–#72** (not applied: this spec states that the sign-off is pending) |
 
 ## Resolved assumptions (autonomous defaults)
 
@@ -513,7 +565,7 @@ Technical decisions taken by this spec, recorded for override:
 |---|---|---|---|---|
 | A1 | How does `exec` run the command? | `execve`; no supervising parent. | Exit status and signals are the command's by construction; no double `SIGINT`. | reversible |
 | A2 | Exit codes of agent-id's own failures? | 125 / 126 / 127 (`env(1)` convention). | Unambiguous next to the command's own codes. | reversible before the first release |
-| A3 | Context variable names? | `AGENT_ID_CONTEXT=1`, `AGENT_ID_ACTIVE_PROFILE`, `AGENT_ID_MECHANISM`, `AGENT_ID_BIN`, `AGENT_ID_GIT_CONFIG_BASE`, `AGENT_ID_GIT_CONFIG_END`. | `AGENT_ID_` prefix (#6); distinct from the reserved selection name `AGENT_ID_PROFILE`. | reversible before the first release |
+| A3 | Context variable names? | `AGENT_ID_CONTEXT=1`, `AGENT_ID_ACTIVE_PROFILE`, `AGENT_ID_MECHANISM`, `AGENT_ID_BIN`, `AGENT_ID_GIT_CONFIG_BASE`, `AGENT_ID_GIT_CONFIG_END`, `AGENT_ID_PATH_PREPEND`, `AGENT_ID_SET_NAMES` (#70). | `AGENT_ID_` prefix (#6); distinct from the reserved selection name `AGENT_ID_PROFILE`. | reversible before the first release |
 | A4 | Same-profile nesting? | Deterministic rebuild after removing the previous contribution. | Idempotent; picks up a refreshed profile; refuses a context whose Git entries changed; no duplicates (#26). | reversible |
 | A5 | Who appends `GIT_CONFIG_*` entries? | `internal/activation`, from plan data of #21/#22. | One composition rule; enables re-entry and `doctor` D6. | reversible |
 | A6 | Where do O1, O2, G2–G4, D2 and D3 live? | `internal/activation`. O2 and G2–G4 are pure checks of the inherited environment. O1, D2 and D3 are remote checks with the child environment, in #20 (amended by #68; O1 was planned for #22). | O1 must hold from the first merge (#68). D2 and D3 close the same invariant with the same remote listing. | decided (#68) |
@@ -523,7 +575,7 @@ Technical decisions taken by this spec, recorded for override:
 ## 📋 Phasing
 
 - **Phase 1 — pure core (`internal/activation`).** Context reading, nesting decision, inherited Git checks, builder, binary path, `LookPath`. Independently shippable and fully unit-tested; no command yet. Needs nothing beyond the repository.
-- **Phase 2 — the `exec` slice.** Command, handler, exit-code mapping, process tests. Needs #17 (profile store) and #15 (the GitHub adapter supplies the drop list and readiness); handler tests use `providertest.Fake` until then.
+- **Phase 2 — the `exec` slice.** Command, handler, exit-code mapping, process tests. Needs #17 (profile store) and #15 (the GitHub adapter supplies the drop list and readiness); handler tests use the fake `Activator` of `providertest` until then.
 - **Phase 3 — record.** `ARCHITECTURE.md` and the capability archive.
 
 ## 📋 Implementation Plan
@@ -533,16 +585,22 @@ Every test calls `testenv.Isolate(t)` first. `risk-high` evidence per `SDLC.md`:
 ### Phase 1 — `internal/activation`
 
 1. **Contract.** Package `internal/activation` with its `AGENTS.md` (invariants: pure functions; the only owner of the child environment; never a token in the environment; no forge names), the types and sentinels above, and a row in the root `AGENTS.md` task routing. Test: the package builds; sentinels are distinct.
-2. **Read the context and decide.** `ReadContext`, `Decide`. Table: no context; stray `AGENT_ID_*` without `AGENT_ID_CONTEXT`; same profile; different profile; `AGENT_ID_CONTEXT=2`, empty, `1 `; missing or invalid `AGENT_ID_ACTIVE_PROFILE` (uppercase, metacharacters, 33 characters); base not an integer, negative, or greater than the count.
-3. **Inherited Git configuration.** `CheckInheritedGit`, `ParseGitConfigParameters`. Tables: G2–G4 and the analysis's malformed counts (`x`, `-1`, `1001`, `2 `, `0x2`); every forbidden section in mixed case; `credential.https://user:tok@github.com.helper` (the message must not contain `user`, `tok`, or the URL); `include.path` and `includeIf.gitdir:/x/.path` (forbidden); `push.gpgSign`; old and new quoting; a bare key without `=`; `'\''` and `'\!'` escapes (`alias.x=!cmd` is harmless and kept); an unterminated quote; `GIT_CONFIG_COUNT=` (empty, accepted as 0); harmless keys kept.
-4. **Build.** `Build` with the five steps and four properties. Tables with hostile parents: inherited `GH_TOKEN`/`GITHUB_TOKEN` (fake), an inherited count of 2 with entries, stray `GIT_CONFIG_KEY_5`, `PATH` already containing a prepend directory twice, an empty `PATH`. Base and end markers are always set, also with an empty `Plan.GitConfig`. Re-entry tables: count equal to end (truncate), count unset (R8 → `ErrContextInvalid`), count greater than end (another tool appended → `ErrContextInvalid`, nothing dropped). Property test over generated parents and plans: idempotence and append-only. Secret guard: `testenv.FakeToken`, `-----BEGIN`, a JWT shape, a newline in `Set`, `GitConfig`, `PathPrepend` → `ErrPlanUnsafe` without the value in the error.
+2. **Read the context and decide.** `ReadContext`, `Decide`. Table: no context; stray `AGENT_ID_*` without `AGENT_ID_CONTEXT`; same profile; different profile; `AGENT_ID_CONTEXT=2`, empty, `1 `; missing or invalid `AGENT_ID_ACTIVE_PROFILE` (uppercase, metacharacters, 33 characters); base not an integer, negative, or greater than the count; `AGENT_ID_PATH_PREPEND`/`AGENT_ID_SET_NAMES` missing, empty (accepted as the empty list), with a relative directory, a duplicate entry, an unsorted or badly named list (#70).
+3. **Inherited Git configuration.** `CheckInheritedGit`, `ParseGitConfigParameters`. Tables: G2–G4 and the analysis's malformed counts (`x`, `-1`, `1001`, `2 `, `0x2`); every forbidden section in mixed case; `credential.https://user:tok@github.com.helper` (the message must not contain `user`, `tok`, or the URL); `include.path` and `includeIf.gitdir:/x/.path` (forbidden); `push.gpgSign`; old and new quoting; a bare key without `=`; `'\''` and `'\!'` escapes (`alias.x=!cmd` is harmless and kept); an unterminated quote; `GIT_CONFIG_COUNT=` (empty, accepted as 0); harmless keys kept; a `GIT_CONFIG_COUNT` that is token-shaped (`testenv.FakeToken`, `github_pat_…`) → the error names only the variable and shares no substring of 8 or more characters with the value (#71); duplicate `GIT_CONFIG_COUNT` entries (the last one is checked, #72).
+4. **Build.** `Build` with its steps 0–5 and its properties (idempotent, changed-plan, unique names, append-only, order-stable, secret-free). Tables with hostile parents: inherited `GH_TOKEN`/`GITHUB_TOKEN` (fake), an inherited count of 2 with entries, stray `GIT_CONFIG_KEY_5`, `PATH` already containing a prepend directory twice, an empty `PATH`. Base and end markers are always set, also with an empty `Plan.GitConfig`. Re-entry tables: count equal to end (truncate), count unset (R8 → `ErrContextInvalid`), count greater than end (another tool appended → `ErrContextInvalid`, nothing dropped). Property test over generated parents and plans: idempotence and append-only. Secret guard: `testenv.FakeToken`, `-----BEGIN`, a JWT shape, a newline in `Set`, `GitConfig`, `PathPrepend` → `ErrPlanUnsafe` without the value in the error; a `Set` name `PATH`, `AGENT_ID_X`, `GIT_CONFIG_COUNT` or `a b`, and a relative or colon-containing `PathPrepend` element → `ErrPlanUnsafe` (#70).
+   Hostile-input rows added by the follow-up (#69, #70, #72, #73):
+   - Duplicates (#72): `GH_TOKEN` twice (personal first, personal last, and decoy-shaped last), `GITHUB_TOKEN` three times, `GIT_CONFIG_COUNT` twice with different values, an `AGENT_ID_CONTEXT` twice, entries without `=` (`GH_TOKEN`, an empty string) and `=x`. Expected: one value per name, none of the dropped names survives in any occurrence, and the checks (`ReadContext`, `CheckInheritedGit`) see the same last value as `Build`.
+   - Inherited count `0`, empty, and unset, each with an empty and a non-empty `Plan.GitConfig`, fresh and re-entry, for idempotence (#69).
+   - Re-entry with a changed `AGENT_ID_BIN`, a changed `PathPrepend`, a changed `Set` name set, and a damaged recorded list (relative directory, bad name, missing variable) (#70).
+   - The "Git entries changed" check (#73) with a non-empty plan (an unset count and an appended entry are refused), and, as a documented case, the vacuous state (unset count, `BASE == END == 0`: accepted).
+   - Property tests: idempotence, changed-plan re-entry, unique names, append-only.
 5. **Binary path and lookup.** `ResolveBinary` with a symlinked binary in a temporary directory, a relative `os.Args[0]`, a path with a newline; `LookPath(env)` using the child's `PATH`, not the parent's.
 
 ### Phase 2 — `internal/activation/exec`
 
-6. **Slice.** `contract.go`, `handler.go` (`activation.Activate(ctx, deps, Request{…})`: read context → validate the name and decide → resolve → ready → inherited Git → neutral directories → build → remote checks; then look up → `Execer.Exec`), `command.go` (`SetInterspersed(false)`, `SetFlagErrorFunc`, `--profile` checked in the handler). Handler tests with a fake profile resolver, `providertest.Fake` extended with the drop list and readiness, a fake remote check and a fake neutral-directory port, and a recording `Execer`: every row of the Errors table (including an unknown flag and a missing `--profile` → 125), an empty drop list → `ErrPlanUnsafe`, the order of checks (nesting before readiness before inherited Git before the neutral directories before the remote checks), and that the recorded environment equals `Build`'s output.
-7. **Composition root** (after #15 and #17). Register the slice; build `activation.Deps` with the GitHub adapter; add `CredentialVariables` and `Ready` to `provider.Provider`, `providertest.Fake`, `providertest.RunContract`, and `githubtest.App.Provider`; add the exit-code error type and map it in `run`; the default for other commands stays 1. Tests: `run` returns 125/126/127 for the slice's errors and 1 for others; with the production registry, a fake inherited `GH_TOKEN` value is not in the environment that `Activate` returns (`GH_TOKEN` equals the provider's decoy, #68).
-8. **Process tests.** Build `agent-id` with `testenv.BuildBinary`; the package's `TestMain` calls `testenv.Main`, which fails the run if the developer's Git or `gh` configuration changed; write a fixture config with a fake App and a cached identity. Cases: `exit 7` → 7; SIGTERM with a trap, sent only after the command created its readiness file → 42; SIGKILL → killed by signal; parent environment unchanged, and the isolated `HOME` tree unchanged (hash before and after) except agent-id's own `<cache>/agent-id/<provider>/` directories; no fake `GH_TOKEN`/`GITHUB_TOKEN` value in the command (`GITHUB_TOKEN` absent, `GH_TOKEN` the decoy, #68); nested same profile prints an identical environment; nested different profile → 125; `does-not-exist` → 127; profile without identity → 125 with the fake GitHub recording zero requests. Scan stdout and stderr of every case for `ghs_`, `-----BEGIN`, and a JWT shape. These tests skip on platforms other than darwin and linux.
+6. **Slice.** `contract.go`, `handler.go` (`activation.Activate(ctx, deps, Request{…})`: read context → validate the name and decide → resolve → ready → inherited Git → neutral directories → build → remote checks; then look up → `Execer.Exec`), `command.go` (`SetInterspersed(false)`, `SetFlagErrorFunc`, `--profile` checked in the handler). Handler tests with a fake profile resolver, a fake `provider.Activator` from `providertest` (drop list, readiness), a fake remote check and a fake neutral-directory port, and a recording `Execer`: every row of the Errors table (including an unknown flag and a missing `--profile` → 125), an empty drop list → `ErrPlanUnsafe`, a script with a missing interpreter → 127 and `execve` `EACCES` → 126 (#77), the order of checks (nesting before readiness before inherited Git before the neutral directories before the remote checks), and that the recorded environment equals `Build`'s output.
+7. **Composition root** (after #15 and #17). Register the slice; build `activation.Deps` with the GitHub adapter; add the key-free `provider.Activator` port with `CredentialVariables` (including `GH_HOST`), `Ready`, `GitHosts`, `NeutralCLI` and `TokenPrefixes`, its contract suite and fake in `providertest`, and `githubtest` support (#75; `provider.Provider` stays unchanged); add the exit-code error type and map it in `run`; the default for other commands stays 1. Tests: `run` returns 125/126/127 for the slice's errors and 1 for others; with the production registry, a fake inherited `GH_TOKEN` value is not in the environment that `Activate` returns (`GH_TOKEN` equals the provider's decoy, #68).
+8. **Process tests.** Build `agent-id` with `testenv.BuildBinary`; the package's `TestMain` calls `testenv.Main`, which fails the run if the developer's Git or `gh` configuration changed; write a fixture config with a fake App and a cached identity. Cases: `exit 7` → 7; SIGTERM with a trap, sent only after the command created its readiness file → 42; SIGKILL → killed by signal; parent environment unchanged, and the isolated `HOME` tree unchanged (hash before and after) except agent-id's own `<cache>/agent-id/<provider>/` directories; no fake `GH_TOKEN`/`GITHUB_TOKEN` value in the command (`GITHUB_TOKEN` absent, `GH_TOKEN` the decoy, #68); nested same profile prints an identical environment; nested different profile → 125; `GIT_CONFIG_COUNT` removed by `env -u` while the markers survive, then a nested exec → 125 (#73: it runs against the baseline's non-empty `GitConfig`, so it can fail; it is this scenario's process test); duplicate-name parent through the real `execve` envp (#72); `does-not-exist` → 127; a script with a missing interpreter → 127 (#77); profile without identity → 125 with the fake GitHub recording zero requests. Scan stdout and stderr of every case for `ghs_`, `-----BEGIN`, and a JWT shape. These tests skip on platforms other than darwin and linux.
 8a. **Fail-closed baseline (#68), in the #25 suite.** Process tests with decoys that record any use:
    - a fake personal `credential.helper` in the isolated global and system config, and a host-scoped one;
    - fake `GIT_ASKPASS`, `SSH_ASKPASS` and `core.askPass`;
@@ -560,7 +618,7 @@ Every test calls `testenv.Isolate(t)` first. `risk-high` evidence per `SDLC.md`:
    - a personal `insteadOf` to SSH;
    - an SSH `pushurl`.
 
-   The D2 and D3 cases give 125, and the message does not contain the secret.
+   The D2 and D3 cases give 125, and the message does not contain the secret. Wildcard header patterns (#87): `*.github.com`, `gist.*.com` and `*.github.*` are each checked against the installed Git's own matching (`git config --get-urlmatch http https://github.com/o/r.git` is the test oracle, never the decision): a pattern that Git applies to a provider host is refused with that host in the message, and one that it does not apply is not.
 
    The neutral directory cases give 125: a symlink, a group-writable directory, a `hosts.yml` present, a stub that is a symlink or has different content (rewritten), and a missing parent (created `0700`).
 
@@ -599,4 +657,4 @@ The test passes without #21–#23 and stays required after they land.
 
 ### Phase 3 — record
 
-9. **Architecture and archive.** Add a Key decisions row to `ARCHITECTURE.md` (the child environment contract v1, `execve`, exit codes 125–127, the neutral credential baseline of #68, and O1 in #20; source this spec, #20 and #68) and the `exec` exit codes to Cross-cutting concerns; archive the Delta into `.ai/specs/capabilities/exec.md`.
+9. **Architecture and archive.** The Key decisions row for `exec` and the exit codes already exist on `main` (#86). Amend the row when the follow-up code lands, with the two context variables of #70, the always-written `GIT_CONFIG_COUNT` (#69), `GH_HOST` in the drop list (#75) and exit 127 for `ENOENT` (#77); archive the Delta into `.ai/specs/capabilities/exec.md`. The O1–O4 row and the Git integration bullet of `ARCHITECTURE.md` already record the full O2 refused set (the `credential`, `url`, `http`, `gpg`, `include` and `includeif` sections, plus `commit.gpgsign`, `tag.gpgsign`, `tag.forcesignannotated`, `push.gpgsign`, `user.signingkey` and `core.askpass`), updated with the #74 amendment; any later change keeps both in step with this spec (#74).
