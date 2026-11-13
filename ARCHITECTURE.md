@@ -39,7 +39,7 @@ cmd/agent-id/              composition root: build adapters, wire slices, run   
 internal/
   testenv/                 test isolation: temporary HOME/XDG/Git/gh config, network guard, fake host API, HTTPS Git server, bare repositories (exists)
   profile/                 module: profile config (non-secret metadata, key references) (planned)
-  credential/              module: private key sources: protected file; keyring OPEN     (planned)
+  credential/              module: private key sources: protected file; keyring OPEN     (exists, #16)
   provider/                code-host boundary (ADR #35): Provider interface, provider errors (exists, provisional)
     providertest/          provider contract (RunContract) and a provider-neutral Fake for core tests (exists)
     github/                adapter: GitHub App JWT, installation tokens, bot identity, gh  (planned, #15)
@@ -63,7 +63,7 @@ internal/
 | Provider contract | `internal/provider/providertest` | `RunContract`, which every provider passes, and `Fake`, the provider that core tests use. Test files only. | `provider`, `testenv` |
 | Fake GitHub App | `internal/provider/github/githubtest` | The App, installation-token, installation-repository, and bot-user endpoints with a per-test key and controllable expiry and failures; `App.Provider` puts it behind `provider.Provider`. Tests of the GitHub adapter only. | `provider`, `testenv` |
 | Profile store | `internal/profile` | Persist non-secret metadata and references to securely stored credentials; resolve the active profile. | `kernel` |
-| Credential source | `internal/credential` | Load the App private key from its reference; check file permissions; keyring backend behind an interface. Receives a `profile.KeyRef`; never parses the config and never knows the provider. | `profile`, `kernel` |
+| Credential source | `internal/credential` | Load the App private key from its reference; check file permissions; keyring backend behind an interface. Receives a `profile.KeyRef`; never parses the config and never knows the provider. Exists with the file source (`credential.File`, #16); until #17 adds `profile.KeyRef` it takes the path of a `file:` reference and imports no other module. | `profile`, `kernel` |
 | Provider interface | `internal/provider` | The port through which the core reaches a Git forge: authentication and tokens, bot identity, per-host credential helper data, CLI integration, host and URL mapping (see Provider abstraction). Defines no forge-specific type. Exists as v0, an internal interface that may still change: #15 settles its final shape and #22 adds the SSH→HTTPS mapping. | `kernel` |
 | GitHub adapter | `internal/provider/github` | Implements the provider interface for GitHub.com: sign the App JWT, mint installation tokens, resolve the bot login, numeric id and noreply email, validate repository access, describe `gh`, decode and validate the `github` block of a profile (#9). The only package with GitHub-specific code. | `provider`, `profile`, `kernel` |
 | Token manager | `internal/token` | Cache tokens with restrictive permissions, atomic writes and a cross-process lock; refresh ahead of expiry; never expose a token. | `provider`, `kernel` |
@@ -124,6 +124,7 @@ The GitHub values below come from the GitHub adapter's identity, credential help
 - Configuration: only `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n`, appended after any inherited entries so that inherited process-scoped configuration is preserved or handled explicitly, never replaced blindly.
 - Credentials: an empty `credential.helper` entry resets inherited helpers for `https://github.com`, then the agent-id helper; `credential.useHttpPath` where repository scope matters. The helper answers only for `protocol=https` and the profile's host, and refuses any other host, look-alike host, or protocol (fail closed).
 - Transport: GitHub SSH remotes (`git@github.com:`, `ssh://git@github.com/`) are rewritten to HTTPS inside the context; push URLs and `http.extraHeader` are checked by `doctor`.
+- Supported paths and documented bypasses (decisions O1–O4, Key decisions): `exec` refuses to start while a GitHub remote still resolves to SSH after the rewrites (O1) or while an inherited `GIT_CONFIG_PARAMETERS` carries `credential`, `url`, `http`, or signing keys (O2; the exec spec of #20 also refuses `include.*` and `includeIf.*` keys; otherwise the variable is kept and `doctor` reports it); the SSH fallback after a personal rewrite is documented and detected by `doctor` (O3; a `GIT_SSH_COMMAND` shim is Phase 3, #4); Git 2.43 is the minimum supported version (O4).
 - Signing: inherited personal commit and tag signing is turned off in agent mode unless an explicit agent signing configuration exists. Commit metadata is attribution, not proof of origin.
 
 ## GitHub CLI integration (brief §9.3)

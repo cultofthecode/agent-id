@@ -269,7 +269,7 @@ Starting from the parent environment, in this order:
    | Variable | Value | Consumers |
    |---|---|---|
    | `AGENT_ID_CONTEXT` | `1` (the contract version). Its presence means agent mode. | nested `exec`/`env`, `whoami`, `doctor` |
-   | `AGENT_ID_ACTIVE_PROFILE` | the profile name (`^[a-z][a-z0-9-]{0,31}$`, shell-safe) | nested `exec`/`env`, `whoami`, `doctor` |
+   | `AGENT_ID_ACTIVE_PROFILE` | the profile name (`^[a-z](?:[a-z0-9-]{0,30}[a-z0-9])?$`, the profile-config rule, shell-safe) | nested `exec`/`env`, `whoami`, `doctor` |
    | `AGENT_ID_MECHANISM` | `exec` or `env` | `whoami`, `doctor` |
    | `AGENT_ID_BIN` | absolute path of the agent-id binary | the credential helper entry (#22) and the `gh` shim (#23) |
    | `AGENT_ID_GIT_CONFIG_BASE` | the number of inherited `GIT_CONFIG_*` entries before agent-id's (an integer ≥ 0); always set | re-entry, `doctor` check D6 |

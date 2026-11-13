@@ -118,7 +118,7 @@ All members are required unless marked optional. Paths in error messages use dot
 | (top level, each profile) | — | Only the members listed here. A provider block's own members are checked by its adapter. | `ErrConfigInvalid` → `…: <path>: unknown member "<name>"` |
 | `version` | integer | Present; exactly `1`. A higher integer means a newer agent-id wrote the file. | `ErrUnsupportedVersion` → `…: version is missing` / `…: version <n> is newer than this agent-id supports (1); upgrade agent-id` / `…: version must be the integer 1` |
 | `profiles` | object | Present. May be empty. Keys are profile names. | `ErrConfigInvalid` → `…: profiles is missing` / `…: profiles must be an object` |
-| profile name (key) | string | `^[a-z][a-z0-9-]{0,31}$`: lowercase letter first, then lowercase letters, digits, or `-`; 1–32 characters. The name ends up in cache file names and in diagnostics. | `ErrConfigInvalid` → `…: profiles: invalid profile name "<name>": use 1–32 lowercase letters, digits or "-", starting with a letter` |
+| profile name (key) | string | `^[a-z](?:[a-z0-9-]{0,30}[a-z0-9])?$`: lowercase letter first, then lowercase letters, digits, or `-`, never `-` last; 1–32 characters. The name ends up in cache file names and in diagnostics. | `ErrConfigInvalid` → `…: profiles: invalid profile name "<name>": use 1–32 lowercase letters, digits or "-", starting with a letter and not ending with "-"` |
 | `profiles.<n>.provider` | string | Present; `^[a-z][a-z0-9-]{0,31}$`. Whether the value is supported is decided at resolve time (see Provider registry). | `ErrConfigInvalid` → `…: profiles.<n>.provider is missing` / `…: profiles.<n>.provider: invalid provider name` |
 | `profiles.<n>.host` | string | Present; a lowercase DNS host name: labels of `[a-z0-9-]` not starting or ending with `-`, at least two labels, at most 253 characters, no scheme, port, path, trailing dot, or whitespace. Which hosts a provider accepts is the adapter's rule. | `ErrUnsupportedHost` → `…: profiles.<n>.host: "<v>" is not a valid host name (lowercase, no scheme, port or path)` |
 | `profiles.<n>.<provider>` | object | Present, and named exactly as the value of `provider` (for `provider: github`, the member `github`). Its contents are opaque to core. | `ErrConfigInvalid` → `…: profiles.<n>: provider block "<provider>" is missing` |
@@ -373,6 +373,8 @@ Core packages depend on `internal/profile` and on the provider interface; only t
 | `"app_id": 1e6` or `123456.0` | `ErrConfigInvalid`: a number with exponent or fraction is not an integer here. |
 | Brief-style flat profile (`app_id` next to `provider`) | `ErrConfigInvalid`: unknown member `app_id` in the profile, and the provider block is missing. |
 | Profile name `Claude` or `my_bot` | `ErrConfigInvalid`: invalid profile name with the allowed pattern. |
+| Profile name `claude-` (trailing `-`), `-a` (leading `-`), or 33 characters long | `ErrConfigInvalid`: invalid profile name with the allowed pattern. |
+| Profile name `a--b` | Accepted: an inner `--` is allowed (#44). |
 | Profile of a provider this agent-id does not know | The file loads; that profile fails to resolve with `ErrUnsupportedProvider`; `doctor` lists it; writes keep it. |
 | Typo `"provider": "githb"` with a `github` block | `ErrConfigInvalid`: provider block `githb` is missing (and `github` is an unknown member). |
 | Two `setup` runs at once for different profiles | The lock serializes them; both profiles are kept. |
