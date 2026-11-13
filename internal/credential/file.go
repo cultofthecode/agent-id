@@ -1,7 +1,7 @@
 package credential
 
 import (
-	"crypto/rsa"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -32,9 +32,10 @@ type File struct {
 	Path string
 }
 
-// PrivateKey loads and parses the key. Errors name the path and the fix and
-// never contain key material.
-func (f File) PrivateKey() (*rsa.PrivateKey, error) {
+// PrivateKeyPEM loads the key file, checks it, parses the key, and returns a
+// copy of the file content; the read buffer is cleared. Errors name the path
+// and the fix and never contain key material.
+func (f File) PrivateKeyPEM() ([]byte, error) {
 	path, err := resolvePath(f.Path, os.Getenv("HOME"))
 	if err != nil {
 		return nil, err
@@ -44,11 +45,10 @@ func (f File) PrivateKey() (*rsa.PrivateKey, error) {
 		return nil, err
 	}
 	defer clear(data)
-	key, err := parsePrivateKey(data)
-	if err != nil {
+	if _, err := parsePrivateKey(data); err != nil {
 		return nil, fmt.Errorf("private key %s: %w", path, err)
 	}
-	return key, nil
+	return bytes.Clone(data), nil
 }
 
 func resolvePath(path, home string) (string, error) {

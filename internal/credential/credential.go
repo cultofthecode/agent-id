@@ -1,21 +1,21 @@
 // Package credential loads the private key that signs a profile's App
 // credentials. It knows no provider and never parses the profile config: it
-// receives a key reference and returns the parsed key, or an error that names
+// receives a key reference and returns the checked PEM bytes, or an error that names
 // the file and the fix and never contains key material.
 //
 // The only source is a protected file (File). A keyring backend is OPEN in
 // ARCHITECTURE.md and arrives later as another Source.
 package credential
 
-import (
-	"crypto/rsa"
-	"errors"
-)
+import "errors"
 
-// Source loads one private key. Every implementation fails closed: on any
-// doubt it returns an error and no key.
+// Source loads one private key. PrivateKeyPEM returns the PEM bytes of exactly
+// one unencrypted RSA key that has already been parsed and checked; the caller
+// owns the slice and clears it once the key is parsed (the GitHub adapter's
+// New takes these bytes, github-provider-adapter spec). Every implementation
+// fails closed: on any doubt it returns an error and no bytes.
 type Source interface {
-	PrivateKey() (*rsa.PrivateKey, error)
+	PrivateKeyPEM() ([]byte, error)
 }
 
 var (

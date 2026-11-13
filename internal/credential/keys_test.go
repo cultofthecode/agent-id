@@ -85,3 +85,12 @@ func assertKeyMatches(t *testing.T, key *rsa.PrivateKey) {
 		t.Fatal("loaded key does not match the generated test key")
 	}
 }
+
+func assertPEMMatches(t *testing.T, data []byte) {
+	t.Helper()
+	key, err := parsePrivateKey(data)
+	if err != nil {
+		t.Fatalf("returned PEM does not parse: %v", err)
+	}
+	assertKeyMatches(t, key)
+}

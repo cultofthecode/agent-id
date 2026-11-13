@@ -1,7 +1,6 @@
 package credential
 
 import (
-	"crypto/rsa"
 	"errors"
 	"io/fs"
 	"os"
@@ -48,11 +47,11 @@ func TestFileLoadsProtectedKey(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(env.Home, "keys", name)
 			writeKey(t, path, tc.data(t), tc.mode)
-			key, err := File{Path: path}.PrivateKey()
+			key, err := File{Path: path}.PrivateKeyPEM()
 			if err != nil {
 				t.Fatalf("PrivateKey: %v", err)
 			}
-			assertKeyMatches(t, key)
+			assertPEMMatches(t, key)
 		})
 	}
 }
@@ -60,11 +59,11 @@ func TestFileLoadsProtectedKey(t *testing.T) {
 func TestFileExpandsHome(t *testing.T) {
 	env := testenv.Isolate(t)
 	writeKey(t, filepath.Join(env.Home, ".config", "agent-id", "keys", "app.pem"), pkcs1PEM(t), 0o600)
-	key, err := File{Path: "~/.config/agent-id/keys/app.pem"}.PrivateKey()
+	key, err := File{Path: "~/.config/agent-id/keys/app.pem"}.PrivateKeyPEM()
 	if err != nil {
 		t.Fatalf("PrivateKey: %v", err)
 	}
-	assertKeyMatches(t, key)
+	assertPEMMatches(t, key)
 }
 
 func TestFileFollowsSymlinkToProtectedKey(t *testing.T) {
@@ -75,18 +74,18 @@ func TestFileFollowsSymlinkToProtectedKey(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
-	key, err := File{Path: link}.PrivateKey()
+	key, err := File{Path: link}.PrivateKeyPEM()
 	if err != nil {
 		t.Fatalf("PrivateKey: %v", err)
 	}
-	assertKeyMatches(t, key)
+	assertPEMMatches(t, key)
 }
 
 func TestFileRejectsWorldReadableKey(t *testing.T) {
 	env := testenv.Isolate(t)
 	path := filepath.Join(env.Home, "app.pem")
 	writeKey(t, path, pkcs1PEM(t), 0o644)
-	key, err := File{Path: path}.PrivateKey()
+	key, err := File{Path: path}.PrivateKeyPEM()
 	assertRejected(t, key, err, ErrInsecureKeyFile, "private key "+path+":", "mode 0644", "run chmod 600 "+path)
 }
 
@@ -102,7 +101,7 @@ func TestFileRejectsSymlinkToWorldReadableKey(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
-	key, err := File{Path: link}.PrivateKey()
+	key, err := File{Path: link}.PrivateKeyPEM()
 	assertRejected(t, key, err, ErrInsecureKeyFile, "private key "+link+" (symlink to "+resolved+")", "run chmod 600 "+resolved)
 }
 
@@ -118,7 +117,7 @@ func TestFileRejectsChainedSymlinkToWorldReadableKey(t *testing.T) {
 	if err := os.Symlink(middle, link); err != nil {
 		t.Fatal(err)
 	}
-	key, err := File{Path: link}.PrivateKey()
+	key, err := File{Path: link}.PrivateKeyPEM()
 	assertRejected(t, key, err, ErrInsecureKeyFile, "mode 0604")
 }
 
@@ -130,7 +129,7 @@ func TestFileRejectsMissingKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{missing, dangling} {
-		key, err := File{Path: path}.PrivateKey()
+		key, err := File{Path: path}.PrivateKeyPEM()
 		assertRejected(t, key, err, ErrKeyNotFound, "private key "+path, "mode 0600")
 	}
 }
@@ -159,7 +158,7 @@ func TestFileRejectsUnreadableKey(t *testing.T) {
 	path := filepath.Join(env.Home, "app.pem")
 	writeKey(t, path, pkcs1PEM(t), 0)
 	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
-	key, err := File{Path: path}.PrivateKey()
+	key, err := File{Path: path}.PrivateKeyPEM()
 	assertRejected(t, key, err, ErrKeyUnreadable, "private key "+path)
 }
 
@@ -179,7 +178,7 @@ func TestFileRejectsInvalidContent(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(env.Home, name)
 			writeKey(t, path, tc.data, 0o600)
-			key, err := File{Path: path}.PrivateKey()
+			key, err := File{Path: path}.PrivateKeyPEM()
 			assertRejected(t, key, err, ErrInvalidKey, "private key "+path+":", tc.want)
 		})
 	}
@@ -190,11 +189,11 @@ func TestFileRejectsInvalidReference(t *testing.T) {
 	writeKey(t, filepath.Join(env.Home, "app.pem"), pkcs1PEM(t), 0o600)
 	t.Chdir(env.Home)
 	for _, path := range []string{"", "app.pem", "./app.pem", "~", "~/", "~root/app.pem"} {
-		key, err := File{Path: path}.PrivateKey()
+		key, err := File{Path: path}.PrivateKeyPEM()
 		assertRejected(t, key, err, ErrInvalidReference)
 	}
 	t.Setenv("HOME", "")
-	key, err := File{Path: "~/app.pem"}.PrivateKey()
+	key, err := File{Path: "~/app.pem"}.PrivateKeyPEM()
 	assertRejected(t, key, err, ErrInvalidReference, "HOME is not set")
 }
 
@@ -203,7 +202,7 @@ func TestFileNeverCopiesTheKey(t *testing.T) {
 	path := filepath.Join(env.Home, "app.pem")
 	writeKey(t, path, pkcs1PEM(t), 0o600)
 	before := listTree(t, env.Root)
-	if _, err := (File{Path: path}).PrivateKey(); err != nil {
+	if _, err := (File{Path: path}).PrivateKeyPEM(); err != nil {
 		t.Fatalf("PrivateKey: %v", err)
 	}
 	if after := listTree(t, env.Root); strings.Join(after, "\n") != strings.Join(before, "\n") {
@@ -211,15 +210,15 @@ func TestFileNeverCopiesTheKey(t *testing.T) {
 	}
 }
 
-func loadWithin(t *testing.T, path string, limit time.Duration) (*rsa.PrivateKey, error) {
+func loadWithin(t *testing.T, path string, limit time.Duration) ([]byte, error) {
 	t.Helper()
 	type result struct {
-		key *rsa.PrivateKey
+		key []byte
 		err error
 	}
 	done := make(chan result, 1)
 	go func() {
-		key, err := File{Path: path}.PrivateKey()
+		key, err := File{Path: path}.PrivateKeyPEM()
 		done <- result{key, err}
 	}()
 	select {
@@ -252,10 +251,10 @@ func listTree(t *testing.T, root string) []string {
 	return entries
 }
 
-func assertRejected(t *testing.T, key *rsa.PrivateKey, err error, sentinel error, want ...string) {
+func assertRejected(t *testing.T, key []byte, err error, sentinel error, want ...string) {
 	t.Helper()
 	if key != nil {
-		t.Fatal("a key was returned together with an error")
+		t.Fatal("key bytes were returned together with an error")
 	}
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("error = %v, want %v", err, sentinel)
