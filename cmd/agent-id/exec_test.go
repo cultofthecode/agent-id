@@ -368,6 +368,68 @@ func TestExecRefusals(t *testing.T) {
 	})
 }
 
+// TestExecRefusesHeaderPatternsGitApplies covers issue #100. Each global
+// configuration holds a header that Git sends to github.com, behind a pattern
+// that Go's URL parser reads differently from Git's urlmatch. exec must refuse
+// to start. internal/activation compares the matcher with real Git, and sends
+// the same shapes to a local listener.
+func TestExecRefusesHeaderPatternsGitApplies(t *testing.T) {
+	f := newExecFixture(t)
+	global := os.Getenv("GIT_CONFIG_GLOBAL")
+	section := func(pattern string, value string) string {
+		return "[http \"" + pattern + "\"]\n\textraheader = " + value + "\n"
+	}
+	refused := []struct {
+		name, config, want string
+	}{
+		{"reset with an encoded slash", section("https://github.com/org/sub/", "X-L: 1") + section("https://github.com/org%2Fsub/", ""), "extra HTTP header (X-L)"},
+		{"reset with a query", section("https://github.com/org/sub/", "X-L: 1") + section("https://github.com/org/sub?", ""), "extra HTTP header (X-L)"},
+		{"reset with a query after a slash", section("https://github.com/org/sub/", "X-L: 1") + section("https://github.com/org/sub/?x", ""), "extra HTTP header (X-L)"},
+		{"reset with a fragment", section("https://github.com/org/sub/", "X-L: 1") + section("https://github.com/org/sub#f", ""), "extra HTTP header (X-L)"},
+		{"wildcard reset with a query", section("https://*.github.com/x/", "X-L: 1") + section("https://*.github.com/x?", ""), "extra HTTP header (X-L)"},
+		{"tab in the path", section("https://github.com/org/a\tb/", "X-L: 1"), "extra HTTP header (X-L)"},
+		{"DEL in the path", section("https://github.com/org/a\x7fb/", "X-L: 1"), "extra HTTP header (X-L)"},
+		{"space in the user", section("https://us er@github.com/", "X-L: 1"), "extra HTTP header (X-L)"},
+		{"header on a host with a trailing dot", section("https://github.com./", "X-L: 1"), "extra HTTP header (X-L)"},
+		{"reset with two trailing dots", section("https://github.com/org/", "X-L: 1") + section("https://github.com../", ""), "extra HTTP header (X-L)"},
+		{"reset with an empty user", section("https://github.com/org/", "X-L: 1") + section("https://@github.com/org/", ""), "extra HTTP header (X-L)"},
+		{"reset with dot segments in a query", section("https://github.com/org/", "X-L: 1") + section("https://github.com/org/x?/../", ""), "extra HTTP header (X-L)"},
+		{"reset with one more slash", section("https://github.com/org/", "X-L: 1") + section("https://github.com/org//", ""), "extra HTTP header (X-L)"},
+		{"wildcard reset with one more slash", section("https://*.github.com/", "X-L: 1") + section("https://*.github.com//", ""), "extra HTTP header (X-L)"},
+		{"generic header, reset with the path //", "[http]\n\textraheader = X-L: 1\n" + section("https://*.github.com//", ""), "extra HTTP header (X-L)"},
+		{"pattern that cannot be parsed", section("https://github.com/a%zz/", "X-L: 1"), "cannot parse as Git does"},
+	}
+	for _, tt := range refused {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := os.WriteFile(global, []byte(tt.config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			r := f.run("exec", "--profile", "claude", "--", "true")
+			if r.code != 125 || !strings.Contains(r.stderr, tt.want) {
+				t.Errorf("code %d stderr %q, want 125 containing %q", r.code, r.stderr, tt.want)
+			}
+			if strings.Contains(r.stderr, "org") || strings.Contains(r.stderr, "us er") {
+				t.Errorf("the message names the URL: %q", r.stderr)
+			}
+		})
+	}
+	passed := []struct{ name, config string }{
+		{"a reset that Git normalizes to the path", section("https://github.com/org/sub/", "X-L: 1") + section("https://github.com/org/./sub", "")},
+		{"an unparsable reset", section("https://github.com/a%zz/", "")},
+		{"a header for another host", section("https://example.org/a%7Eb/", "X-L: 1")},
+	}
+	for _, tt := range passed {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := os.WriteFile(global, []byte(tt.config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if r := f.run("exec", "--profile", "claude", "--", "true"); r.code != 0 {
+				t.Errorf("code %d stderr %q", r.code, r.stderr)
+			}
+		})
+	}
+}
+
 func TestExecNeutralDirectories(t *testing.T) {
 	f := newExecFixture(t)
 	root := filepath.Join(f.env.CacheHome, "agent-id", "github")

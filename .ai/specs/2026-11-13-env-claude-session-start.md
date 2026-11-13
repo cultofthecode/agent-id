@@ -38,7 +38,7 @@ Claude Code runs the file's contents before every Bash command, so each command 
    - It opens no network connection. Like `exec`, it may create agent-id's own neutral directories under `<cache>/agent-id/<provider>/` (amended by #68, see the exec spec); it writes nothing else.
 2. **`agent-id claude-code session-start --profile <name>`.** This is a `SessionStart` command hook.
    - It runs the same pipeline once. The working directory for preflight is the hook input's `cwd`, so O1 runs there once per session start.
-   - It renders the block and wraps it as `{ <block>; } || { <refusal>; exit 125; }`.
+   - It renders the block and wraps it as `eval '<block>' || { <refusal>; exit 125; }` (the block runs inside `eval`, see *Guarded block*).
    - It appends the result to `$CLAUDE_ENV_FILE`, unless an identical guarded block is already there.
 
    Claude Code reruns the file before every command, so the block re-applies the same environment to each fresh command process. If one statement fails, for example because a startup file made `GH_TOKEN` read-only, the command does not run.
@@ -82,7 +82,7 @@ The system SHALL print one block of `unset`, `unalias`/`unset -f`, and `export` 
 
 ##### Scenario: The block fails as a whole
 - WHEN `GH_TOKEN` is read-only in the shell (`readonly GH_TOKEN`) and the block is evaluated as `eval "$block" || echo failed`
-- THEN `failed` is printed in `bash`; in `zsh`, the read-only error aborts the shell with status 1 before the guard runs, so the command still does not run, and zsh's own message names the variable
+- THEN `failed` is printed in `bash` (and in `zsh`, for the block alone). For the guarded block of `session-start`, which runs the block inside `eval`, both shells print the guard's message and exit 125, and zsh's own message names the variable
 
 ##### Scenario: No secret
 - WHEN the parent has a fake `GH_TOKEN` and the output is scanned for every registered token prefix, `-----BEGIN`, and a JWT shape
@@ -257,11 +257,11 @@ Inputs: the hook JSON on stdin (at most 64 KiB), `CLAUDE_ENV_FILE`, and the prof
 
 ```sh
 # agent-id session-start 1 profile=claude
-{
-<block>
-} || { printf '%s\n' 'agent-id: agent activation failed in this shell; the command was not run (agent-id doctor --profile claude)' >&2; exit 125; }
+eval '<block, single-quoted, each ' written as '\''>' || { printf '%s\n' 'agent-id: agent activation failed in this shell; the command was not run (agent-id doctor --profile claude)' >&2; exit 125; }
 # agent-id session-start end
 ```
+
+**Why `eval`.** Implementation finding (zsh 5.9): when the env file is sourced, a read-only variable error inside a `{ }` group or a function aborts only the sourced file, and the command then runs with the block half applied. Inside `eval` the same error is a failed status, so the guard runs and the command stops with 125 (tested in `cmd/agent-id/claude_test.go`). The first draft of this spec said that zsh aborts the shell; that holds only for a script run as the shell's main input, not for a sourced file.
 
 `exit 125` ends the shell that runs the env file, before the command itself runs. Variables from the env file can reach the command only if the file runs in the command's own shell, and in that case `exit` ends that shell. #27 confirms both on a real Claude Code session.
 
@@ -311,7 +311,7 @@ In `.claude/settings.local.json`:
 |---|---|
 | `agent-id` not on the `PATH` of the hook | The fallback refusal line. Every Bash command prints "the SessionStart hook could not run agent-id" and exits 125. The hook error is shown. |
 | `CLAUDE_ENV_FILE` missing, a symlink, writable by others, or group-writable by a shared group | The hook error is shown and nothing is written. The session stays personal (step 1), and `whoami` shows `personal/unmanaged`. |
-| A startup file makes `GH_TOKEN` or `PATH` read-only | `bash`: the block fails, and every command stops with 125 and the guard's message. `zsh`: the read-only error aborts the shell with status 1 before the guard, so the command does not run and zsh's own message names the variable. |
+| A startup file makes `GH_TOKEN` or `PATH` read-only | `bash`: the block fails, and every command stops with 125 and the guard's message. `zsh`: the block runs inside `eval`, so the guard also catches it: exit 125, and zsh's own message names the variable. |
 | A startup file defines `gh` or `git` as a function or alias | A function is removed before each command. An alias is removed in `zsh`. In `bash` it is removed only if Claude Code parses the env file and the command separately: an alias on an already-parsed line has been expanded (assumption, #27). A function or alias under any other name that calls `gh` is not covered (documented bypass); `doctor` reports a shadowed `gh` (`gh.binary`, `context.shell`). |
 | A startup file prepends a directory with another `gh` to `PATH` | Covered when the snapshot changes `PATH` before the env file runs: the `PATH` group moves the shim first. The docs do not say whether the snapshot carries environment variables, or in which order it runs; #27 records the observed behavior. `doctor` (`gh.binary`) detects a wrong order inside the session. |
 | Another hook appends `export GH_TOKEN=…` or a `PATH` change after agent-id's block | It runs after the block and wins. This is a documented bypass of local mode. `doctor` (`env.credential`, `gh.binary`, `context.git`) run inside the session detects it. |
