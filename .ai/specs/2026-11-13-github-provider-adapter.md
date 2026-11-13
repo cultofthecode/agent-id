@@ -2,6 +2,8 @@
 
 Extends: `.ai/specs/2026-11-12-profile-config.md` (its Phase 2, the `github` profile block, stays as written there and follows #17; see Phasing)
 
+> 🔀 Partly superseded by `.ai/specs/2026-11-13-exec-child-environment.md` (#75): the drop list (including `GH_HOST`) belongs to #20, and the exec-only answers go on the key-free `provider.Activator` port, so `exec` never reads the private key. `provider.Provider` is unchanged.
+
 Issue: #15 (E02-S01). Builds on ADR #35 (`ARCHITECTURE.md`, Provider abstraction), the v0 interface in `internal/provider` (PR #32), and the fake GitHub App in `internal/provider/github/githubtest`.
 
 ## 📝 TLDR
