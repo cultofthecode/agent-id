@@ -178,6 +178,19 @@ func ScopedHeaders(entries []ConfigEntry, hosts []string) []HostHeader {
 	return out
 }
 
+// HostRootHeaders returns the names of the extra headers that Git sends to
+// https://host/ and to a URL below the root. A reset whose path is "//"
+// matches the root but not the URLs below it, so a generic header must be
+// evaluated at both, as ScopedHeaders does for a scoped one.
+func HostRootHeaders(entries []ConfigEntry, host string) []string {
+	root, ok := parseGitURL("https://"+host+"/", false)
+	if !ok {
+		return nil
+	}
+	names := effectiveHeaders(entries, root)
+	return append(names, effectiveHeaders(entries, root.below(deepSegmentLen(entries)))...)
+}
+
 // deepSegmentLen returns a length that exceeds the normalized path of every
 // pattern in entries: an escaped byte takes three bytes.
 func deepSegmentLen(entries []ConfigEntry) int {

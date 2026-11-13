@@ -391,6 +391,7 @@ func TestExecRefusesHeaderPatternsGitApplies(t *testing.T) {
 		{"reset with dot segments in a query", section("https://github.com/org/", "X-L: 1") + section("https://github.com/org/x?/../", ""), "extra HTTP header (X-L)"},
 		{"reset with one more slash", section("https://github.com/org/", "X-L: 1") + section("https://github.com/org//", ""), "extra HTTP header (X-L)"},
 		{"wildcard reset with one more slash", section("https://*.github.com/", "X-L: 1") + section("https://*.github.com//", ""), "extra HTTP header (X-L)"},
+		{"generic header, reset with the path //", "[http]\n\textraheader = X-L: 1\n" + section("https://*.github.com//", ""), "extra HTTP header (X-L)"},
 		{"pattern that cannot be parsed", section("https://github.com/a%zz/", "X-L: 1"), "cannot parse as Git does"},
 	}
 	for _, tt := range refused {

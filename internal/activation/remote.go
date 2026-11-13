@@ -137,7 +137,7 @@ func (c *remoteChecker) checkHostHeaders(entries []ConfigEntry) error {
 		return failf(ErrRemoteHeader, "an http.<url>.extraheader entry from %s has a URL pattern that agent-id cannot parse as Git does, so Git may send its header to a Git host; remove that entry", e.source())
 	}
 	for _, h := range c.a.GitHosts() {
-		for _, name := range EffectiveHeaders(entries, "https://"+h+"/") {
+		for _, name := range HostRootHeaders(entries, h) {
 			return failf(ErrRemoteHeader, "Git host %s gets an extra HTTP header (%s) from an http.extraheader entry that agent-id cannot reset; remove that entry", h, name)
 		}
 	}

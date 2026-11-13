@@ -465,7 +465,7 @@ func TestCheckNeverPassesAHeaderThatGitSends(t *testing.T) {
 	users := []string{"", "@", "u@", ":p@"}
 	hosts := []string{"github.com", "github.com.", "GitHub.com:443", "*.github.com", "gist.github.com", "*.github.com."}
 	paths := []string{"", "/", "/org/", "/org//", "/org", "/org///", "/org/x/", "/org/x//", "/org/x?/../", "/org/x?", "/org/./", "/%6Frg/", "//"}
-	var patterns []string
+	patterns := []string{"generic"}
 	for _, u := range users {
 		for _, h := range hosts {
 			for _, p := range paths {
@@ -507,13 +507,16 @@ func TestCheckNeverPassesAHeaderThatGitSends(t *testing.T) {
 			var es []ConfigEntry
 			_ = os.Remove(cfg)
 			for k, pat := range set {
-				if _, ok := parseGitURL(pat, true); !ok {
+				key := "http." + pat + ".extraheader"
+				if pat == "generic" {
+					key = "http.extraheader"
+				} else if _, ok := parseGitURL(pat, true); !ok {
 					return
 				}
-				if exec.Command("git", "config", "--file", cfg, "--add", "http."+pat+".extraheader", values[k]).Run() != nil {
+				if exec.Command("git", "config", "--file", cfg, "--add", key, values[k]).Run() != nil {
 					return
 				}
-				es = append(es, entries("http."+pat+".extraheader", values[k])...)
+				es = append(es, entries(key, values[k])...)
 			}
 			_ = exec.Command("git", "config", "--file", cfg, "--add", "http.https://github.com/.extraheader", "").Run()
 			es = append(es, entries("http.https://github.com/.extraheader", "")...)
@@ -540,5 +543,24 @@ func TestCheckNeverPassesAHeaderThatGitSends(t *testing.T) {
 	t.Logf("checked %d random sets", checked)
 	if checked < 150 {
 		t.Errorf("only %d sets checked", checked)
+	}
+}
+
+// TestGenericHeaderBelowTheRoot covers B5 of the review of PR #101: a reset
+// with the path "//" matches the host root but not the URLs below it.
+func TestGenericHeaderBelowTheRoot(t *testing.T) {
+	a := providertest.NewFakeActivator()
+	a.Hosts = []string{"github.com", "gist.github.com", "ssh.github.com"}
+	c := &remoteChecker{a: a}
+	baseline := []string{"http.https://github.com/.extraheader", ""}
+	for _, reset := range []string{"https://*.github.com//", "https://*.github.*//", "https://gist.github.com//", "https://github.com//"} {
+		e := entries(append([]string{"http.extraheader", "X-L: 1", "http." + reset + ".extraheader", ""}, baseline...)...)
+		if err := c.checkHostHeaders(e); err == nil {
+			t.Errorf("generic header with reset %q passes", reset)
+		}
+	}
+	e := entries(append([]string{"http.extraheader", "X-L: 1"}, append(baseline, "http.https://gist.github.com/.extraheader", "", "http.https://ssh.github.com/.extraheader", "")...)...)
+	if err := c.checkHostHeaders(e); err != nil {
+		t.Errorf("a generic header that every host reset clears is refused: %v", err)
 	}
 }
