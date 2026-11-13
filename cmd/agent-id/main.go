@@ -20,10 +20,13 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cultofthecode/agent-id/internal/activation"
+	activationenv "github.com/cultofthecode/agent-id/internal/activation/env"
 	activationexec "github.com/cultofthecode/agent-id/internal/activation/exec"
 	"github.com/cultofthecode/agent-id/internal/cliint"
 	"github.com/cultofthecode/agent-id/internal/credential"
 	"github.com/cultofthecode/agent-id/internal/diagnose"
+	"github.com/cultofthecode/agent-id/internal/gitint/credentialhelper"
+	"github.com/cultofthecode/agent-id/internal/integration/claude/sessionstart"
 	"github.com/cultofthecode/agent-id/internal/profile"
 	"github.com/cultofthecode/agent-id/internal/provider"
 	"github.com/cultofthecode/agent-id/internal/provider/github"
@@ -107,18 +110,35 @@ func newCLIHandler() *cliint.Handler {
 // the neutral directories of the file system, and git and ssh for the remote
 // checks. exec replaces the process with the command.
 func newExecHandler() *activationexec.Handler {
-	return &activationexec.Handler{
-		Deps: activation.Deps{
-			Profiles:  lazyProfiles{},
-			Providers: productionProviders{},
-			Neutral:   activation.FileNeutralDirs{},
-			Checks: func(a provider.Activator) []activation.Check {
-				return activation.NewChecks(a, activation.ExecRunner{})
-			},
+	return &activationexec.Handler{Deps: productionDeps(), Execer: activationexec.SyscallExecer{}, Binary: productionBinary}
+}
+
+// newEnvHandler returns the production handler of env, which activates with
+// the same dependencies as exec and prints the result as a shell block.
+func newEnvHandler() *activationenv.Handler {
+	return &activationenv.Handler{Deps: productionDeps(), Binary: productionBinary}
+}
+
+// newSessionStartHandler returns the production handler of the Claude Code
+// SessionStart hook: the same activation as exec and env, and the append to
+// CLAUDE_ENV_FILE.
+func newSessionStartHandler() *sessionstart.Handler {
+	return &sessionstart.Handler{Deps: productionDeps(), Binary: productionBinary}
+}
+
+func productionDeps() activation.Deps {
+	return activation.Deps{
+		Profiles:  lazyProfiles{},
+		Providers: productionProviders{},
+		Neutral:   activation.FileNeutralDirs{},
+		Checks: func(a provider.Activator) []activation.Check {
+			return activation.NewChecks(a, activation.ExecRunner{})
 		},
-		Execer: activationexec.SyscallExecer{},
-		Binary: func() (string, error) { return activation.ResolveBinary(os.Args[0], os.Getenv("PATH")) },
 	}
+}
+
+func productionBinary() (string, error) {
+	return activation.ResolveBinary(os.Args[0], os.Getenv("PATH"))
 }
 
 // lazyProfiles opens the profile store only when exec runs, so that a broken
@@ -190,6 +210,9 @@ func buildRootWith(onboarders []provider.Onboarder, openStore func() (setup.Stor
 	root.AddCommand(diagnosticCommands(github.ProfileRegistration(), openProvider)...)
 	root.AddCommand(activationexec.NewCommand(execHandler))
 	root.AddCommand(cliint.NewCommand(newCLIHandler()))
+	root.AddCommand(credentialhelper.NewCommand(newCredentialHelper()))
+	root.AddCommand(activationenv.NewCommand(newEnvHandler()))
+	root.AddCommand(newClaudeCodeCommand())
 	return withVersion(root, versionText(version, commit, debug.ReadBuildInfo))
 }
 
@@ -275,4 +298,17 @@ func run(ctx context.Context, root *cobra.Command, args []string, stdout, stderr
 		return exitFailure
 	}
 	return exitOK
+}
+
+// newClaudeCodeCommand returns the claude-code command group, which holds the
+// hook handlers of the Claude Code integration.
+func newClaudeCodeCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "claude-code",
+		Short: "Claude Code integration (hook handlers)",
+		Args:  cobra.NoArgs,
+		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
+	}
+	cmd.AddCommand(sessionstart.NewCommand(newSessionStartHandler()))
+	return cmd
 }

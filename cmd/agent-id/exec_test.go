@@ -39,6 +39,7 @@ type execFixture struct {
 	binary  string
 	extra   []string
 	workdir string
+	stdin   string
 }
 
 func newExecFixture(t *testing.T) *execFixture {
@@ -59,6 +60,9 @@ func (f *execFixture) run(args ...string) execRun {
 	cmd := exec.Command(f.binary, args...)
 	cmd.Dir = f.workdir
 	cmd.Env = append(os.Environ(), f.extra...)
+	if f.stdin != "" {
+		cmd.Stdin = strings.NewReader(f.stdin)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
@@ -290,7 +294,8 @@ func TestExecRefusals(t *testing.T) {
 		setup func(t *testing.T)
 		want  string
 	}{
-		{"scp remote", func(t *testing.T) { gitIn(t, repo, "remote", "add", "origin", "git@github.com:o/r.git") }, `remote "origin" reaches github.com over SSH (scp form)`},
+		{"ssh remote with a port", func(t *testing.T) { gitIn(t, repo, "remote", "add", "origin", "ssh://git@github.com:22/o/r.git") }, `remote "origin" reaches github.com over SSH (ssh://)`},
+		{"git+ssh remote", func(t *testing.T) { gitIn(t, repo, "remote", "set-url", "origin", "git+ssh://git@github.com/o/r.git") }, `remote "origin" reaches github.com over SSH`},
 		{"ssh pushurl", func(t *testing.T) {
 			gitIn(t, repo, "remote", "set-url", "origin", "https://github.com/o/r.git")
 			gitIn(t, repo, "remote", "set-url", "--push", "origin", "ssh://git@ssh.github.com:443/o/r.git")
@@ -361,6 +366,68 @@ func TestExecRefusals(t *testing.T) {
 			t.Errorf("code %d stderr %q", r.code, r.stderr)
 		}
 	})
+}
+
+// TestExecRefusesHeaderPatternsGitApplies covers issue #100. Each global
+// configuration holds a header that Git sends to github.com, behind a pattern
+// that Go's URL parser reads differently from Git's urlmatch. exec must refuse
+// to start. internal/activation compares the matcher with real Git, and sends
+// the same shapes to a local listener.
+func TestExecRefusesHeaderPatternsGitApplies(t *testing.T) {
+	f := newExecFixture(t)
+	global := os.Getenv("GIT_CONFIG_GLOBAL")
+	section := func(pattern string, value string) string {
+		return "[http \"" + pattern + "\"]\n\textraheader = " + value + "\n"
+	}
+	refused := []struct {
+		name, config, want string
+	}{
+		{"reset with an encoded slash", section("https://github.com/org/sub/", "X-L: 1") + section("https://github.com/org%2Fsub/", ""), "extra HTTP header (X-L)"},
+		{"reset with a query", section("https://github.com/org/sub/", "X-L: 1") + section("https://github.com/org/sub?", ""), "extra HTTP header (X-L)"},
+		{"reset with a query after a slash", section("https://github.com/org/sub/", "X-L: 1") + section("https://github.com/org/sub/?x", ""), "extra HTTP header (X-L)"},
+		{"reset with a fragment", section("https://github.com/org/sub/", "X-L: 1") + section("https://github.com/org/sub#f", ""), "extra HTTP header (X-L)"},
+		{"wildcard reset with a query", section("https://*.github.com/x/", "X-L: 1") + section("https://*.github.com/x?", ""), "extra HTTP header (X-L)"},
+		{"tab in the path", section("https://github.com/org/a\tb/", "X-L: 1"), "extra HTTP header (X-L)"},
+		{"DEL in the path", section("https://github.com/org/a\x7fb/", "X-L: 1"), "extra HTTP header (X-L)"},
+		{"space in the user", section("https://us er@github.com/", "X-L: 1"), "extra HTTP header (X-L)"},
+		{"header on a host with a trailing dot", section("https://github.com./", "X-L: 1"), "extra HTTP header (X-L)"},
+		{"reset with two trailing dots", section("https://github.com/org/", "X-L: 1") + section("https://github.com../", ""), "extra HTTP header (X-L)"},
+		{"reset with an empty user", section("https://github.com/org/", "X-L: 1") + section("https://@github.com/org/", ""), "extra HTTP header (X-L)"},
+		{"reset with dot segments in a query", section("https://github.com/org/", "X-L: 1") + section("https://github.com/org/x?/../", ""), "extra HTTP header (X-L)"},
+		{"reset with one more slash", section("https://github.com/org/", "X-L: 1") + section("https://github.com/org//", ""), "extra HTTP header (X-L)"},
+		{"wildcard reset with one more slash", section("https://*.github.com/", "X-L: 1") + section("https://*.github.com//", ""), "extra HTTP header (X-L)"},
+		{"generic header, reset with the path //", "[http]\n\textraheader = X-L: 1\n" + section("https://*.github.com//", ""), "extra HTTP header (X-L)"},
+		{"pattern that cannot be parsed", section("https://github.com/a%zz/", "X-L: 1"), "cannot parse as Git does"},
+	}
+	for _, tt := range refused {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := os.WriteFile(global, []byte(tt.config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			r := f.run("exec", "--profile", "claude", "--", "true")
+			if r.code != 125 || !strings.Contains(r.stderr, tt.want) {
+				t.Errorf("code %d stderr %q, want 125 containing %q", r.code, r.stderr, tt.want)
+			}
+			if strings.Contains(r.stderr, "org") || strings.Contains(r.stderr, "us er") {
+				t.Errorf("the message names the URL: %q", r.stderr)
+			}
+		})
+	}
+	passed := []struct{ name, config string }{
+		{"a reset that Git normalizes to the path", section("https://github.com/org/sub/", "X-L: 1") + section("https://github.com/org/./sub", "")},
+		{"an unparsable reset", section("https://github.com/a%zz/", "")},
+		{"a header for another host", section("https://example.org/a%7Eb/", "X-L: 1")},
+	}
+	for _, tt := range passed {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := os.WriteFile(global, []byte(tt.config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if r := f.run("exec", "--profile", "claude", "--", "true"); r.code != 0 {
+				t.Errorf("code %d stderr %q", r.code, r.stderr)
+			}
+		})
+	}
 }
 
 func TestExecNeutralDirectories(t *testing.T) {
@@ -436,7 +503,7 @@ func TestExecNesting(t *testing.T) {
 	if norm(same.stdout) != norm(outer.stdout) {
 		t.Errorf("nested environment differs:\n%s\n---\n%s", same.stdout, outer.stdout)
 	}
-	if strings.Count(same.stdout, "GIT_CONFIG_KEY_0=") != 1 || strings.Count(same.stdout, "GIT_CONFIG_COUNT=6") != 1 {
+	if strings.Count(same.stdout, "GIT_CONFIG_KEY_0=") != 1 || strings.Count(same.stdout, "GIT_CONFIG_COUNT=10") != 1 {
 		t.Errorf("entries duplicated:\n%s", same.stdout)
 	}
 	diff := f.run(inner("other")...)
@@ -508,5 +575,23 @@ func TestNetrcWouldLeakWithoutTheRefusal(t *testing.T) {
 	}
 	if !sent {
 		t.Skip("this Git version does not read .netrc for the fake server")
+	}
+}
+
+// TestExecRewritesCommonSSHRemotesToHTTPS is the O1 half of #22: the scp form
+// and ssh://git@host/ resolve to HTTPS in the context, so exec starts and Git
+// reads the rewritten URL.
+func TestExecRewritesCommonSSHRemotesToHTTPS(t *testing.T) {
+	f := newExecFixture(t)
+	repo := filepath.Join(f.env.Home, "repo")
+	gitIn(t, f.env.Home, "init", "--quiet", repo)
+	f.workdir = repo
+	gitIn(t, repo, "remote", "add", "origin", "https://github.com/o/r.git")
+	for _, remote := range []string{"git@github.com:o/r.git", "ssh://git@github.com/o/r.git"} {
+		gitIn(t, repo, "remote", "set-url", "origin", remote)
+		r := f.run("exec", "--profile", "claude", "--", "git", "ls-remote", "--get-url", "origin")
+		if r.code != 0 || strings.TrimSpace(r.stdout) != "https://github.com/o/r.git" {
+			t.Errorf("%s: code %d stdout %q stderr %q, want the HTTPS URL", remote, r.code, r.stdout, r.stderr)
+		}
 	}
 }

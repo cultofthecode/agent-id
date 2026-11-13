@@ -8,3 +8,4 @@ The Git data of an agent context: the author and committer variables and the sig
 - **`GIT_CONFIG_*` only through activation's append rule** (`activation.Build`). `gitint` returns entries; it never numbers them.
 - **Order is fixed:** the identity group (`commit.gpgSign`, `tag.gpgSign`, `tag.forceSignAnnotated`), then #22's transport group.
 - Attribution, not proof (brief §10): `--author`, `-S`, `git -c`, and a shell startup file bypass it. No text may claim that bot commits are verified.
+- **Transport half (#22, `transport.go`).** `ParseRequest`, `Decide`, `Render`, and `TransportEntries` are pure, with hostile-input tables. Rules of the helper are in `credentialhelper/AGENTS.md` and `.ai/specs/2026-11-13-git-credential-helper.md`. A new entry uses `Entry`; the order is baseline, identity group, transport group.
