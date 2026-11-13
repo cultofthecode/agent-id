@@ -49,7 +49,7 @@ func TestFileLoadsProtectedKey(t *testing.T) {
 			writeKey(t, path, tc.data(t), tc.mode)
 			key, err := File{Path: path}.PrivateKeyPEM()
 			if err != nil {
-				t.Fatalf("PrivateKey: %v", err)
+				t.Fatalf("PrivateKeyPEM: %v", err)
 			}
 			assertPEMMatches(t, key)
 		})
@@ -61,7 +61,7 @@ func TestFileExpandsHome(t *testing.T) {
 	writeKey(t, filepath.Join(env.Home, ".config", "agent-id", "keys", "app.pem"), pkcs1PEM(t), 0o600)
 	key, err := File{Path: "~/.config/agent-id/keys/app.pem"}.PrivateKeyPEM()
 	if err != nil {
-		t.Fatalf("PrivateKey: %v", err)
+		t.Fatalf("PrivateKeyPEM: %v", err)
 	}
 	assertPEMMatches(t, key)
 }
@@ -76,7 +76,7 @@ func TestFileFollowsSymlinkToProtectedKey(t *testing.T) {
 	}
 	key, err := File{Path: link}.PrivateKeyPEM()
 	if err != nil {
-		t.Fatalf("PrivateKey: %v", err)
+		t.Fatalf("PrivateKeyPEM: %v", err)
 	}
 	assertPEMMatches(t, key)
 }
@@ -203,7 +203,7 @@ func TestFileNeverCopiesTheKey(t *testing.T) {
 	writeKey(t, path, pkcs1PEM(t), 0o600)
 	before := listTree(t, env.Root)
 	if _, err := (File{Path: path}).PrivateKeyPEM(); err != nil {
-		t.Fatalf("PrivateKey: %v", err)
+		t.Fatalf("PrivateKeyPEM: %v", err)
 	}
 	if after := listTree(t, env.Root); strings.Join(after, "\n") != strings.Join(before, "\n") {
 		t.Fatalf("loading the key changed the file tree:\nbefore %v\nafter  %v", before, after)
