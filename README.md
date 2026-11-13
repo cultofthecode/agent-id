@@ -16,4 +16,4 @@ go build ./... && go test ./...
 
 ## License
 
-agent-id is licensed under the [Apache License, Version 2.0](LICENSE). It is open source; releases will ship through GitHub Releases and a Homebrew tap. It contains no code from GHAPP (`ghapp-cli`): GHAPP-related code is written from scratch, so no GHAPP notice applies (GHAPP audit, PR #31).
+agent-id is licensed under the [Apache License, Version 2.0](LICENSE). It is open source; releases ship through GitHub Releases (see [RELEASING.md](RELEASING.md)) and, later, a Homebrew tap. It contains no code from GHAPP (`ghapp-cli`): GHAPP-related code is written from scratch, so no GHAPP notice applies (GHAPP audit, PR #31).
