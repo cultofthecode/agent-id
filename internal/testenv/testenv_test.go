@@ -90,9 +90,9 @@ func TestListenUsesTheAgentIDPortRange(t *testing.T) {
 	}
 }
 
-func TestFakeGitHub(t *testing.T) {
+func TestFakeAPI(t *testing.T) {
 	Isolate(t)
-	fake := NewFakeGitHub(t)
+	fake := NewFakeAPI(t)
 	fake.Handle("GET /app", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `{"slug":"claude-dev"}`)
 	})

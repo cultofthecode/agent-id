@@ -14,4 +14,6 @@ go build ./... && go test ./...
 - `SDLC.md` — how work moves from an issue to a merged PR
 - Backlog: https://github.com/cultofthecode/agent-id/issues
 
-No license has been chosen yet (`PRODUCT_BRIEF.md` §14).
+## License
+
+agent-id is licensed under the [Apache License, Version 2.0](LICENSE). It is open source; releases will ship through GitHub Releases and a Homebrew tap. It contains no code from GHAPP (`ghapp-cli`): GHAPP-related code is written from scratch, so no GHAPP notice applies (GHAPP audit, PR #31).
