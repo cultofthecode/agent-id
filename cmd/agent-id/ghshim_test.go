@@ -204,7 +204,7 @@ func TestGHShimDoesNotRecurse(t *testing.T) {
 		if err := os.Symlink(launcher, filepath.Join(later, "gh")); err != nil {
 			t.Fatal(err)
 		}
-		f.extra = []string{"PATH=" + later + ":/usr/bin:/bin"}
+		f.extra = []string{"PATH=" + later + ":" + gitOnlyDir(t, f)}
 		r := f.gh("pr", "list")
 		if r.code != 125 || !strings.Contains(r.stderr, "AID-GH-LOOP") {
 			t.Errorf("code %d stderr %q, want exit 125 and AID-GH-LOOP", r.code, r.stderr)
@@ -227,7 +227,7 @@ if [ "$1" = outer ]; then gh inner; echo "inner-rc=$?"; fi
 	t.Run("no gh besides the launcher", func(t *testing.T) {
 		f := newShimFixture(t)
 		f.seed(t, testenv.FakeToken("shim_none"))
-		f.extra = []string{"PATH=/usr/bin:/bin"}
+		f.extra = []string{"PATH=" + gitOnlyDir(t, f)}
 		r := f.gh("pr", "list")
 		if r.code != 125 || !strings.Contains(r.stderr, "AID-GH-NOCLI") {
 			t.Errorf("code %d stderr %q", r.code, r.stderr)
@@ -277,6 +277,24 @@ func TestGHShimFailsClosedWithoutAToken(t *testing.T) {
 			t.Errorf("err %v output %q", err, out)
 		}
 	})
+}
+
+// gitOnlyDir returns a directory that holds only a link to git, so that a
+// PATH built from it finds no gh, even on a machine with gh in /usr/bin.
+func gitOnlyDir(t *testing.T, f *shimFixture) string {
+	t.Helper()
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+	dir := filepath.Join(f.env.TempDir, "gitonly")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(git, filepath.Join(dir, "git")); err != nil && !os.IsExist(err) {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 func errorsAs(err error, target **exec.ExitError) bool {
