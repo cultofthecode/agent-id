@@ -16,10 +16,11 @@ import (
 // name, and the provider block as a JSON object that is valid UTF-8, has no
 // duplicate member at any depth, and passed the inline-secret scan. It decides
 // which hosts the provider accepts and checks every member of the block
-// strictly. A returned error wraps one of the core sentinels (build it with
-// Errorf) and its text starts with a path relative to the profile, such as
-// `host: …` or `github.app_id: …`; the core prefixes `profiles.<name>.`. An
-// error that wraps no core sentinel is reported as ErrConfigInvalid.
+// strictly. A returned error wraps ErrConfigInvalid, ErrUnsupportedHost,
+// ErrUnsupportedKeyReference, or ErrInlineSecret (build it with Errorf), and
+// its text starts with a path relative to the profile, such as `host: …` or
+// `github.app_id: …`; the core prefixes `profiles.<name>.` and keeps only the
+// text and that class. Any other error is reported as ErrConfigInvalid.
 type SettingsValidator interface {
 	ValidateSettings(host string, settings json.RawMessage) error
 }
@@ -61,7 +62,7 @@ func NewRegistry(regs ...Registration) (*Registry, error) {
 
 // checkRegistration reports why reg cannot be registered.
 func checkRegistration(reg Registration) error {
-	if !validName(reg.Name) {
+	if !validName(reg.Name) || reg.Name == memberProvider || reg.Name == memberHost {
 		return fmt.Errorf("profile: invalid provider name %s", Quote(reg.Name))
 	}
 	if reg.Validator == nil {

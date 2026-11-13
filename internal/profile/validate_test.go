@@ -174,6 +174,34 @@ func TestParseValidatorWithoutSentinel(t *testing.T) {
 	checkError(t, err, ErrConfigInvalid, "profiles.p.plain: broken")
 }
 
+func TestParseLimitsTheClassesOfAValidator(t *testing.T) {
+	testenv.Isolate(t)
+	tests := []struct {
+		class error
+		want  error
+	}{
+		{ErrConfigNotFound, ErrConfigInvalid},
+		{ErrProfileNotFound, ErrConfigInvalid},
+		{ErrUnsupportedProvider, ErrConfigInvalid},
+		{ErrInsecurePermissions, ErrConfigInvalid},
+		{ErrUnsupportedVersion, ErrConfigInvalid},
+		{ErrUnsupportedHost, ErrUnsupportedHost},
+		{ErrUnsupportedKeyReference, ErrUnsupportedKeyReference},
+		{ErrInlineSecret, ErrInlineSecret},
+	}
+	for _, tt := range tests {
+		registry, err := NewRegistry(Registration{Name: "class", Validator: classValidator{class: tt.class}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = Parse([]byte(profileDoc(`"p": {"provider": "class", "host": "class.test", "class": {}}`)), registry)
+		checkError(t, err, tt.want, "profiles.p.class: key file not found")
+		if tt.class != tt.want && errors.Is(err, tt.class) {
+			t.Errorf("a validator error of class %v kept its class: %v", tt.class, err)
+		}
+	}
+}
+
 func TestParseErrorOrder(t *testing.T) {
 	testenv.Isolate(t)
 	secret := acmePrefix + "S3cr3tV4lue"
@@ -264,6 +292,11 @@ func TestParseSecretPrefixesComeFromTheRegistry(t *testing.T) {
 
 func TestSentinelsAreDistinct(t *testing.T) {
 	testenv.Isolate(t)
+	sentinels := []error{
+		ErrConfigNotFound, ErrConfigInvalid, ErrUnsupportedVersion, ErrUnsupportedProvider,
+		ErrUnsupportedHost, ErrUnsupportedKeyReference, ErrInlineSecret, ErrInsecurePermissions,
+		ErrProfileNotFound,
+	}
 	for i, a := range sentinels {
 		for j, b := range sentinels {
 			if i != j && errors.Is(a, b) {

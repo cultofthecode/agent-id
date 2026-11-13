@@ -198,14 +198,12 @@ func checkBlock(path, provider string, profile *node) (*node, error) {
 }
 
 // providerError prefixes the error of a provider's validator with the path
-// of the profile. An error that wraps no core sentinel becomes
-// ErrConfigInvalid, so that an adapter cannot make a broken profile pass.
+// of the profile. Its only class is the block class the error wraps, or
+// ErrConfigInvalid; the original error is not wrapped, so that an adapter
+// can neither make a broken profile pass nor claim a class such as
+// ErrConfigNotFound that changes what callers do.
 func providerError(path string, err error) error {
-	sentinel := sentinelOf(err)
-	if sentinel == nil {
-		sentinel = ErrConfigInvalid
-	}
-	return &configError{sentinel: sentinel, message: path + "." + err.Error(), cause: err}
+	return Errorf(blockSentinelOf(err), "%s.%s", path, err.Error())
 }
 
 // validProfileName reports whether s is a valid profile name: a valid name

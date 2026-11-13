@@ -56,6 +56,13 @@ func (plainValidator) ValidateSettings(string, json.RawMessage) error {
 	return errors.New("plain: broken")
 }
 
+// classValidator fails with an error of a chosen class.
+type classValidator struct{ class error }
+
+func (v classValidator) ValidateSettings(string, json.RawMessage) error {
+	return Errorf(v.class, "class: key file not found")
+}
+
 // acmeRegistry returns a registry with the fake provider "acme".
 func acmeRegistry(t *testing.T) *Registry {
 	t.Helper()

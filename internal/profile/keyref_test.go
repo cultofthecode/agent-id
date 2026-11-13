@@ -125,6 +125,8 @@ func TestNewRegistry(t *testing.T) {
 		{"empty name", []Registration{{Validator: acmeValidator{}}}, "invalid provider name"},
 		{"nil validator", []Registration{{Name: "acme"}}, "has no settings validator"},
 		{"duplicate", []Registration{{Name: "acme", Validator: acmeValidator{}}, {Name: "acme", Validator: acmeValidator{}}}, "registered twice"},
+		{"core member name host", []Registration{{Name: "host", Validator: acmeValidator{}}}, "invalid provider name"},
+		{"core member name provider", []Registration{{Name: "provider", Validator: acmeValidator{}}}, "invalid provider name"},
 		{"short prefix", []Registration{{Name: "acme", Validator: acmeValidator{}, TokenPrefixes: []string{"a_"}}}, "invalid token prefix"},
 		{"prefix with space", []Registration{{Name: "acme", Validator: acmeValidator{}, TokenPrefixes: []string{"ab c"}}}, "invalid token prefix"},
 	}

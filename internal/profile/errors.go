@@ -24,42 +24,35 @@ var (
 	ErrProfileNotFound         = errors.New("profile: profile not found")
 )
 
-// sentinels lists the classes above, in the order errors.Is checks them.
-var sentinels = []error{
-	ErrConfigNotFound, ErrConfigInvalid, ErrUnsupportedVersion, ErrUnsupportedProvider,
-	ErrUnsupportedHost, ErrUnsupportedKeyReference, ErrInlineSecret, ErrInsecurePermissions,
-	ErrProfileNotFound,
-}
+// errMissing marks the ErrConfigNotFound of a file that does not exist. It
+// is unexported, so that only the store itself can say a file is missing and
+// a provider's error can never make Write start from an empty configuration.
+var errMissing = errors.New("profile: no configuration file")
 
 // maxEchoLength is the number of characters of a value that a message may
 // echo.
 const maxEchoLength = 64
 
 // configError is a failure whose text is a message for the user and whose
-// class is a sentinel. cause, when set, is a further error that errors.Is
-// and errors.As can reach.
+// classes are its sentinels.
 type configError struct {
-	sentinel error
-	message  string
-	cause    error
+	sentinels []error
+	message   string
 }
 
 func (e *configError) Error() string { return e.message }
 
-func (e *configError) Unwrap() []error {
-	if e.cause == nil {
-		return []error{e.sentinel}
-	}
-	return []error{e.sentinel, e.cause}
-}
+func (e *configError) Unwrap() []error { return e.sentinels }
 
 // Errorf returns an error of class sentinel whose text is the formatted
 // message alone. A provider's SettingsValidator uses it so that its errors
 // match the core sentinels without repeating their text; sentinel must be one
-// of the Err variables of this package. Echo a value from the file only
-// through Quote.
+// of the Err variables of this package. A validator may use only
+// ErrConfigInvalid, ErrUnsupportedHost, ErrUnsupportedKeyReference, and
+// ErrInlineSecret; the core reports any other class as ErrConfigInvalid.
+// Echo a value from the file only through Quote.
 func Errorf(sentinel error, format string, args ...any) error {
-	return &configError{sentinel: sentinel, message: fmt.Sprintf(format, args...)}
+	return &configError{sentinels: []error{sentinel}, message: fmt.Sprintf(format, args...)}
 }
 
 // Quote returns s as a double-quoted value that is safe to echo in a
@@ -93,12 +86,16 @@ func sanitize(s string) string {
 	return b.String()
 }
 
-// sentinelOf returns the sentinel of this package that err wraps, or nil.
-func sentinelOf(err error) error {
-	for _, sentinel := range sentinels {
+// blockSentinels are the classes a provider's validator may report.
+var blockSentinels = []error{ErrConfigInvalid, ErrUnsupportedHost, ErrUnsupportedKeyReference, ErrInlineSecret}
+
+// blockSentinelOf returns the first of blockSentinels that err wraps, or
+// ErrConfigInvalid.
+func blockSentinelOf(err error) error {
+	for _, sentinel := range blockSentinels {
 		if errors.Is(err, sentinel) {
 			return sentinel
 		}
 	}
-	return nil
+	return ErrConfigInvalid
 }

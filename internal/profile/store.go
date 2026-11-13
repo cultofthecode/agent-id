@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 )
@@ -68,12 +69,12 @@ func (s *Store) read() ([]byte, error) {
 	if err := s.checkDir(dir); err != nil {
 		return nil, err
 	}
-	f, err := os.Open(s.path)
+	f, err := os.OpenFile(s.path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, s.openError(err)
 	}
 	defer func() { _ = f.Close() }()
-	if err := s.checkFile(f, dir); err != nil {
+	if err := s.checkFile(f); err != nil {
 		return nil, err
 	}
 	data, err := io.ReadAll(io.LimitReader(f, MaxSize+1))
@@ -84,8 +85,9 @@ func (s *Store) read() ([]byte, error) {
 }
 
 // checkFile checks the opened configuration file and, when the path is a
-// symlink into another directory, that directory.
-func (s *Store) checkFile(f *os.File, dir string) error {
+// symlink, the directory of every link of the chain and of the file it ends
+// at. It opens without blocking, so a FIFO is refused rather than waited on.
+func (s *Store) checkFile(f *os.File) error {
 	info, err := f.Stat()
 	if err != nil {
 		return s.wrap(Errorf(ErrConfigInvalid, "cannot read: %v", err))
@@ -96,14 +98,52 @@ func (s *Store) checkFile(f *os.File, dir string) error {
 	if err := secure(info, "", "600 "+s.path); err != nil {
 		return s.wrap(err)
 	}
-	target, err := filepath.EvalSymlinks(s.path)
+	dirs, err := linkDirs(s.path)
 	if err != nil {
 		return s.wrap(Errorf(ErrConfigInvalid, "cannot resolve: %v", err))
 	}
-	if targetDir := filepath.Dir(target); targetDir != dir {
-		return s.checkDir(targetDir)
+	for _, dir := range dirs[1:] {
+		if err := s.checkDir(dir); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// maxLinks is the longest symlink chain linkDirs follows.
+const maxLinks = 40
+
+// linkDirs returns the directory of path, of every symlink its chain passes,
+// and of the file it ends at, each once and in chain order. Every one of
+// them decides which file is read, so none may be writable by others.
+func linkDirs(path string) ([]string, error) {
+	var dirs []string
+	for range maxLinks {
+		dir, err := filepath.EvalSymlinks(filepath.Dir(path))
+		if err != nil {
+			return nil, err
+		}
+		if !slices.Contains(dirs, dir) {
+			dirs = append(dirs, dir)
+		}
+		path = filepath.Join(dir, filepath.Base(path))
+		info, err := os.Lstat(path)
+		if err != nil {
+			return nil, err
+		}
+		if info.Mode()&fs.ModeSymlink == 0 {
+			return dirs, nil
+		}
+		target, err := os.Readlink(path)
+		if err != nil {
+			return nil, err
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(dir, target)
+		}
+		path = target
+	}
+	return nil, errors.New("too many levels of symbolic links")
 }
 
 // checkDir checks a directory that holds the configuration file.
@@ -135,7 +175,10 @@ func secure(info fs.FileInfo, subject, chmod string) error {
 // ErrConfigNotFound when it does not exist.
 func (s *Store) openError(err error) error {
 	if errors.Is(err, fs.ErrNotExist) {
-		return Errorf(ErrConfigNotFound, "no agent-id configuration at %s; run agent-id setup %s --profile <name>", s.path, s.setupProvider())
+		return &configError{
+			sentinels: []error{ErrConfigNotFound, errMissing},
+			message:   fmt.Sprintf("no agent-id configuration at %s; run agent-id setup %s --profile <name>", s.path, s.setupProvider()),
+		}
 	}
 	return s.wrap(Errorf(ErrConfigInvalid, "cannot read: %v", err))
 }

@@ -106,6 +106,24 @@ func TestLoadPermissions(t *testing.T) {
 			moveAndLink(t, path, target)
 			chmod(t, filepath.Dir(target), 0o777)
 		}, ErrInsecurePermissions, "is writable by group or others (mode 0777)"},
+		{"symlink chain through a writable directory", func(t *testing.T, env testenv.Env, path string) {
+			final := filepath.Join(env.Home, "final", "config.json")
+			middle := filepath.Join(env.Home, "open", "link.json")
+			moveAndLink(t, path, final)
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Dir(middle), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(final, middle); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("../../open/link.json", path); err != nil {
+				t.Fatal(err)
+			}
+			chmod(t, filepath.Dir(middle), 0o777)
+		}, ErrInsecurePermissions, "open is writable by group or others (mode 0777)"},
 		{"symlink to a safe target", func(t *testing.T, env testenv.Env, path string) {
 			moveAndLink(t, path, filepath.Join(env.Home, "dotfiles", "config.json"))
 		}, nil, ""},
@@ -114,6 +132,14 @@ func TestLoadPermissions(t *testing.T) {
 				t.Fatal(err)
 			}
 			if err := os.Mkdir(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}, ErrConfigInvalid, "not a regular file"},
+		{"a FIFO instead of a file", func(t *testing.T, _ testenv.Env, path string) {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := syscall.Mkfifo(path, 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}, ErrConfigInvalid, "not a regular file"},

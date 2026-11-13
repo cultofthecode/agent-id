@@ -146,6 +146,48 @@ func TestWriteRefusesAndKeepsTheFile(t *testing.T) {
 	}
 }
 
+func TestWriteKeepsTheFileWhenAValidatorReportsNotFound(t *testing.T) {
+	env := testenv.Isolate(t)
+	path := writeFile(t, env, profileDoc(`"p": {"provider": "class", "host": "class.test", "class": {}}, `+acmeProfile("other")), 0o600)
+	before, _ := os.ReadFile(path)
+	registry, err := NewRegistry(Registration{Name: "class", Validator: classValidator{class: ErrConfigNotFound}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = NewStore(path, registry).Write(addAcme("claude", 1))
+	checkError(t, err, ErrConfigInvalid, "key file not found")
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Errorf("the file changed: %s", after)
+	}
+}
+
+func TestWriteRefusesADanglingSymlink(t *testing.T) {
+	env := testenv.Isolate(t)
+	path := configPath(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(env.Home, "dotfiles", "config.json")
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	err := NewStore(path, acmeRegistry(t)).Write(addAcme("claude", 1))
+	checkError(t, err, ErrConfigInvalid, "is a symlink whose target cannot be resolved")
+	if info, err := os.Lstat(path); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("the dangling symlink was replaced: %v", err)
+	}
+}
+
+func TestWriteRestrictsTheDirectory(t *testing.T) {
+	env := testenv.Isolate(t)
+	path := writeFile(t, env, exampleConfig, 0o600)
+	chmod(t, filepath.Dir(path), 0o755)
+	if err := NewStore(path, acmeRegistry(t)).Write(addAcme("claude", 1)); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	checkMode(t, filepath.Dir(path), 0o700)
+}
+
 func TestWriteRefusesAnInsecureDirectory(t *testing.T) {
 	env := testenv.Isolate(t)
 	path := writeFile(t, env, exampleConfig, 0o600)

@@ -28,6 +28,9 @@ func (s *Store) Write(change func(*Config) error) error {
 	if err := s.checkDir(dir); err != nil {
 		return err
 	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return s.wrap(Errorf(ErrConfigInvalid, "cannot restrict the directory: %v", err))
+	}
 	unlock, err := lock(filepath.Join(dir, filepath.Base(s.path)+".lock"))
 	if err != nil {
 		return s.wrap(Errorf(ErrConfigInvalid, "cannot lock: %v", err))
@@ -39,7 +42,7 @@ func (s *Store) Write(change func(*Config) error) error {
 // writeLocked is Write while the lock is held.
 func (s *Store) writeLocked(change func(*Config) error) error {
 	config, err := s.Load()
-	if errors.Is(err, ErrConfigNotFound) {
+	if errors.Is(err, errMissing) {
 		config, err = Config{Version: Version, Profiles: map[string]Profile{}}, nil
 	}
 	if err != nil {
@@ -66,14 +69,22 @@ func (s *Store) writeLocked(change func(*Config) error) error {
 }
 
 // target returns the file that a write replaces: the configuration path, or
-// the file it points to when it is a symlink.
+// the file it points to when it is a symlink. A symlink whose target does not
+// exist is refused rather than replaced by a regular file.
 func (s *Store) target() (string, error) {
-	target, err := filepath.EvalSymlinks(s.path)
-	switch {
-	case errors.Is(err, os.ErrNotExist):
+	info, err := os.Lstat(s.path)
+	if errors.Is(err, os.ErrNotExist) {
 		return s.path, nil
-	case err != nil:
+	}
+	if err != nil {
 		return "", s.wrap(Errorf(ErrConfigInvalid, "cannot resolve: %v", err))
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return s.path, nil
+	}
+	target, err := filepath.EvalSymlinks(s.path)
+	if err != nil {
+		return "", s.wrap(Errorf(ErrConfigInvalid, "is a symlink whose target cannot be resolved; create the target or remove the link: %v", err))
 	}
 	return target, nil
 }
