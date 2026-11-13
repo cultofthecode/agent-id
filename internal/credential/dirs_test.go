@@ -171,3 +171,59 @@ func TestFileRejectsKeyBehindWritableDirectorySymlink(t *testing.T) {
 	key, err := File{Path: filepath.Join(env.Home, "keys", "app.pem")}.PrivateKeyPEM()
 	assertRejected(t, key, err, ErrInsecureKeyFile, "mode 0777", "chmod go-w")
 }
+
+func TestChainOfCoversEveryHopOfASymlinkChain(t *testing.T) {
+	env := testenv.Isolate(t)
+	real := filepath.Join(env.Root, "real", "app.pem")
+	writeKey(t, real, pkcs1PEM(t), 0o600)
+	hop := filepath.Join(env.Root, "shared", "hop.pem")
+	if err := os.MkdirAll(filepath.Dir(hop), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, hop); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(env.Home, "app.pem")
+	if err := os.Symlink(hop, link); err != nil {
+		t.Fatal(err)
+	}
+	chain := chainOf(link)
+	for _, want := range []string{env.Home, filepath.Dir(hop), filepath.Dir(real)} {
+		if !contains(chain, want) {
+			t.Errorf("chain %v lacks %s", chain, want)
+		}
+	}
+}
+
+func TestSymlinkHopsStopsOnALoop(t *testing.T) {
+	env := testenv.Isolate(t)
+	a, b := filepath.Join(env.Home, "a"), filepath.Join(env.Home, "b")
+	if err := os.Symlink(b, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(a, b); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(symlinkHops(a)); got != maxSymlinkHops {
+		t.Errorf("hops = %d, want the limit %d", got, maxSymlinkHops)
+	}
+}
+
+func TestDisplayPathHidesASymlinkedHome(t *testing.T) {
+	env := testenv.Isolate(t)
+	real := filepath.Join(env.Root, "realhome")
+	if err := os.MkdirAll(filepath.Join(real, "keys"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(env.Root, "linkhome")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := displayPath(filepath.Join(resolved, "keys", "app.pem"), link); got != "~/keys/app.pem" {
+		t.Errorf("displayPath = %q, want ~/keys/app.pem", got)
+	}
+}

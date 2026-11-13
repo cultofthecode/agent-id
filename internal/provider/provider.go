@@ -11,6 +11,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -56,6 +57,38 @@ type Provider interface {
 	// host's CLI (gh, later glab) token, with the same precondition as
 	// GitCredential. The result holds a secret.
 	CLIEnvironment(token Token) []string
+	// Describe returns the provider-specific lines of agent-id whoami,
+	// read from the provider's configuration and cached identity without a
+	// network call. It holds no secret.
+	Describe() []Field
+	// VerifyIdentity compares the provider's cached identity with the bot as
+	// the host reports it, over the network.
+	VerifyIdentity(ctx context.Context) (IdentityCheck, error)
+	// Repositories lists, as "owner/name", the repositories that token, a
+	// token that Token returned, can access.
+	Repositories(ctx context.Context, token Token) ([]string, error)
+}
+
+// Field is one labeled line of a diagnostic report. It holds no secret.
+type Field struct {
+	Label string
+	Value string
+}
+
+// IdentityCheck is the answer of VerifyIdentity.
+type IdentityCheck struct {
+	// Bot is the login of the bot as the host reports it.
+	Bot string
+	// Cached is the login in the provider's cache, empty when none.
+	Cached string
+	// Match reports whether the cache already held the reported bot.
+	Match bool
+	// Refresh, when Match is false, rewrites the provider block of the
+	// profile so that its cached identity is the reported bot. It leaves
+	// every other member alone, and is nil when Match is true. It returns an
+	// error, and writes nothing, when the block now names another App or
+	// installation than the one that was checked.
+	Refresh func(settings json.RawMessage) (json.RawMessage, error)
 }
 
 // Token is a short-lived access token. Formatting it with any verb of the

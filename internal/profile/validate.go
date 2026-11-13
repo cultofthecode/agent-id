@@ -31,7 +31,7 @@ func Parse(data []byte, registry *Registry) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	if err := scanSecrets(root, registry.tokenPrefixes()); err != nil {
+	if err := scanSecrets(root, registry.TokenPrefixes()); err != nil {
 		return Config{}, err
 	}
 	if err := checkDuplicates(root, ""); err != nil {

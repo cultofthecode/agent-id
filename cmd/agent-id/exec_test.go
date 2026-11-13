@@ -498,7 +498,7 @@ func TestExecNesting(t *testing.T) {
 	if norm(same.stdout) != norm(outer.stdout) {
 		t.Errorf("nested environment differs:\n%s\n---\n%s", same.stdout, outer.stdout)
 	}
-	if strings.Count(same.stdout, "GIT_CONFIG_KEY_0=") != 1 || strings.Count(same.stdout, "GIT_CONFIG_COUNT=3") != 1 {
+	if strings.Count(same.stdout, "GIT_CONFIG_KEY_0=") != 1 || strings.Count(same.stdout, "GIT_CONFIG_COUNT=6") != 1 {
 		t.Errorf("entries duplicated:\n%s", same.stdout)
 	}
 	diff := f.run(inner("other")...)
