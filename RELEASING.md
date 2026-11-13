@@ -1,6 +1,6 @@
 # Releasing agent-id
 
-agent-id is open source (Apache-2.0) and ships through GitHub Releases (issue #11; owner decision recorded on #11). A Homebrew tap is decided as a channel but is not part of this pipeline yet: updating the tap needs a credential beyond the default `GITHUB_TOKEN`, so it is tracked in its own issue.
+agent-id is open source (Apache-2.0) and ships through GitHub Releases (issue #11; owner decision recorded on #11). A Homebrew tap is decided as a channel but is not part of this pipeline yet: updating the tap needs a credential beyond the default `GITHUB_TOKEN`, so it is tracked in #46.
 
 ## What a release contains
 
