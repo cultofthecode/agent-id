@@ -126,15 +126,15 @@ Dashed edges are modules planned by the named issues. `internal/diagnose` depend
 
   Its `AGENTS.md` records the invariants: no report field holds a secret; every string passes `Redact`; output passes `Guard`; checks are pure; no forge names (labels and hosts come from the provider).
 - **Slices** `internal/diagnose/whoami` and `internal/diagnose/doctor`. Each has `contract.go`, `handler.go` (gather through narrow ports, then call the root's pure functions), `command.go`, and `handler_test.go`. `doctor` requires `--profile` (explicit selection, profile spec). Both take `--json`. Flag errors exit 2 (`SetFlagErrorFunc`), and the default of `run` stays 1 for other commands.
-- **Provider interface.** The provisional `internal/provider.Provider` (PR #32), plus the two answers that the exec spec adds (`CredentialVariables`, `Ready`). This spec adds the following, settled with #15:
+- **Provider interface.** `internal/provider.Provider` as settled by the GitHub adapter (#15, PR #57: `Name`, `Host`, `Token`, `Identity`, `GitCredential`, `CLIEnvironment`, and `ErrRateLimited`), plus the two answers that the exec spec adds (`CredentialVariables`, `Ready`). This spec adds the following, settled with #15:
   - `TokenPrefixes() []string`: already required by the profile spec for its secret scan, and reused here for `Patterns`.
-  - `Describe() []Field`: the provider-specific `whoami` lines and labels. For GitHub: `Installation` = the installation id, `Credentials` = `GitHub App installation token`.
-  - `ResolveIdentity(ctx, token) (CachedIdentity, error)`: the bot as the host reports it, used by `setup` (#19) as well.
-  - `RepositoryAccess(ctx, token, repo string) error`: whether the installation can read `owner/name`. It returns the provider failure classes.
+  - `Describe() []Field`: the provider-specific `whoami` lines, read from the adapter's configuration and cached identity without a network call. For GitHub: `Identity` = the cached bot login, `Installation` = the installation id, `Credentials` = `GitHub App installation token`.
+  - `VerifyIdentity(ctx) (IdentityCheck, error)`: the adapter compares its cached `identity` with the bot as the host reports it (the GitHub adapter's existing `Bot(ctx)`), and returns whether they match and the block update that refreshes the cache. `doctor` writes that update through the profile store; the profile spec's rule that a change of `app_id` or host drops `identity` stays in the adapter.
+  - `Repositories(ctx, token) ([]string, error)`: the GitHub adapter's existing method, lifted onto the interface with `owner/name` strings. `doctor` checks that each remote's repository is in the list. It returns the provider failure classes.
 
   The core never names `installation` or `GitHub`. The GitHub adapter supplies the labels.
 - **Token manager (#18).** `whoami` calls the same `Get(ctx, profile)` that the credential helper uses, which serves the cache or mints a token. `doctor` calls `provider.Token` directly, so the check proves that a mint works now, and does not store the result. Only `ExpiresAt` leaves the call. `provider.Token` already redacts its value under every `fmt` verb.
-- **Credential source (#16).** It exposes `Inspect(KeyRef) KeyStatus{Exists, Regular, OwnedByUser, Mode, Parses bool…}` without returning the key material.
+- **Credential source (#16, merged in PR #53).** `doctor` calls `credential.Source.PrivateKeyPEM()` and maps its sentinel errors to `key.file` results (`ErrInvalidReference`, `ErrKeyNotFound`, `ErrKeyUnreadable`, `ErrInsecureKeyFile`, `ErrInvalidKey`; the error already names the path and the fix and never holds key material). On success it clears the returned bytes at once and reports `regular file, mode 0600 or stricter, parses`. No new credential API is needed.
 - **Git integration (#21, #22).** It exposes, as pure functions, the expected `GIT_CONFIG_*` entries for a profile and `ClassifyRemote(url, hostMapping)`. `ClassifyRemote` reports whether a URL is the provider's host over HTTPS, over SSH, through an SSH alias, or another host. `doctor` uses the same rewrite set that `exec` applies, so the two can never disagree.
 - **`internal/activation` (#20).** `ReadContext`, `CheckInheritedGit` and `ParseGitConfigParameters` are reused: `doctor` reports with the very functions that make `exec` refuse.
 
@@ -157,11 +157,11 @@ Activation:    exec
 
 - `Context` is `agent`, `agent (damaged: <reason>)` or `agent (incompatible context version <v>)`, from `activation.ReadContext`. The profile then comes from `AGENT_ID_ACTIVE_PROFILE`. This is a report of the active context, not a profile selection (profile spec).
 - `Provider` is `<provider name> (<host>)`. The brief prints only the host, and the provider name is added because the config can hold several providers (ADR #35).
-- `Identity` is the cached bot login. When it is missing, `Identity:      not resolved (run agent-id doctor --profile <name>)`.
+- `Identity` is the cached bot login, from the provider's `Describe()`: no network call. When it is missing, `Identity:      not resolved (run agent-id doctor --profile <name>)`.
 - `Installation` and `Credentials` are the provider's `Describe()` lines. Another provider brings its own labels.
 - `Token status` is one of:
   - `valid (expires in <N>m)`, where N is rounded down, and `<1m` below one minute;
-  - `unavailable (<class>: <hint>)`, where the class is one of `unauthorized`, `forbidden`, `not found`, `unavailable`, `key` or `config`;
+  - `unavailable (<class>: <hint>)`, where the class is one of `unauthorized`, `forbidden`, `not found`, `rate limited` (`ErrRateLimited`, matched before `ErrUnavailable`), `unavailable`, `key` or `config`;
   - `not checked (<reason>)`, when the profile cannot be resolved.
 - `Activation` is `exec` or `env` (`AGENT_ID_MECHANISM`).
 
@@ -269,7 +269,7 @@ Checks that need a repository run in the working directory. Git runs with doctor
 | `git config --list --show-scope --show-origin -z` | key, scope, origin (file and line); the values of `url.*`, `remote.*.url`, `remote.*.pushurl`, `core.sshCommand` and `credential.*.helper` | the values of `http.*.extraHeader`, `credential.*` other than `helper`, `user.signingKey` (presence only) |
 | `GIT_CONFIG_PARAMETERS` | keys, through `ParseGitConfigParameters` | values |
 | Token | `ExpiresAt` | `Value` |
-| Key file | `KeyStatus` | content |
+| Key file | the sentinel class of `PrivateKeyPEM`'s error, or success | the key bytes beyond the call: cleared at once |
 | Credential helper value | the first word, without a leading `!`, cut to 40 characters (for example `osxkeychain`, `gh`, `/usr/local/bin/git-credential-manager`) | the rest of the command line, which may hold inline credentials |
 
 **Layer 2: `Redact`.** It is applied to every string of a `Report` before rendering, in this order:
@@ -334,20 +334,20 @@ Checks that need a repository run in the working directory. Git runs with doctor
 | A3 | Redaction design | Three layers: collection, `Redact`, `Guard`. | One missed pattern does not leak. | reversible |
 | A4 | Home path in output | Abbreviated to `~`. | A pasted report does not carry the user's account name into an issue of a public repository. | reversible |
 | A5 | Identity refresh | Only `identity`, through the store's locked write, reported as `warn`. | `ARCHITECTURE.md` and the profile spec assign it to `doctor`. | reversible |
-| A6 | New provider answers | `TokenPrefixes`, `Describe`, `ResolveIdentity`, `RepositoryAccess` on the provisional interface. | Keeps every GitHub term in the adapter (ADR #35). | settled with #15 |
+| A6 | New provider answers | `TokenPrefixes`, `Describe`, `VerifyIdentity`, and `Repositories` lifted from the GitHub adapter onto the interface. | Keeps every GitHub term in the adapter (ADR #35). | settled with the interface owners (#15 merged; the additions are a provider-interface change with contract tests)5 |
 
 ## 📋 Phasing
 
 - **Phase 1 — `internal/diagnose` core.** The report model, `Redact`, `Guard`, the renderers, and the pure checks over a hand-built `Snapshot`. Needs only #20 (merged spec; `internal/activation` code for the reused functions).
 - **Phase 2 — `whoami`.** Needs #17 and #18 and the provider additions (#15).
-- **Phase 3 — `doctor`.** Its gatherers need #16 (key inspection), #22 (`ClassifyRemote`, the expected entries) and #23 (the shim location).
+- **Phase 3 — `doctor`.** Its gatherers need #22 (`ClassifyRemote`, the expected entries) and #23 (the shim location).
 - **Phase 4 — record.** `ARCHITECTURE.md` and the capability archive.
 
 ## 📋 Implementation Plan
 
 Every test calls `testenv.Isolate(t)` first. Packages that run Git or `gh` use `testenv.Main`. `risk-high` evidence per `SDLC.md`:
 - hostile-input tables for every check and for `Redact`;
-- fake-GitHub tests for the denied paths (401, 403, 404, unavailable);
+- fake-GitHub tests for the denied paths (401, 403, 404, 429 rate limited, 503 unavailable);
 - the decoy scan of the Delta on every output mode.
 
 ### Phase 1 — `internal/diagnose`
@@ -381,7 +381,7 @@ Every test calls `testenv.Isolate(t)` first. Packages that run Git or `gh` use `
 
 ### Phase 3 — `doctor`
 
-7. **Gatherers.** Git (`config --list --show-scope --show-origin -z`, `ls-remote --get-url`, `remote get-url --push`, `config --get-urlmatch`), `ssh -G` for aliases, `gh` lookup on `PATH`, the environment, `KeyStatus`, and the provider. Each has a timeout, and a failure leads to `skip`. Tests with real `git` in `testenv.Isolate`, with the matrix's hostile global configuration and a local bare repository from `testenv.NewBareRepository`.
+7. **Gatherers.** Git (`config --list --show-scope --show-origin -z`, `ls-remote --get-url`, `remote get-url --push`, `config --get-urlmatch`), `ssh -G` for aliases, `gh` lookup on `PATH`, the environment, `credential.Source.PrivateKeyPEM` (bytes cleared at once), and the provider. Each has a timeout, and a failure leads to `skip`. Tests with real `git` in `testenv.Isolate`, with the matrix's hostile global configuration and a local bare repository from `testenv.NewBareRepository`.
 8. **Slice.** `--profile`, `--json`, the exit codes, and the identity refresh through the store (a test proves only `identity` changed, byte for byte elsewhere).
 9. **Process tests.** The Delta scenarios end to end:
    - a personal helper plus an inherited `GH_TOKEN` gives two `warn` lines with fixes and exit 0;
