@@ -45,7 +45,7 @@ func TestTokenExpiringIn2MinutesIsRefreshed(t *testing.T) {
 	if len(src.minted) != 1 || token != src.minted[0] {
 		t.Fatalf("Token minted %d tokens, want one new token", len(src.minted))
 	}
-	cached, ok := readEntry(entryPath(t, m, src), mustKey(t, src), uint32(os.Getuid()))
+	cached, ok := readEntry(openDir(t, m), entryName(t, src), mustKey(t, src), uint32(os.Getuid()))
 	if !ok || cached != token {
 		t.Error("the new token is not in the cache")
 	}
@@ -367,7 +367,7 @@ func TestHeldLockTimesOutAndHonorsTheContext(t *testing.T) {
 	m := newManager(t, c)
 	src := newSource(c)
 	mkdir(t, m.Dir)
-	unlock, err := lockFile(context.Background(), lockPath(entryPath(t, m, src)), time.Second)
+	unlock, err := lockFile(context.Background(), openDir(t, m), lockPath(entryName(t, src)), time.Second)
 	if err != nil {
 		t.Fatalf("lockFile: %v", err)
 	}
@@ -404,7 +404,7 @@ func TestCacheWriteFailureDiscardsTheToken(t *testing.T) {
 	m := newManager(t, c)
 	src := newSource(c)
 	mkdir(t, m.Dir)
-	unlock, err := lockFile(context.Background(), lockPath(entryPath(t, m, src)), time.Second)
+	unlock, err := lockFile(context.Background(), openDir(t, m), lockPath(entryName(t, src)), time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

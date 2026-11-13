@@ -86,7 +86,7 @@ func TestWriteEntryIsPrivateAndAtomic(t *testing.T) {
 		t.Fatalf("entry mode = %v, %v; want 0600", info.Mode(), err)
 	}
 	assertOnlyEntries(t, m.Dir)
-	token, ok := readEntry(entryPath(t, m, src), mustKey(t, src), uint32(os.Getuid()))
+	token, ok := readEntry(openDir(t, m), entryName(t, src), mustKey(t, src), uint32(os.Getuid()))
 	if !ok || token.Value != testenv.FakeToken("two") {
 		t.Error("readEntry does not return the last written token")
 	}
@@ -103,7 +103,7 @@ func TestReadEntryRefusesUnsafeFiles(t *testing.T) {
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := readEntry(path, key, uid); ok {
+	if _, ok := readEntry(openDir(t, m), filepath.Base(path), key, uid); ok {
 		t.Error("readEntry accepted a 0644 entry")
 	}
 	target := filepath.Join(t.TempDir(), "target.json")
@@ -116,7 +116,7 @@ func TestReadEntryRefusesUnsafeFiles(t *testing.T) {
 	if err := os.Symlink(target, path); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := readEntry(path, key, uid); ok {
+	if _, ok := readEntry(openDir(t, m), filepath.Base(path), key, uid); ok {
 		t.Error("readEntry followed a symbolic link")
 	}
 	if err := os.Remove(path); err != nil {
@@ -126,7 +126,7 @@ func TestReadEntryRefusesUnsafeFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := make(chan bool, 1)
-	go func() { _, ok := readEntry(path, key, uid); done <- ok }()
+	go func() { _, ok := readEntry(openDir(t, m), filepath.Base(path), key, uid); done <- ok }()
 	select {
 	case ok := <-done:
 		if ok {
@@ -149,7 +149,7 @@ func TestWriteEntryFailsInAReadOnlyDirectory(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(m.Dir, 0o700) })
 	src := newSource(c)
-	err := writeEntry(m.Dir, entryPath(t, m, src), encodeEntry(mustKey(t, src), provider.Token{Value: testenv.FakeToken("ro"), ExpiresAt: c.In(time.Hour)}))
+	err := writeEntry(openDir(t, m), entryName(t, src), encodeEntry(mustKey(t, src), provider.Token{Value: testenv.FakeToken("ro"), ExpiresAt: c.In(time.Hour)}))
 	if !errors.Is(err, ErrCacheWrite) {
 		t.Errorf("writeEntry in a read-only directory: %v, want ErrCacheWrite", err)
 	}
@@ -167,7 +167,7 @@ func TestLockFileRefusesASymlink(t *testing.T) {
 	if err := os.Symlink(filepath.Join(t.TempDir(), "elsewhere"), lock); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lockFile(context.Background(), lock, time.Second); !errors.Is(err, ErrInsecureCache) {
+	if _, err := lockFile(context.Background(), openDir(t, m), filepath.Base(lock), time.Second); !errors.Is(err, ErrInsecureCache) {
 		t.Errorf("lockFile on a symlink: %v, want ErrInsecureCache", err)
 	}
 	if err := os.Remove(lock); err != nil {
@@ -176,7 +176,7 @@ func TestLockFileRefusesASymlink(t *testing.T) {
 	if err := syscall.Mkfifo(lock, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lockFile(context.Background(), lock, time.Second); !errors.Is(err, ErrInsecureCache) {
+	if _, err := lockFile(context.Background(), openDir(t, m), filepath.Base(lock), time.Second); !errors.Is(err, ErrInsecureCache) {
 		t.Errorf("lockFile on a FIFO: %v, want ErrInsecureCache", err)
 	}
 }
@@ -192,7 +192,7 @@ func TestLockFileInAReadOnlyDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(m.Dir, 0o700) })
-	if _, err := lockFile(context.Background(), filepath.Join(m.Dir, "x"+lockSuffix), time.Second); !errors.Is(err, ErrCacheWrite) {
+	if _, err := lockFile(context.Background(), openDir(t, m), "x"+lockSuffix, time.Second); !errors.Is(err, ErrCacheWrite) {
 		t.Errorf("lockFile in a read-only directory: %v, want ErrCacheWrite", err)
 	}
 }
@@ -208,5 +208,122 @@ func assertOnlyEntries(t *testing.T, dir string) {
 		if !strings.HasSuffix(name.Name(), entrySuffix) && !strings.HasSuffix(name.Name(), lockSuffix) {
 			t.Errorf("unexpected file %s left in the cache directory", name.Name())
 		}
+	}
+}
+
+// swappingSource is a test source that, when it mints, moves the cache
+// directory to moved and puts a replacement at its path: a new directory or a
+// symbolic link to elsewhere.
+type swappingSource struct {
+	*source
+	dir, moved, elsewhere string
+}
+
+func (s *swappingSource) Token(ctx context.Context) (provider.Token, error) {
+	if err := os.Rename(s.dir, s.moved); err != nil {
+		return provider.Token{}, err
+	}
+	if s.elsewhere != "" {
+		if err := os.Symlink(s.elsewhere, s.dir); err != nil {
+			return provider.Token{}, err
+		}
+	} else if err := os.Mkdir(s.dir, 0o700); err != nil {
+		return provider.Token{}, err
+	}
+	return s.source.Token(ctx)
+}
+
+func TestTokenWritesOnlyIntoTheCheckedDirectory(t *testing.T) {
+	for _, replacement := range []string{"directory", "symlink"} {
+		t.Run(replacement, func(t *testing.T) {
+			c := newClock()
+			m := newManager(t, c)
+			src := newSource(c)
+			swap := &swappingSource{source: src, dir: m.Dir, moved: m.Dir + ".checked"}
+			if replacement == "symlink" {
+				swap.elsewhere = filepath.Join(t.TempDir(), "elsewhere")
+				mkdir(t, swap.elsewhere)
+			}
+			token, err := m.Token(context.Background(), swap)
+			if err != nil {
+				t.Fatalf("Token: %v", err)
+			}
+			if names, err := os.ReadDir(m.Dir); err != nil || len(names) != 0 {
+				t.Errorf("the replacement %s holds %v (%v), want nothing", replacement, names, err)
+			}
+			root, err := os.OpenRoot(swap.moved)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = root.Close() })
+			cached, ok := readEntry(root, entryName(t, src), mustKey(t, src), uint32(os.Getuid()))
+			if !ok || cached != token {
+				t.Errorf("the checked directory does not hold the minted token")
+			}
+			assertOnlyEntries(t, swap.moved)
+		})
+	}
+}
+
+func TestReadEntryRefusesASymlinkInsideTheDirectory(t *testing.T) {
+	c := newClock()
+	m := newManager(t, c)
+	src := newSource(c)
+	seed(t, m, src, testenv.FakeToken("real"), c.In(time.Hour))
+	name := entryName(t, src)
+	if err := os.Rename(filepath.Join(m.Dir, name), filepath.Join(m.Dir, "other"+entrySuffix)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("other"+entrySuffix, filepath.Join(m.Dir, name)); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := readEntry(openDir(t, m), name, mustKey(t, src), uint32(os.Getuid())); ok {
+		t.Error("readEntry followed a relative symbolic link inside the cache directory")
+	}
+}
+
+func TestLockFileRefusesASymlinkInsideTheDirectory(t *testing.T) {
+	c := newClock()
+	m := newManager(t, c)
+	root := openDir(t, m)
+	lock := lockPath(entryName(t, newSource(c)))
+	if err := os.WriteFile(filepath.Join(m.Dir, "other"+lockSuffix), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("other"+lockSuffix, filepath.Join(m.Dir, lock)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lockFile(context.Background(), root, lock, time.Second); !errors.Is(err, ErrInsecureCache) {
+		t.Errorf("lockFile on a relative symlink inside the cache directory: %v, want ErrInsecureCache", err)
+	}
+}
+
+func TestCheckRootRefusesAnotherDirectory(t *testing.T) {
+	c := newClock()
+	m := newManager(t, c)
+	root := openDir(t, m)
+	other := filepath.Join(t.TempDir(), "other")
+	mkdir(t, other)
+	otherInfo, err := os.Lstat(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked, err := os.Lstat(m.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid := uint32(os.Getuid())
+	if err := checkRoot(root, m.Dir, uid, checked); err != nil {
+		t.Errorf("checkRoot of the checked directory: %v", err)
+	}
+	if err := checkRoot(root, m.Dir, uid, otherInfo); !errors.Is(err, ErrInsecureCache) || !strings.Contains(err.Error(), "was replaced") {
+		t.Errorf("checkRoot of a replaced directory: %v, want ErrInsecureCache saying it was replaced", err)
+	}
+	if err := os.Chmod(m.Dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(m.Dir, 0o700) })
+	if err := checkRoot(root, m.Dir, uid, checked); !errors.Is(err, ErrInsecureCache) {
+		t.Errorf("checkRoot of a 0750 directory: %v, want ErrInsecureCache", err)
 	}
 }

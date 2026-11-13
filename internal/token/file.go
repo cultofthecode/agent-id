@@ -2,6 +2,7 @@ package token
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -69,10 +70,10 @@ func ownerOf(info fs.FileInfo) (uint32, bool) {
 	return stat.Uid, true
 }
 
-// readEntry returns the token of the entry at path when it is a usable entry
-// of key. Every failure, a missing file included, is a cache miss.
-func readEntry(path string, key Key, uid uint32) (token provider.Token, ok bool) {
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+// readEntry returns the token of the entry name in root when it is a usable
+// entry of key. Every failure, a missing file included, is a cache miss.
+func readEntry(root *os.Root, name string, key Key, uid uint32) (token provider.Token, ok bool) {
+	f, err := openNoFollow(root, name, os.O_RDONLY|syscall.O_NONBLOCK)
 	if err != nil {
 		return provider.Token{}, false
 	}
@@ -93,31 +94,61 @@ func readEntry(path string, key Key, uid uint32) (token provider.Token, ok bool)
 	return decoded, err == nil
 }
 
-// lockPath returns the lock file of the entry at path: <sha256>.lock.
-func lockPath(path string) string {
-	return strings.TrimSuffix(path, entrySuffix) + lockSuffix
+// openNoFollow opens name in root and refuses a symbolic link with
+// syscall.ELOOP. Methods of os.Root follow a link that stays inside the root
+// even with O_NOFOLLOW, so it checks name with Lstat before the open, and
+// after the open that name still refers to the opened file.
+func openNoFollow(root *os.Root, name string, flag int) (*os.File, error) {
+	if info, err := root.Lstat(name); err == nil && info.Mode()&fs.ModeSymlink != 0 {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: syscall.ELOOP}
+	}
+	f, err := root.OpenFile(name, flag, 0)
+	if err != nil {
+		return nil, err
+	}
+	opened, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	if named, err := root.Lstat(name); err != nil || !os.SameFile(opened, named) {
+		_ = f.Close()
+		return nil, &fs.PathError{Op: "open", Path: name, Err: syscall.ELOOP}
+	}
+	return f, nil
 }
 
-// writeEntry replaces the entry at path with data atomically: a 0600
-// temporary file in dir, synced, renamed over path, and the directory synced
+// lockPath returns the lock file of the entry name: <sha256>.lock.
+func lockPath(name string) string {
+	return strings.TrimSuffix(name, entrySuffix) + lockSuffix
+}
+
+// inRoot returns the path of name in root, for messages.
+func inRoot(root *os.Root, name string) string {
+	return filepath.Join(root.Name(), name)
+}
+
+// writeEntry replaces the entry name in root with data atomically: a 0600
+// temporary file in root, synced, renamed over name, and the directory synced
 // on a best-effort basis, because the entry is already in place by then. On
 // failure it removes the temporary file and wraps ErrCacheWrite. The caller
 // holds the entry's lock, so temporary files of the entry left by a crashed
-// writer are removed first.
-func writeEntry(dir, path string, data []byte) (err error) {
-	removeStaleTemps(dir, filepath.Base(path))
-	if info, statErr := os.Lstat(path); statErr == nil && info.IsDir() {
-		return fmt.Errorf("%w: %s is a directory; remove it", ErrCacheWrite, path)
+// writer are removed first. Every operation goes through root, so a
+// directory swapped in at the cache path after the checks is never written.
+func writeEntry(root *os.Root, name string, data []byte) (err error) {
+	removeStaleTemps(root, name)
+	if info, statErr := root.Lstat(name); statErr == nil && info.IsDir() {
+		return fmt.Errorf("%w: %s is a directory; remove it", ErrCacheWrite, inRoot(root, name))
 	}
-	f, err := os.CreateTemp(dir, filepath.Base(path)+".*"+tempSuffix)
+	temp := name + "." + rand.Text() + tempSuffix
+	f, err := root.OpenFile(temp, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return fmt.Errorf("%w: create a file in %s: %w", ErrCacheWrite, dir, cause(err))
+		return fmt.Errorf("%w: create a file in %s: %w", ErrCacheWrite, root.Name(), cause(err))
 	}
-	temp := f.Name()
 	defer func() {
 		if err != nil {
 			_ = f.Close()
-			_ = os.Remove(temp)
+			_ = root.Remove(temp)
 		}
 	}()
 	if err := f.Chmod(0o600); err != nil {
@@ -132,30 +163,35 @@ func writeEntry(dir, path string, data []byte) (err error) {
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("%w: close %s: %w", ErrCacheWrite, temp, cause(err))
 	}
-	if err := os.Rename(temp, path); err != nil {
-		return fmt.Errorf("%w: replace %s: %w", ErrCacheWrite, path, cause(err))
+	if err := root.Rename(temp, name); err != nil {
+		return fmt.Errorf("%w: replace %s: %w", ErrCacheWrite, inRoot(root, name), cause(err))
 	}
-	syncDir(dir)
+	syncDir(root)
 	return nil
 }
 
-// removeStaleTemps removes the temporary files of the entry named base that
-// a crashed writer left in dir.
-func removeStaleTemps(dir, base string) {
-	entries, err := os.ReadDir(dir)
+// removeStaleTemps removes the temporary files of the entry name that a
+// crashed writer left in root.
+func removeStaleTemps(root *os.Root, name string) {
+	d, err := root.Open(".")
+	if err != nil {
+		return
+	}
+	entries, err := d.ReadDir(-1)
+	_ = d.Close()
 	if err != nil {
 		return
 	}
 	for _, entry := range entries {
-		if name := entry.Name(); strings.HasPrefix(name, base+".") && strings.HasSuffix(name, tempSuffix) {
-			_ = os.Remove(filepath.Join(dir, name))
+		if found := entry.Name(); strings.HasPrefix(found, name+".") && strings.HasSuffix(found, tempSuffix) {
+			_ = root.Remove(found)
 		}
 	}
 }
 
-// syncDir makes a rename in dir durable where the system allows it.
-func syncDir(dir string) {
-	d, err := os.Open(dir)
+// syncDir makes a rename in root durable where the system allows it.
+func syncDir(root *os.Root) {
+	d, err := root.Open(".")
 	if err != nil {
 		return
 	}
@@ -163,11 +199,15 @@ func syncDir(dir string) {
 	_ = d.Close()
 }
 
-// lockFile takes an exclusive flock on the lock file at path, waiting until
-// ctx ends or timeout passes, and returns the function that releases it. The
-// kernel releases the lock when the process dies.
-func lockFile(ctx context.Context, path string, timeout time.Duration) (func(), error) {
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
+// lockFile takes an exclusive flock on the lock file name in root, waiting
+// until ctx ends or timeout passes, and returns the function that releases
+// it. The kernel releases the lock when the process dies.
+func lockFile(ctx context.Context, root *os.Root, name string, timeout time.Duration) (func(), error) {
+	path := inRoot(root, name)
+	if err := createMissing(root, name); err != nil {
+		return nil, lockOpenError(path, err)
+	}
+	f, err := openNoFollow(root, name, os.O_RDWR|syscall.O_NONBLOCK)
 	if err != nil {
 		return nil, lockOpenError(path, err)
 	}
@@ -194,6 +234,21 @@ func lockFile(ctx context.Context, path string, timeout time.Duration) (func(), 
 			return nil, err
 		}
 	}
+}
+
+// createMissing creates the empty mode 0600 file name in root unless a file,
+// link, or other entry of that name exists. It uses O_EXCL because on darwin
+// an os.Root open with O_CREATE but without O_EXCL can fail with ENOENT while
+// other processes create the same file.
+func createMissing(root *os.Root, name string) error {
+	f, err := root.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 // lockOpenError classifies a failure to open the lock file: a symbolic link
