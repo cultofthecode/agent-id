@@ -42,7 +42,7 @@ func helperCredential(ctx context.Context, name string) (provider.GitCredential,
 	}
 	prov, err := openProvider(p)
 	if err != nil {
-		return provider.GitCredential{}, &credentialhelper.ClassedError{Class: "private key", Err: err}
+		return provider.GitCredential{}, &credentialhelper.ClassedError{Class: "provider or private key", Err: err}
 	}
 	dir, err := token.Dir(os.Getenv)
 	if err != nil {

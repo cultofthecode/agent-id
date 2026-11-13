@@ -110,10 +110,14 @@ func TestActivateAddsTheTransportGroup(t *testing.T) {
 		{"credential." + base + ".helper", "!'/bin/agent-id' git-credential --profile claude"},
 		{"credential." + base + ".useHttpPath", "true"},
 		{"url." + base + "/.insteadOf", "ssh://git@" + a.Host() + "/"},
+		{"url." + base + "/.insteadOf", "ssh://" + a.Host() + "/"},
+		{"url." + base + "/.insteadOf", "git+ssh://git@" + a.Host() + "/"},
+		{"url." + base + "/.insteadOf", "ssh+git://git@" + a.Host() + "/"},
 		{"url." + base + "/.insteadOf", "git@" + a.Host() + ":"},
+		{"url." + base + "/.insteadOf", a.Host() + ":"},
 	}
-	if env["GIT_CONFIG_COUNT"] != "10" {
-		t.Fatalf("GIT_CONFIG_COUNT = %q, want 10", env["GIT_CONFIG_COUNT"])
+	if env["GIT_CONFIG_COUNT"] != "14" {
+		t.Fatalf("GIT_CONFIG_COUNT = %q, want 14", env["GIT_CONFIG_COUNT"])
 	}
 	for i, kv := range want {
 		n := strconv.Itoa(6 + i)

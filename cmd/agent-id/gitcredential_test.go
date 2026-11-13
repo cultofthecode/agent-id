@@ -49,7 +49,7 @@ func TestGitCredentialCommandFailsClosed(t *testing.T) {
 		message string
 	}{
 		{"unknown profile", []string{"git-credential", "--profile", "ghost", "get"}, request, 1, "quit=1\n", `cannot get a token for profile "ghost" (profile)`},
-		{"key cannot load", []string{"git-credential", "--profile", "claude", "get"}, request, 1, "quit=1\n", `(private key)`},
+		{"key cannot load", []string{"git-credential", "--profile", "claude", "get"}, request, 1, "quit=1\n", `(provider or private key)`},
 		{"other host", []string{"git-credential", "--profile", "claude", "get"}, "protocol=https\nhost=example.com\npath=o/r.git\n\n", 0, "", ""},
 		{"http", []string{"git-credential", "--profile", "claude", "get"}, "protocol=http\nhost=github.com\npath=o/r.git\n\n", 1, "quit=1\n", "refused"},
 		{"store", []string{"git-credential", "--profile", "ghost", "store"}, request + "password=x\n", 0, "", ""},

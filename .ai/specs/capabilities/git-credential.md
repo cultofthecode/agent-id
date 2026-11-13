@@ -4,7 +4,7 @@
 
 ## Requirement: HTTPS Git operations authenticate as the App
 - A push, fetch, or clone over HTTPS to the profile's host sends the installation token with the user name `x-access-token`.
-- `ssh://git@<host>/` remotes, and `git@<host>:` remotes when the host has no port, resolve to HTTPS in the context.
+- `ssh://git@<host>/`, `ssh://<host>/`, `git+ssh://git@<host>/`, and `ssh+git://git@<host>/` remotes, and `git@<host>:` and `<host>:` remotes when the host has no port, resolve to HTTPS in the context.
 
 ## Requirement: Nothing else gets a token
 - A request for another host gets no output.

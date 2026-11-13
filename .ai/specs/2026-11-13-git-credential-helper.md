@@ -33,8 +33,10 @@ In an agent context, `git fetch`, `git clone`, and `git push` over HTTPS to the 
 
 1. `credential.https://H.helper` = `!'<binary>' git-credential --profile <profile>` (Git appends the operation).
 2. `credential.https://H.useHttpPath` = `true` (Git then sends `path`).
-3. `url.https://H/.insteadOf` = `ssh://git@H/`.
-4. `url.https://H/.insteadOf` = `git@H:` — only when `H` has no `:` (the scp form has no port).
+3. `url.https://H/.insteadOf` = `ssh://git@H/`, then `ssh://H/`, `git+ssh://git@H/`, and `ssh+git://git@H/`.
+4. `url.https://H/.insteadOf` = `git@H:`, then `H:` — only when `H` has no `:` (the scp form has no port).
+
+The form `ssh://git@ssh.H:443/` stays out (#105). It names a forge-specific alias (`ssh.github.com`). Core code must not name it, and the provider does not yet supply it. `exec` refuses such a remote (O1, O3(a)).
 
 The binary path is single-quoted for `sh`, with `'` written as `'\''`; a path with a control character, or that is not absolute, is an error. `activation` maps it to `ErrPlanUnsafe` (exit 125). `AGENT_ID_BIN` is already absolute; `gitint` checks again as defense in depth. The host must match `^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?$`. The profile name must match the profile pattern. The helper is scoped to `https://H`, so Git does not start it for any other URL. The helper also decides for itself (below), because a config scope is not a security check.
 

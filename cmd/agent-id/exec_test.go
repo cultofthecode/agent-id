@@ -295,7 +295,7 @@ func TestExecRefusals(t *testing.T) {
 		want  string
 	}{
 		{"ssh remote with a port", func(t *testing.T) { gitIn(t, repo, "remote", "add", "origin", "ssh://git@github.com:22/o/r.git") }, `remote "origin" reaches github.com over SSH (ssh://)`},
-		{"git+ssh remote", func(t *testing.T) { gitIn(t, repo, "remote", "set-url", "origin", "git+ssh://git@github.com/o/r.git") }, `remote "origin" reaches github.com over SSH`},
+		{"ssh alias remote", func(t *testing.T) { gitIn(t, repo, "remote", "set-url", "origin", "ssh://git@ssh.github.com:443/o/r.git") }, `remote "origin" reaches github.com over SSH`},
 		{"ssh pushurl", func(t *testing.T) {
 			gitIn(t, repo, "remote", "set-url", "origin", "https://github.com/o/r.git")
 			gitIn(t, repo, "remote", "set-url", "--push", "origin", "ssh://git@ssh.github.com:443/o/r.git")
@@ -503,7 +503,7 @@ func TestExecNesting(t *testing.T) {
 	if norm(same.stdout) != norm(outer.stdout) {
 		t.Errorf("nested environment differs:\n%s\n---\n%s", same.stdout, outer.stdout)
 	}
-	if strings.Count(same.stdout, "GIT_CONFIG_KEY_0=") != 1 || strings.Count(same.stdout, "GIT_CONFIG_COUNT=10") != 1 {
+	if strings.Count(same.stdout, "GIT_CONFIG_KEY_0=") != 1 || strings.Count(same.stdout, "GIT_CONFIG_COUNT=14") != 1 {
 		t.Errorf("entries duplicated:\n%s", same.stdout)
 	}
 	diff := f.run(inner("other")...)
