@@ -53,6 +53,11 @@ func (p appProvider) Name() string { return "github" }
 // Host implements provider.Provider.
 func (p appProvider) Host() string { return Host }
 
+// TokenSubject implements provider.Provider as the GitHub adapter does.
+func (p appProvider) TokenSubject() string {
+	return "app-" + strconv.FormatInt(AppID, 10) + "-installation-" + strconv.FormatInt(p.installationID, 10)
+}
+
 // Token implements provider.Provider: it mints an installation token as
 // POST /app/installations/{id}/access_tokens does.
 func (p appProvider) Token(ctx context.Context) (provider.Token, error) {

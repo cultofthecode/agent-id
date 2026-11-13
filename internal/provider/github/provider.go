@@ -137,6 +137,12 @@ func (p *Provider) Name() string { return providerName }
 // Host implements provider.Provider.
 func (p *Provider) Host() string { return host }
 
+// TokenSubject implements provider.Provider: an installation token belongs
+// to one installation of one App.
+func (p *Provider) TokenSubject() string {
+	return "app-" + strconv.FormatInt(p.appID, 10) + "-installation-" + strconv.FormatInt(p.installationID, 10)
+}
+
 // GitCredential implements provider.Provider: GitHub takes an installation
 // token over HTTPS with the username x-access-token.
 func (p *Provider) GitCredential(token provider.Token) provider.GitCredential {

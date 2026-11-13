@@ -37,6 +37,12 @@ type Provider interface {
 	// Host is the host name whose Git and API traffic the provider serves,
 	// for example "github.com".
 	Host() string
+	// TokenSubject names, without a secret, whose token Token mints, for
+	// example the App and installation on GitHub. Two providers with the same
+	// Name, Host, and TokenSubject mint interchangeable tokens, so the token
+	// cache keys its entries by them. It matches
+	// ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ and never changes for one provider.
+	TokenSubject() string
 	// Token returns a new access token for the agent.
 	Token(ctx context.Context) (Token, error)
 	// Identity returns the commit author and committer of the agent.
