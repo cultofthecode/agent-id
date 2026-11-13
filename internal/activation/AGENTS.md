@@ -1,0 +1,12 @@
+# internal/activation
+
+The child environment of an agent context and the `exec` slice (`internal/activation/exec`). Spec: `.ai/specs/2026-11-13-exec-child-environment.md` (#20, #68); requirements in `.ai/specs/capabilities/exec.md`. Every change here is `risk-high`: it decides what credentials a started agent can reach, and the variable names and exit codes are a shared contract.
+
+- **Fail closed, from the first merge.** The plan always carries the neutral credential baseline: empty `credential.helper`, `http.https://<host>/.extraHeader` and `core.askPass`; `GIT_TERMINAL_PROMPT=0`; `GIT_ASKPASS` and `SSH_ASKPASS` dropped; the provider's credential variables dropped and its non-secret decoys set; an empty agent-id-owned CLI configuration directory; a refusing CLI stub first on `PATH`. An empty drop list is `ErrPlanUnsafe`. Later stories replace entries with the bot's; they never remove the baseline.
+- **No token in the environment.** This version injects no App token (#22 and #23 own that, after Jacob's review of #53, #57, #66). `Build` rejects a value with a token prefix, a PEM marker, a JWT shape, a newline, or a NUL.
+- **Names no forge.** The provider supplies hosts, variables, prefixes and the neutral CLI through `provider.Activator`; never import an adapter. The activator reads no key and makes no request.
+- **Pure decisions.** `ReadContext`, `Decide`, `CheckInheritedGit`, `ParseGitConfigParameters`, `Build`, `ClassifyRemoteURL`, `HasPassword`, `RewritesToSSH`, `EffectiveHeaders`, `NetrcHosts` have table tests with hostile input. `Build` is idempotent and append-only for `GIT_CONFIG_*`.
+- **Messages** name a variable, a key section (never the URL subsection), a path, or a remote; never a value, a URL's user-info, or a header value. `failf` keeps messages free of package prefixes.
+- **I/O only through ports.** `Runner` (git and ssh, 10 s timeout), `NeutralDirs`, `ProfileResolver`, `ProviderSource`. The only files exec writes are the two neutral directories and the stub, with mode 0700 checked on an opened descriptor; it never changes a directory it did not create.
+- **Not a security boundary** (brief §10): `env -i`, `git -c credential.helper=`, an SSH URL typed by the agent, and a later `.netrc` are documented bypasses.
+- **Tests** call `testenv.Isolate(t)` first. The process tests in `cmd/agent-id/exec_test.go` are the isolation test of #20: fake HOME, recording helper, fake `hosts.yml`, fake tokens, never the real ones.
