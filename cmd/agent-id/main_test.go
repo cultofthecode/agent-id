@@ -17,10 +17,10 @@ func TestRun(t *testing.T) {
 		wantStdout string
 		wantStderr string
 	}{
-		{"version flag", []string{"--version"}, exitOK, "aidentity version ", ""},
-		{"help", []string{"--help"}, exitOK, "aidentity", ""},
-		{"unknown command fails", []string{"no-such-command"}, exitFailure, "", "aidentity: "},
-		{"unknown flag fails", []string{"--no-such-flag"}, exitFailure, "", "aidentity: unknown flag"},
+		{"version flag", []string{"--version"}, exitOK, "agent-id version ", ""},
+		{"help", []string{"--help"}, exitOK, "Usage:\n  agent-id [flags]", ""},
+		{"unknown command fails", []string{"no-such-command"}, exitFailure, "", "agent-id: "},
+		{"unknown flag fails", []string{"--no-such-flag"}, exitFailure, "", "agent-id: unknown flag"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
