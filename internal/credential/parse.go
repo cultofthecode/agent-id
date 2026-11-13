@@ -12,11 +12,15 @@ import (
 const (
 	pkcs1BlockType = "RSA PRIVATE KEY"
 	pkcs8BlockType = "PRIVATE KEY"
+	pemBegin       = "-----BEGIN "
 )
 
 func parsePrivateKey(data []byte) (*rsa.PrivateKey, error) {
-	if !bytes.HasPrefix(bytes.TrimLeft(data, " \t\r\n"), []byte("-----BEGIN ")) {
+	if !bytes.HasPrefix(bytes.TrimLeft(data, " \t\r\n"), []byte(pemBegin)) {
 		return nil, invalidKey("the file does not start with a PEM block")
+	}
+	if bytes.Count(data, []byte(pemBegin)) != 1 {
+		return nil, invalidKey("more than one PEM block; the file must hold exactly one key")
 	}
 	block, rest := pem.Decode(data)
 	if block == nil {

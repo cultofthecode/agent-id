@@ -10,11 +10,16 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/cultofthecode/agent-id/internal/testenv"
 )
 
 var _ Source = File{}
+
+func TestMain(m *testing.M) {
+	testenv.Main(m)
+}
 
 func writeKey(t *testing.T, path string, data []byte, mode fs.FileMode) {
 	t.Helper()
@@ -140,8 +145,8 @@ func TestFileRejectsIrregularFiles(t *testing.T) {
 	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for path, want := range map[string]string{dir: "directory", fifo: "named pipe"} {
-		key, err := File{Path: path}.PrivateKey()
+	for path, want := range map[string]string{dir: "directory", fifo: "named pipe", "/dev/null": "device"} {
+		key, err := loadWithin(t, path, 10*time.Second)
 		assertRejected(t, key, err, ErrInsecureKeyFile, "not a regular file ("+want+")")
 	}
 }
@@ -203,6 +208,26 @@ func TestFileNeverCopiesTheKey(t *testing.T) {
 	}
 	if after := listTree(t, env.Root); strings.Join(after, "\n") != strings.Join(before, "\n") {
 		t.Fatalf("loading the key changed the file tree:\nbefore %v\nafter  %v", before, after)
+	}
+}
+
+func loadWithin(t *testing.T, path string, limit time.Duration) (*rsa.PrivateKey, error) {
+	t.Helper()
+	type result struct {
+		key *rsa.PrivateKey
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		key, err := File{Path: path}.PrivateKey()
+		done <- result{key, err}
+	}()
+	select {
+	case r := <-done:
+		return r.key, r.err
+	case <-time.After(limit):
+		t.Fatalf("loading %s did not return within %s", path, limit)
+		return nil, nil
 	}
 }
 

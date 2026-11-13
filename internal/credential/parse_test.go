@@ -40,19 +40,26 @@ func TestParsePrivateKeyRejectsHostileInput(t *testing.T) {
 			full := pkcs1PEM(t)
 			return full[:len(full)/2]
 		}, "no complete PEM block"},
-		"two keys":           {func(t *testing.T) []byte { return append(pkcs1PEM(t), pkcs8PEM(t)...) }, "exactly one key"},
-		"trailing data":      {func(t *testing.T) []byte { return append(pkcs1PEM(t), "garbage\n"...) }, "exactly one key"},
-		"certificate":        {blockOf("CERTIFICATE", []byte{0x30, 0x00}), "unsupported PEM block"},
-		"public key":         {blockOf("PUBLIC KEY", []byte{0x30, 0x00}), "unsupported PEM block"},
-		"EC private key":     {blockOf("EC PRIVATE KEY", []byte{0x30, 0x00}), "unsupported PEM block"},
-		"OpenSSH key":        {blockOf("OPENSSH PRIVATE KEY", []byte("openssh-key-v1")), "unsupported PEM block"},
-		"PKCS#8 ECDSA":       {ecdsaPKCS8PEM, "not an RSA key"},
-		"PKCS#8 Ed25519":     {ed25519PKCS8PEM, "not an RSA key"},
-		"encrypted PKCS#8":   {blockOf("ENCRYPTED PRIVATE KEY", []byte{0x30, 0x00}), "encrypted"},
-		"encrypted PKCS#1":   {encryptedPKCS1, "encrypted"},
-		"other headers":      {withHeader("Comment", "x"), "unexpected PEM headers"},
-		"garbage PKCS#1 DER": {blockOf("RSA PRIVATE KEY", []byte{0x30, 0x03, 0x02, 0x01, 0x00}), "PKCS#1 RSA key cannot be parsed"},
-		"garbage PKCS#8 DER": {blockOf("PRIVATE KEY", []byte{0x30, 0x03, 0x02, 0x01, 0x00}), "PKCS#8 key cannot be parsed"},
+		"two keys": {func(t *testing.T) []byte { return append(pkcs1PEM(t), pkcs8PEM(t)...) }, "more than one PEM block"},
+		"junk block before key": {func(t *testing.T) []byte {
+			return append([]byte("-----BEGIN JUNK\nnot base64 !!!\n"), pkcs1PEM(t)...)
+		}, "more than one PEM block"},
+		"malformed key block before key": {func(t *testing.T) []byte {
+			return append([]byte("-----BEGIN RSA PRIVATE KEY-----\n!!!\n"), pkcs1PEM(t)...)
+		}, "more than one PEM block"},
+		"trailing data":       {func(t *testing.T) []byte { return append(pkcs1PEM(t), "garbage\n"...) }, "exactly one key"},
+		"trailing BEGIN line": {func(t *testing.T) []byte { return append(pkcs1PEM(t), "-----BEGIN X\n"...) }, "more than one PEM block"},
+		"certificate":         {blockOf("CERTIFICATE", []byte{0x30, 0x00}), "unsupported PEM block"},
+		"public key":          {blockOf("PUBLIC KEY", []byte{0x30, 0x00}), "unsupported PEM block"},
+		"EC private key":      {blockOf("EC PRIVATE KEY", []byte{0x30, 0x00}), "unsupported PEM block"},
+		"OpenSSH key":         {blockOf("OPENSSH PRIVATE KEY", []byte("openssh-key-v1")), "unsupported PEM block"},
+		"PKCS#8 ECDSA":        {ecdsaPKCS8PEM, "not an RSA key"},
+		"PKCS#8 Ed25519":      {ed25519PKCS8PEM, "not an RSA key"},
+		"encrypted PKCS#8":    {blockOf("ENCRYPTED PRIVATE KEY", []byte{0x30, 0x00}), "encrypted"},
+		"encrypted PKCS#1":    {encryptedPKCS1, "encrypted"},
+		"other headers":       {withHeader("Comment", "x"), "unexpected PEM headers"},
+		"garbage PKCS#1 DER":  {blockOf("RSA PRIVATE KEY", []byte{0x30, 0x03, 0x02, 0x01, 0x00}), "PKCS#1 RSA key cannot be parsed"},
+		"garbage PKCS#8 DER":  {blockOf("PRIVATE KEY", []byte{0x30, 0x03, 0x02, 0x01, 0x00}), "PKCS#8 key cannot be parsed"},
 		"PKCS#8 DER labelled PKCS#1": {func(t *testing.T) []byte {
 			block, _ := pem.Decode(pkcs8PEM(t))
 			return pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: block.Bytes})

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"unicode"
 )
 
 const maxKeyFileSize = 64 << 10
@@ -21,6 +22,12 @@ const maxKeyFileSize = 64 << 10
 // (0600 or stricter), and must hold exactly one unencrypted RSA private key in
 // PKCS#1 or PKCS#8 PEM form. The key is read into memory only; it is never
 // copied to another file.
+//
+// The type is checked before the file is opened, so that opening a device has
+// no side effect; the authoritative checks run on the opened descriptor. A
+// symlink target named in an error is resolved separately, for the message
+// only. On macOS an extended ACL can grant access that the mode bits do not
+// show; it is not detected yet (see internal/credential/AGENTS.md).
 type File struct {
 	Path string
 }
@@ -45,8 +52,8 @@ func (f File) PrivateKey() (*rsa.PrivateKey, error) {
 }
 
 func resolvePath(path, home string) (string, error) {
-	if strings.ContainsRune(path, 0) {
-		return "", fmt.Errorf("%w: the path contains a NUL byte", ErrInvalidReference)
+	if strings.ContainsFunc(path, unicode.IsControl) {
+		return "", fmt.Errorf("%w: the path contains a control character", ErrInvalidReference)
 	}
 	if rest, ok := strings.CutPrefix(path, "~/"); ok {
 		return expandHome(rest, home)
@@ -69,6 +76,9 @@ func expandHome(rest, home string) (string, error) {
 
 func readKeyFile(path string) ([]byte, error) {
 	target := symlinkTarget(path)
+	if err := checkBeforeOpen(path, target); err != nil {
+		return nil, err
+	}
 	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, openError(path, target, err)
@@ -94,6 +104,17 @@ func symlinkTarget(path string) string {
 		return ""
 	}
 	return target
+}
+
+func checkBeforeOpen(path, target string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return openError(path, target, err)
+	}
+	if !info.Mode().IsRegular() {
+		return checkKeyFile(fileState{path: path, target: target, mode: info.Mode()})
+	}
+	return nil
 }
 
 func openError(path, target string, err error) error {

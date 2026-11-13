@@ -114,6 +114,9 @@ func TestResolvePath(t *testing.T) {
 		"HOME unset":    {"~/app.pem", ""},
 		"HOME relative": {"~/app.pem", "home/dev"},
 		"NUL byte":      {"/keys/app.pem\x00.txt", "/home/dev"},
+		"newline":       {"/keys/app.pem\nforged line", "/home/dev"},
+		"escape":        {"/keys/\x1b[2Japp.pem", "/home/dev"},
+		"DEL":           {"/keys/app\x7f.pem", "/home/dev"},
 		"scheme kept":   {"file:/keys/app.pem", "/home/dev"},
 		"keyring":       {"keyring:app", "/home/dev"},
 	}
