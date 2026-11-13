@@ -17,6 +17,8 @@ fail() {
 
 pre='(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
 semver="^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-$pre(\\.$pre)*)?\$"
+case $tag in *'
+'*) fail "tag name contains a newline" ;; esac
 printf '%s\n' "$tag" | grep -Eq "$semver" || fail "tag $tag is not vMAJOR.MINOR.PATCH[-PRERELEASE]"
 
 [ "$(git cat-file -t "refs/tags/$tag" 2>/dev/null || true)" = tag ] || fail "tag $tag is not an annotated tag"

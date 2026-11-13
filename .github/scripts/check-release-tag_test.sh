@@ -55,6 +55,12 @@ expect fail 0.0.3
 expect fail v01.0.0
 expect fail v1.0.0-01
 expect pass v1.0.0-0.alpha-1
+expect fail v1.0.0+build.5
+expect fail v1.0.0-
+expect fail v1.0
+expect fail 'v0.0.1
+v0.0.1'
+expect fail ''
 expect fail v0.0.4
 expect fail v9.9.9
 expect fail 'v0.0.1;true'
