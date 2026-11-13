@@ -39,6 +39,21 @@ func TestGitAndCLIIntegration(t *testing.T) {
 	}
 }
 
+func TestTokenSubjectNamesAppAndInstallation(t *testing.T) {
+	app := newFakeApp(t)
+	first := mustProvider(t, Config{AppID: githubtest.AppID, InstallationID: 7, PrivateKeyPEM: app.PrivateKeyPEM}, app.URL)
+	second := mustProvider(t, Config{AppID: githubtest.AppID, InstallationID: 8, PrivateKeyPEM: app.PrivateKeyPEM}, app.URL)
+	if got, want := first.TokenSubject(), "app-424242-installation-7"; got != want {
+		t.Errorf("TokenSubject() = %q, want %q", got, want)
+	}
+	if first.TokenSubject() == second.TokenSubject() {
+		t.Error("two installations report the same token subject, want two")
+	}
+	if got := app.Provider(7).TokenSubject(); got != first.TokenSubject() {
+		t.Errorf("githubtest TokenSubject() = %q, want the adapter's %q", got, first.TokenSubject())
+	}
+}
+
 func TestClassify(t *testing.T) {
 	tests := []struct {
 		status int
