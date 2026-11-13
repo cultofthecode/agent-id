@@ -53,13 +53,16 @@ func checkGH(c ghContext, args, parent []string) error {
 var (
 	userCommands = map[string]bool{
 		"status": true, "gist": true, "org": true, "ssh-key": true, "gpg-key": true,
-		"codespace": true, "cs": true, "agent-task": true,
-		"extension": true, "extensions": true, "ext": true,
+		"codespace": true, "cs": true, "agent-task": true, "agent-tasks": true, "agent": true, "agents": true,
+		"extension": true, "extensions": true, "ext": true, "gists": true,
 	}
+	configCommands  = map[string]bool{"alias": true, "config": true}
 	harmlessLeading = map[string]bool{"--help": true, "-h": true, "--version": true}
 	wordPattern     = regexp.MustCompile(`^[a-z][a-z-]{0,31}$`)
 	hostPattern     = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
 	schemePattern   = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*://`)
+	hostLike        = regexp.MustCompile(`^[a-z0-9_.-]+$`)
+	shortCluster    = regexp.MustCompile(`^-[A-Za-z]+`)
 )
 
 // valueFlags take a separate value, so that value is no positional argument.
@@ -88,6 +91,8 @@ func checkCommand(c ghContext, args []string) error {
 		return refuseAuth(c, args)
 	case userCommands[first]:
 		return refuseUser(c, quoteCommand(args[:1]))
+	case configCommands[first]:
+		return refuseConfig(c, args)
 	case first == "repo":
 		return checkRepo(c, args)
 	case first == "api":
@@ -102,9 +107,9 @@ func checkRepo(c ghContext, args []string) error {
 	}
 	rest := positionals(args[2:])
 	switch args[1] {
-	case "create", "fork":
+	case "create", "new", "fork":
 		return refuseUser(c, quoteCommand(args[:2]))
-	case "list":
+	case "list", "ls":
 		if len(rest) == 0 {
 			return refuseUser(c, quoteCommand(args[:2])+" without an owner")
 		}
@@ -130,6 +135,13 @@ func checkAPI(c ghContext, args []string) error {
 		endpoint = u.Path
 	} else if i := strings.IndexAny(endpoint, "?#"); i >= 0 {
 		endpoint = endpoint[:i]
+	}
+	for range 3 {
+		decoded, err := url.PathUnescape(endpoint)
+		if err != nil || decoded == endpoint {
+			break
+		}
+		endpoint = decoded
 	}
 	endpoint = strings.ToLower(path.Clean("/" + strings.TrimLeft(endpoint, "/")))
 	endpoint = strings.TrimPrefix(endpoint, "/")
@@ -205,6 +217,7 @@ func checkHosts(c ghContext, args, parent []string) error {
 // -R, or --repo, in the separate, "=", or attached form.
 func hostFlagValue(args []string, i int) (flag, value string, ok bool) {
 	a := args[i]
+	i0 := i + 1
 	for _, f := range []string{"--hostname", "--repo"} {
 		if a == f && i+1 < len(args) {
 			return f, args[i+1], true
@@ -216,8 +229,16 @@ func hostFlagValue(args []string, i int) (flag, value string, ok bool) {
 	if a == "-R" && i+1 < len(args) {
 		return "--repo", args[i+1], true
 	}
-	if v, found := strings.CutPrefix(a, "-R"); found && v != "" && !strings.HasPrefix(v, "-") {
-		return "--repo", strings.TrimPrefix(v, "="), true
+	if shortCluster.MatchString(a) && !strings.HasPrefix(a, "--") {
+		if i := strings.Index(a, "R"); i > 0 {
+			rest := strings.TrimPrefix(a[i+1:], "=")
+			if rest != "" {
+				return "--repo", rest, true
+			}
+			if i+1 == len(a) && i0 < len(args) {
+				return "--repo", args[i0], true
+			}
+		}
 	}
 	return "", "", false
 }
@@ -233,6 +254,9 @@ func checkRepoValue(c ghContext, v string) error {
 	if schemePattern.MatchString(v) || strings.HasPrefix(v, "//") {
 		return checkURLHost(c, v)
 	}
+	if h, ok := scpHost(v); ok {
+		return checkHostName(c, h)
+	}
 	parts := strings.Split(v, "/")
 	if len(parts) == 3 {
 		return checkHostName(c, parts[0])
@@ -247,11 +271,33 @@ func checkPositionalHost(c ghContext, a string) error {
 	if strings.HasPrefix(a, "-") {
 		return nil
 	}
+	if h, ok := scpHost(a); ok {
+		return checkHostName(c, h)
+	}
 	parts := strings.Split(a, "/")
-	if len(parts) == 3 && hostPattern.MatchString(strings.ToLower(parts[0])) {
+	if len(parts) == 3 && looksLikeHost(parts[0]) {
 		return checkHostName(c, parts[0])
 	}
 	return nil
+}
+
+// looksLikeHost reports whether the first part of HOST/OWNER/REPO has the
+// shape of a host name: a dot, no leading dot, and only characters that a
+// host name or a look-alike can hold. It is deliberately wider than a valid
+// host name, so an odd spelling is refused instead of passed.
+func looksLikeHost(part string) bool {
+	return strings.Contains(part, ".") && !strings.HasPrefix(part, ".") && hostLike.MatchString(strings.ToLower(part))
+}
+
+// scpHost returns the host of the scp-like form [user@]host:path, which gh
+// accepts where it takes a repository.
+func scpHost(v string) (string, bool) {
+	at := strings.LastIndex(v, "@")
+	colon := strings.Index(v, ":")
+	if at < 0 || colon < at || strings.Contains(v[:colon], "/") || strings.HasPrefix(v, "-") {
+		return "", false
+	}
+	return v[at+1 : colon], true
 }
 
 func checkURLHost(c ghContext, raw string) error {
@@ -282,6 +328,10 @@ func refuseAuth(c ghContext, args []string) error {
 		what = quoteCommand(args[:2])
 	}
 	return &provider.CLIRefusal{Code: codeAuth, Message: fmt.Sprintf("%s is managed by agent-id in agent mode (profile %s, identity %s). Use \"agent-id whoami\" to see the active identity and \"agent-id doctor\" to check credentials.", what, c.profile, c.bot)}
+}
+
+func refuseConfig(c ghContext, args []string) error {
+	return &provider.CLIRefusal{Code: codeUser, Message: fmt.Sprintf("%s changes the gh configuration, which a later call would run with the bot token (profile %s). Change gh settings in your own terminal, outside the agent context.", quoteCommand(args[:1]), c.profile)}
 }
 
 func refuseUser(c ghContext, what string) error {
