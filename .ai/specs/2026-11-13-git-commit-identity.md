@@ -131,7 +131,7 @@ Activation asks the provider for the identity and `gitint` for the Git data; `Bu
 - **`internal/activation`** (#20): `Activate` calls `p.Identity(ctx)` after `Ready` and before the inherited-Git check, maps `Contribution` into `Plan.Set` and `Plan.GitConfig` (`Entry` → `GitConfigEntry`), and wraps a failure in a new sentinel `ErrIdentityUnavailable` (exit 125). The hint in the message comes from the provider, as for `ErrProfileNotReady` (exec spec); `gitint` and `activation` name no forge and no setup subcommand. Nothing else in #20's contract changes: the context version stays `1`, because no release has `exec` without #21 (exec spec, Risks).
 - **Provider source** (#20, with #58): the provider handed to activation answers `Identity` from the profile's cache without reading the key or calling the network. This is already the exec spec's rule; #21 adds the process test that proves it (no request on the fake GitHub).
 - **`env`** (#26) prints the same plan, so the variables and entries appear in the rendered script with no change there. The `Unshadow` contribution `git` (env spec) belongs to #26.
-- **`doctor`** (#24) check D6 compares the context against these entries; that check is #24's.
+- **`doctor`** (#24) check D6 compares the context against these entries; that check is #24's. The doctor spec (`.ai/specs/2026-11-13-whoami-doctor-output.md`) expects `gitint` to expose the expected entries for a profile as a pure function: `gitint.Identity` is that function for the identity group, so `exec` and `doctor` cannot disagree.
 - No new Go module dependency; no change to the profile config.
 
 ## 📝 API Contracts
