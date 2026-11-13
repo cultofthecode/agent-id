@@ -110,13 +110,13 @@ What the experiment established, as rules that `internal/gitint` and `doctor` ca
 
 ### U — remote URLs and rewrites (effective fetch URL | push URL)
 
-aid rewrites in U1–U12: `url.https://github.com/.insteadOf` = `git@github.com:` and `ssh://git@github.com/` (the two forms that `ARCHITECTURE.md` names). U13 adds the extended set of section 5.
+aid rewrites in U1–U12: `url.https://github.com/.insteadOf` = `git@github.com:` and `ssh://git@github.com/` (the two forms that `ARCHITECTURE.md` names). U13 adds the extended set of section 5 and, as a probe only, a `git://github.com/` rewrite, which section 5 leaves out.
 
 | Row | Remote or inherited configuration | Observed | Class |
 |---|---|---|---|
 | U1 | `git@github.com:o/r`, `ssh://git@github.com/o/r` | rewritten to `https://github.com/o/r.git` | Neutralized |
 | U1 | `github.com:o/r`, `ssh://github.com/o/r`, `ssh://git@ssh.github.com:443/o/r`, `git+ssh://git@github.com/o/r` | **not rewritten by the two forms** | Neutralized by the extended set (U13) |
-| U13 | the four above, plus `ssh+git://git@github.com/` and `git://github.com/` | all rewritten to HTTPS by the extended set | Neutralized |
+| U13 | the four above, plus `ssh+git://git@github.com/` and `git://github.com/` | all rewritten to HTTPS by the extended set (the `git://` row only because the probe adds that rewrite) | Neutralized; `git://` is left out of section 5 deliberately |
 | U2–U4 | personal `url.git@github.com:.insteadOf=https://github.com/` | **SSH for fetch and push**, even with aid rewrites and an aid identity rule `https://github.com/` → itself | Doctor (D1); SSH fallback is owner decision O3 |
 | U5 | personal longer-prefix rule `https://github.com/myorg/` → SSH | **SSH**; a longer prefix always wins | Doctor (D1) |
 | U6–U8 | personal `url.git@github.com:.pushInsteadOf=https://github.com/` | **push URL is SSH**, even with an aid `pushInsteadOf` identity rule | Doctor (D1) |

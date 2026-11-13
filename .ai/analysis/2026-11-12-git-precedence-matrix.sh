@@ -170,6 +170,7 @@ start_capture_server() {
 		sleep 0.1
 		i=$((i + 1))
 	done
+	[ -s "$root/port" ] || return 1
 	port=$(cat "$root/port")
 	srv="http://127.0.0.1:$port"
 }
