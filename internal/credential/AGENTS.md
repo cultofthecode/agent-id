@@ -1,0 +1,11 @@
+# internal/credential
+
+Loads the private key that signs a profile's App credentials (#16, brief §10). It knows no provider and never parses the profile config.
+
+- `Source` is the interface; `File` (a `file:` reference) is the only implementation. A keyring backend is OPEN in `ARCHITECTURE.md`: do not add one, or a dependency for one, without the owner's decision.
+- `File.Path` is absolute or `~/…`; `~/` expands to `$HOME` at load time. Any other form fails with `ErrInvalidReference`. Until #17 adds `profile.KeyRef`, the caller passes the path of a `file:` reference.
+- Fail closed. The key file (or the target of a symlink) must be a regular file owned by the current user with no group or other bits (`0600` or stricter); the check runs on the opened descriptor, so the file checked is the file read. Content must be exactly one unencrypted RSA key, PKCS#1 or PKCS#8 PEM, at most 64 KiB.
+- The decisions are pure functions with hostile-input table tests: `resolvePath`, `checkKeyFile`, `parsePrivateKey`. Keep new rules there, not in `File.PrivateKey`.
+- Errors wrap one of the package sentinels, name the path (and the symlink target) and the fix, and never contain key material: never wrap a parser error, never echo file content or a PEM block type. `assertNoKeyMaterial` checks every error in the tests.
+- The key stays in memory: never write it, cache it, or log it. Read buffers are cleared after parsing.
+- Tests call `testenv.Isolate(t)` and generate keys at run time; no key file is committed (`*.pem` is ignored). Nothing here touches a keychain.
