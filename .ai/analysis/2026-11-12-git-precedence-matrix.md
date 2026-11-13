@@ -118,17 +118,17 @@ aid rewrites in U1–U12: `url.https://github.com/.insteadOf` = `git@github.com:
 | U1 | `github.com:o/r`, `ssh://github.com/o/r`, `ssh://git@ssh.github.com:443/o/r`, `git+ssh://git@github.com/o/r` | **not rewritten by the two forms** | Neutralized by the extended set (U13) |
 | U13 | the four above, plus `ssh+git://git@github.com/` and `git://github.com/` | all rewritten to HTTPS by the extended set (the `git://` row only because the probe adds that rewrite) | Neutralized; `git://` is left out of section 5 deliberately |
 | U2–U4 | personal `url.git@github.com:.insteadOf=https://github.com/` | **SSH for fetch and push**, even with aid rewrites and an aid identity rule `https://github.com/` → itself | Doctor (D1); `exec` refuses it (decisions O1, O3) |
-| U5 | personal longer-prefix rule `https://github.com/myorg/` → SSH | **SSH**; a longer prefix always wins | Doctor (D1) |
-| U6–U8 | personal `url.git@github.com:.pushInsteadOf=https://github.com/` | **push URL is SSH**, even with an aid `pushInsteadOf` identity rule | Doctor (D1) |
+| U5 | personal longer-prefix rule `https://github.com/myorg/` → SSH | **SSH**; a longer prefix always wins | Doctor (D1); `exec` refuses it (decision O1) |
+| U6–U8 | personal `url.git@github.com:.pushInsteadOf=https://github.com/` | **push URL is SSH**, even with an aid `pushInsteadOf` identity rule | Doctor (D1); `exec` refuses it (decision O1) |
 | U9–U10 | repository `remote.origin.pushurl=git@github.com:o/r.git` | SSH without aid (U9); HTTPS with aid rewrites (U10) | Neutralized |
 | U11 | `pushurl` with embedded `user:token` | **credentials in the push URL** | Doctor (D2) |
-| U12 | remote through an `~/.ssh/config` `Host` alias (`github-personal:o/r`) | **not rewritable**; SSH with the alias's key | Doctor (D1 with `ssh -G`) |
+| U12 | remote through an `~/.ssh/config` `Host` alias (`github-personal:o/r`) | **not rewritable**; SSH with the alias's key | Doctor (D1 with `ssh -G`); `exec` refuses it (decision O1) |
 
 ### K — SSH transport
 
 | Row | Configuration | Observed | Class |
 |---|---|---|---|
-| K1 | remote `github.com:o/r` not rewritten; personal `core.sshCommand` | personal SSH command runs | Neutralized by the extended rewrites; otherwise Doctor (D1) |
+| K1 | remote `github.com:o/r` not rewritten; personal `core.sshCommand` | personal SSH command runs | Neutralized by the extended rewrites; otherwise Doctor (D1) and `exec` refuses it (decision O1) |
 | K2 | remote `git@github.com:o/r`, no aid | personal SSH command runs | Neutralized by the rewrites |
 | K3 | aid `core.sshCommand=false` | SSH blocked, push fails (exit 128) | Possible fail-closed option; it would block SSH to every host (O3) |
 | K4 | K3 + inherited `GIT_SSH_COMMAND` | **personal SSH command runs**; the variable wins | Bypass unless agent-id also handles the variable (O3) |
