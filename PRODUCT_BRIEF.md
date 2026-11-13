@@ -321,15 +321,15 @@ Evaluate GitLab, Bitbucket, Azure DevOps or other providers only if user demand 
 
 | Risk / question | Proposed direction |
 | --- | --- |
-| Name: `aidentity` vs `agent-id` | Use `aidentity` as the working name; check package, domain and trademark availability before public launch. |
-| Code provenance and licensing | Inspect the exact source revision and license obligations before reuse; retain attribution and required notices. |
+| Name: `aidentity` vs `agent-id` | **Decided 2026-11-12 (#6):** `agent-id` everywhere (binary, config directory, `AGENT_ID_` prefix); see `ARCHITECTURE.md` Key decisions. Earlier direction, kept as history: use `aidentity` as the working name. The package, domain and trademark availability check before public launch still applies. |
+| Code provenance and licensing | **Decided:** agent-id is licensed under Apache-2.0 (#8, PR #41), and no GHAPP code is reused, so no GHAPP notice applies (owner, PR #31); see `ARCHITECTURE.md` Key decisions. Earlier direction, kept as history: inspect the exact source revision and license obligations before reuse; retain attribution and required notices. |
 | Personal credential leakage | Treat local mode as convenience/attribution, not containment; prioritize hardened isolation separately. |
 | Git configuration precedence and wrapper bypass | Test realistic inherited configs, shell startup behavior and remotes; document supported paths and known bypasses. |
 | GitHub CLI compatibility | Identify installation-token-compatible commands and return clear errors for unsupported user-centric operations. |
 | Commit verification | Decide whether agent-specific signing is a later feature; keep metadata attribution separate from verified signatures. |
 | Profile selection | Start with explicit `exec`; add context auto-detection only with deterministic precedence and clear diagnostics. |
 | GitHub App onboarding friction | Start with existing Apps, then evaluate guided registration or manifest-based setup. |
-| Distribution and commercial model | Independent open-source CLI is a plausible starting hypothesis; licensing, hosting and monetization remain undecided. |
+| Distribution and commercial model | **Partly decided:** open source under Apache-2.0 (#8), released through GitHub Releases and a Homebrew tap (#11); see `ARCHITECTURE.md` Key decisions. The commercial model and hosting beyond the release channel remain **open**. Earlier direction, kept as history: an independent open-source CLI is a plausible starting hypothesis. |
 
 ## 15. Product north star
 
