@@ -290,6 +290,46 @@ func TestParseInlineSecrets(t *testing.T) {
 	}
 }
 
+func TestLooksSecretJWT(t *testing.T) {
+	testenv.Isolate(t)
+	const header, payload = "eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxIn0"
+	cases := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{"whole JWT", header + "." + payload + ".c2lnbmF0dXJl", true},
+		{"unsecured JWT without signature", "eyJhbGciOiJub25lIn0." + payload + ".", true},
+		{"smallest header with alg", "eyJhbGciOiJ4In0." + payload + ".sig", true},
+		{"JWT after a space", "Bearer " + header + "." + payload + ".sig", true},
+		{"JWT after an equals sign", "https://x.test/?t=" + header + "." + payload + ".sig", true},
+		{"JWT after a slash", "file:/keys/" + header + "." + payload + ".sig", true},
+		{"JWT after a dot", "x." + header + "." + payload + ".sig", true},
+		{"JWT with an empty payload object", header + ".e30.sig", true},
+		{"eyJ inside a word", "file:/keys/MoneyJar.prod.pem", false},
+		{"eyJ inside a word with a long tail", "file:/keys/MoneyJarAndMoreLetters.production.pem", false},
+		{"eyJ at a boundary with a short first segment", "file:/keys/eyJar.prod.pem", false},
+		{"eyJ inside a hyphenated word", "file:/keys/key-eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.pem", false},
+		{"eyJ inside an underscored word", "file:/keys/x_eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.pem", false},
+		{"one-character payload", "file:/keys/" + header + ".x.pem", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := looksSecret(c.value, nil); got != c.want {
+				t.Errorf("looksSecret(%q) = %v, want %v", c.value, got, c.want)
+			}
+		})
+	}
+}
+
+func TestParseAcceptsAKeyPathThatContainsEyJ(t *testing.T) {
+	testenv.Isolate(t)
+	doc := profileDoc(`"claude": {"provider": "acme", "host": "git.acme.test", "acme": {"id": 1, "key": "file:/keys/MoneyJar.prod.pem"}}`)
+	if _, err := Parse([]byte(doc), acmeRegistry(t)); err != nil {
+		t.Errorf("Parse with key file:/keys/MoneyJar.prod.pem: %v, want success", err)
+	}
+}
+
 func TestParseSecretPrefixesComeFromTheRegistry(t *testing.T) {
 	testenv.Isolate(t)
 	doc := profileDoc(`"gl": {"provider": "gitlab", "host": "gitlab.example", "gitlab": {"v": "` + acmePrefix + `x"}}`)

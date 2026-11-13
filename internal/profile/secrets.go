@@ -10,8 +10,12 @@ import (
 const pemMarker = "-----BEGIN"
 
 // jwtShape matches a JSON Web Token: three base64url segments separated by
-// dots, the first starting with the encoding of `{"`.
-var jwtShape = regexp.MustCompile(`eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*`)
+// dots, the first starting with the encoding of `{"`. The header starts at a
+// token boundary, so a word that merely contains "eyJ", such as
+// "MoneyJar.prod.pem", does not match. The header has at least 15
+// characters (the encoding of `{"alg":"x"}`) and the payload at least 2; the
+// signature may be empty, as in an unsecured JWT.
+var jwtShape = regexp.MustCompile(`(?:^|[^A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]*`)
 
 // scanSecrets returns ErrInlineSecret for the first string value or member
 // name of the document, in document order, that looks like token or key

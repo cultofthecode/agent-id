@@ -192,7 +192,7 @@ A profile without `identity` is valid in the file. The proposed consumer rule fo
 - The directory is created with mode `0700` and the file with `0600`. The file holds no secret, but it decides which key file signs tokens and which identity commits carry, so it is treated like credentials configuration.
 - Load refuses a file (after following symlinks) or directory that another user can write, or that the current user does not own: `ErrInsecurePermissions` → `config <path>: writable by group or others (mode 0664); run chmod 600 <path>`. A readable-by-others file is accepted.
 - A missing file: `ErrConfigNotFound` → `no agent-id configuration at <path>; run agent-id setup github --profile <name>`.
-- Writes take an exclusive `flock` on `config.json.lock` in the same directory (standard library `syscall.Flock`, macOS and Linux), read the current file, apply the change, write a temporary file in the same directory with mode `0600`, `fsync` it, and `rename` it over `config.json`. A crash leaves either the old or the new file, never a partial one.
+- Writes take an exclusive `flock` on `config.json.lock` in the same directory (when `config.json` is a symlink, next to its target, so that every path to one file takes one lock; #63) (standard library `syscall.Flock`, macOS and Linux), read the current file, apply the change, write a temporary file in the same directory with mode `0600`, `fsync` it, and `rename` it over `config.json`. A crash leaves either the old or the new file, never a partial one.
 - A write keeps the profiles of unregistered providers exactly as read (same members and values), so an older agent-id never drops a profile that a newer one created.
 - agent-id never writes the file during a read, a migration, `exec`, or `env`.
 
