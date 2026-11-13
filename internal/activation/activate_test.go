@@ -219,6 +219,9 @@ func TestRemoteChecks(t *testing.T) {
 		{"trailing dot ssh host", repoRunner("git@"+host+".:o/r.git", "git@"+host+".:o/r.git", ""), ErrSSHRemote},
 		{"header scoped under the host", repoRunner("https://"+host+"/o/r.git", "https://"+host+"/o/r.git", gitList("http.https://"+host+"/o/.extraheader", "Authorization: Basic x", "http.https://"+host+"/.extraheader", "")), ErrRemoteHeader},
 		{"wildcard header for another git host", repoRunner("https://"+host+"/o/r.git", "https://"+host+"/o/r.git", gitList("http.https://*."+host+"/.extraheader", "Authorization: Basic x")), ErrRemoteHeader},
+		{"wildcard header with a middle wildcard label", repoRunner("https://"+host+"/o/r.git", "https://"+host+"/o/r.git", gitList("http.https://ssh.*.agent-id.test/.extraheader", "Authorization: Basic x")), ErrRemoteHeader},
+		{"wildcard header with a wildcard after the first label", repoRunner("https://"+host+"/o/r.git", "https://"+host+"/o/r.git", gitList("http.https://git.*.test/.extraheader", "Authorization: Basic x", "http.https://"+host+"/.extraheader", "")), nil},
+		{"wildcard header that ranks below the host reset passes", repoRunner("https://"+host+"/o/r.git", "https://"+host+"/o/r.git", gitList("http.https://*.*.test/.extraheader", "Authorization: Basic x", "http.https://"+host+"/.extraheader", "")), nil},
 		{"no git", &fakeRunner{errs: map[string]error{listCmd: exec.ErrNotFound}}, nil},
 		{"not a repository", &fakeRunner{answers: map[string]string{listCmd: ""}, errs: map[string]error{"git rev-parse --is-inside-work-tree": &exec.ExitError{}}}, nil},
 	}

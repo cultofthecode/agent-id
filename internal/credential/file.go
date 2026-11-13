@@ -26,8 +26,12 @@ const maxKeyFileSize = 64 << 10
 // The type is checked before the file is opened, so that opening a device has
 // no side effect; the authoritative checks run on the opened descriptor. A
 // symlink target named in an error is resolved separately, for the message
-// only. On macOS an extended ACL can grant access that the mode bits do not
-// show; it is not detected yet (see internal/credential/AGENTS.md).
+// only. On macOS a key file that carries an extended ACL (chmod +a) is
+// refused, because the ACL can grant access that the mode bits do not show.
+// Every directory above the key file, and above the target of a symlink, must
+// be owned by the current user or root and must not be writable by group or
+// others (a sticky directory is accepted), so that no other user can replace
+// the file. Errors show a path under $HOME as ~/….
 type File struct {
 	Path string
 }
@@ -40,13 +44,14 @@ func (f File) PrivateKeyPEM() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := readKeyFile(path)
+	home := os.Getenv("HOME")
+	data, err := readKeyFile(path, home)
 	if err != nil {
 		return nil, err
 	}
 	defer clear(data)
 	if _, err := parsePrivateKey(data); err != nil {
-		return nil, fmt.Errorf("private key %s: %w", path, err)
+		return nil, fmt.Errorf("private key %s: %w", displayPath(path, home), err)
 	}
 	return bytes.Clone(data), nil
 }
@@ -74,24 +79,34 @@ func expandHome(rest, home string) (string, error) {
 	return filepath.Join(home, rest), nil
 }
 
-func readKeyFile(path string) ([]byte, error) {
-	target := symlinkTarget(path)
-	if err := checkBeforeOpen(path, target); err != nil {
+func readKeyFile(path, home string) ([]byte, error) {
+	shown := displayPath(path, home)
+	target := displayPath(symlinkTarget(path), home)
+	if err := checkBeforeOpen(path, shown, target); err != nil {
+		return nil, err
+	}
+	dirs, err := inspectDirs(path, home)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkDirs(dirs, uint32(os.Geteuid())); err != nil {
 		return nil, err
 	}
 	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
 	if err != nil {
-		return nil, openError(path, target, err)
+		return nil, openError(shown, target, err)
 	}
 	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("private key %s: %w: %w", path, ErrKeyUnreadable, unwrapPathError(err))
+		return nil, fmt.Errorf("private key %s: %w: %w", shown, ErrKeyUnreadable, unwrapPathError(err))
 	}
-	if err := checkKeyFile(stateOf(path, target, info)); err != nil {
+	state := stateOf(shown, target, info)
+	state.acl, state.aclErr = extendedACL(file)
+	if err := checkKeyFile(state); err != nil {
 		return nil, err
 	}
-	return readLimited(path, file)
+	return readLimited(shown, file)
 }
 
 func symlinkTarget(path string) string {
@@ -106,13 +121,13 @@ func symlinkTarget(path string) string {
 	return target
 }
 
-func checkBeforeOpen(path, target string) error {
+func checkBeforeOpen(path, shown, target string) error {
 	info, err := os.Stat(path)
 	if err != nil {
-		return openError(path, target, err)
+		return openError(shown, target, err)
 	}
 	if !info.Mode().IsRegular() {
-		return checkKeyFile(fileState{path: path, target: target, mode: info.Mode()})
+		return checkKeyFile(fileState{path: shown, target: target, mode: info.Mode()})
 	}
 	return nil
 }

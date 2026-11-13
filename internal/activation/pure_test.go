@@ -385,10 +385,10 @@ func TestReviewRegressions(t *testing.T) {
 	})
 	t.Run("a header scoped under the host is found", func(t *testing.T) {
 		e := entries("http.https://github.com/acme/.extraheader", "Authorization: Basic x", "http.https://github.com/.extraheader", "")
-		if got := ScopedHeaders(e, []string{"github.com"}); !slices.Equal(got, []string{"Authorization"}) {
+		if got := scopedNames(e, "github.com"); !slices.Equal(got, []string{"Authorization"}) {
 			t.Errorf("headers %v", got)
 		}
-		if got := ScopedHeaders(entries("http.https://gitlab.com/a/.extraheader", "A: b"), []string{"github.com"}); len(got) != 0 {
+		if got := scopedNames(entries("http.https://gitlab.com/a/.extraheader", "A: b"), "github.com"); len(got) != 0 {
 			t.Errorf("another host: %v", got)
 		}
 	})
@@ -400,7 +400,7 @@ func TestReviewRegressions(t *testing.T) {
 		if got := EffectiveHeaders(e, "https://github.com/o/r.git"); len(got) != 0 {
 			t.Errorf("a URL without that user: %v", got)
 		}
-		if got := ScopedHeaders(e, []string{"github.com"}); !slices.Equal(got, []string{"Authorization"}) {
+		if got := scopedNames(e, "github.com"); !slices.Equal(got, []string{"Authorization"}) {
 			t.Errorf("scoped %v", got)
 		}
 	})
@@ -412,7 +412,7 @@ func TestReviewRegressions(t *testing.T) {
 		if got := EffectiveHeaders(e, "https://github.com/"); len(got) != 0 {
 			t.Errorf("the reset beats the wildcard on github.com: %v", got)
 		}
-		if got := ScopedHeaders(e, []string{"gist.github.com"}); len(got) == 0 {
+		if got := scopedNames(e, "gist.github.com"); len(got) == 0 {
 			t.Error("a wildcard pattern for a Git host was not found")
 		}
 	})
@@ -422,7 +422,7 @@ func TestReviewRegressions(t *testing.T) {
 			if got := EffectiveHeaders(e, "https://gist.github.com/"); len(got) != 1 {
 				t.Errorf("%s: %v", pat, got)
 			}
-			if got := ScopedHeaders(e, []string{"gist.github.com"}); len(got) != 1 {
+			if got := scopedNames(e, "gist.github.com"); len(got) != 1 {
 				t.Errorf("%s scoped: %v", pat, got)
 			}
 		}
@@ -448,6 +448,37 @@ func TestReviewRegressions(t *testing.T) {
 		machines, _, err := NetrcHosts("login x # machine github.com\n")
 		if err == nil && len(machines) == 0 {
 			t.Errorf("machines %v", machines)
+		}
+	})
+}
+
+func scopedNames(e []ConfigEntry, hosts ...string) []string {
+	var names []string
+	for _, hh := range ScopedHeaders(e, hosts) {
+		names = append(names, hh.Name)
+	}
+	return names
+}
+
+func TestScopedHeadersWildcardsGitNeverApplies(t *testing.T) {
+	reset := []string{"http.https://github.com/.extraheader", ""}
+	for _, pat := range []string{"*.com", "github.*", "*.*", "*"} {
+		e := entries(append([]string{"http.https://" + pat + "/.extraheader", "Authorization: Basic x"}, reset...)...)
+		if got := ScopedHeaders(e, []string{"github.com"}); len(got) != 0 {
+			t.Errorf("%s ranks below the reset on github.com: %v", pat, got)
+		}
+	}
+	t.Run("a wildcard with a path still wins over the host reset", func(t *testing.T) {
+		e := entries("http.https://github.com/acme/.extraheader", "Authorization: Basic x", "http.https://github.com/.extraheader", "")
+		if got := ScopedHeaders(e, []string{"github.com"}); len(got) != 1 || got[0].Host != "github.com" {
+			t.Errorf("got %v", got)
+		}
+	})
+	t.Run("the header names the host it reaches", func(t *testing.T) {
+		e := entries("http.https://*.github.com/.extraheader", "Authorization: Basic x", "http.https://github.com/.extraheader", "")
+		got := ScopedHeaders(e, []string{"github.com", "gist.github.com"})
+		if len(got) != 1 || got[0].Host != "gist.github.com" {
+			t.Errorf("got %v", got)
 		}
 	})
 }
