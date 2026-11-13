@@ -19,10 +19,10 @@ A developer who already has a GitHub App, its installation, and the App's privat
 ## 📝 Proposed Solution
 
 1. **Command.** `agent-id setup github --profile <name> --app-id <n> --installation-id <n> --private-key <path>`. All four flags are required, and there are no others. Setup never prompts, so it behaves the same in a terminal, a script, and CI. The `github` subcommand and its three provider flags come from the GitHub adapter's onboarder; `--profile` belongs to `setup` itself.
-2. **Check the input (no I/O).** The profile name uses the profile store's name rule. The provider's onboarder checks its own values: both IDs are positive integers, and `--private-key` is a path or a `file:` reference.
-3. **Check for a conflict.** Load the current configuration, if any. A profile with this name and another provider is refused before any network call. A missing file is not an error.
+2. **Check the input (no I/O).** The profile name uses the profile store's name rule (`profile.CheckName`). The onboarder's pure `Check` tests its own values. Both IDs must be positive integers. `--private-key` must be a path or a `file:` reference, and it must not look like a secret: a PEM marker, a JWT shape, one of the provider's token prefixes, or a control character are each refused **before** the value is normalized, and the value is never echoed. Without this check, a pasted token would become `file:<cwd>/<token>` and come back in the credential source's "not found" error, which names the path.
+3. **Check for a conflict.** Load the current configuration. Only a configuration file that does not exist counts as empty. Every other store error, including a non-absolute configuration path, stops setup. A profile with this name and another provider is refused before any network call.
 4. **Verify (network, through the onboarder).** Load the key through the credential source (owner, `0600`, one RSA key), construct the adapter, mint an installation token, resolve the bot, and list the installation's repositories with that token. The token stays in memory, is used once, and is dropped. Setup does not cache it (the token manager is #18).
-5. **Write.** Call `profile.Store.Write` once, under its lock. The change function checks the conflict again (another `setup` may have run meanwhile) and sets the profile: `provider`, `host`, and the `github` block with `app_id`, `installation_id`, `private_key`, and `identity` (`login`, `user_id`, `resolved_at`). Write validates the whole document with the production registry and replaces the file atomically (`0600` file, `0700` directory). Every other profile, those of unknown providers included, keeps its exact bytes.
+5. **Write.** Call `profile.Store.Write` once, under its lock. The change function checks the conflict again (another `setup` may have run meanwhile) and sets the profile: `provider`, `host`, and the `github` block with `app_id`, `installation_id`, `private_key`, and `identity` (`login`, `user_id`, `resolved_at`). Write validates the whole document with the production registry and replaces the file atomically (`0600` file, `0700` directory). Every other profile, those of unknown providers included, keeps the same members and values. The store re-serializes the whole file, so whitespace of a hand-edited file can change.
 6. **Print** the summary (API Contracts). Nothing else is printed on success.
 
 Nothing is written before step 5. A failure in steps 2–5 leaves the configuration file exactly as it was, or absent if it was absent.
@@ -37,7 +37,8 @@ Nothing is written before step 5. A failure in steps 2–5 leaves the configurat
 type Onboarder interface {
     Name() string                 // "github": the setup subcommand and the profile's provider
     SetupFields() []SetupField    // provider flags, in display order; all required
-    Onboard(ctx context.Context, r SetupRequest) (SetupResult, error)
+    Check(r SetupRequest) error   // pure: the values' syntax and the secret-shape refusal; no I/O, never echoes a refused value
+    Onboard(ctx context.Context, r SetupRequest) (SetupResult, error) // calls Check first, then verifies over the network
 }
 type SetupField struct{ Name, Usage string }            // "app-id", "The GitHub App ID"
 type SetupRequest struct {
@@ -77,13 +78,19 @@ Comparable tools: `gh auth login --with-token` and `aws configure set` are flag-
 #### ADDED Requirement: Setup writes a verified profile
 The system SHALL write a profile only after the provider has minted a token, resolved the bot identity, and listed the installation's repositories with the given values, and SHALL store the resolved identity in the profile.
 
-##### Scenario: Valid inputs against the fake GitHub
-- WHEN `agent-id setup github --profile claude --app-id <fake App> --installation-id <fake installation> --private-key <0600 key file of the fake App>` runs against the fake GitHub App whose slug is `claude-dev`, whose bot id is 12345678, and whose installation holds `o/a` and `o/b`
-- THEN the exit status is 0, `config.json` holds profile `claude` with `provider: github`, `host: github.com`, the two IDs, `private_key: file:<absolute key path>`, and `identity.login: claude-dev[bot]`, `identity.user_id: 12345678`, and stdout shows `claude-dev[bot]`, `12345678+claude-dev[bot]@users.noreply.github.com`, `2` repositories, `o/a`, and `o/b`
+The binary cannot reach the fake GitHub: the adapter's API base URL is an unexported test hook (adapter spec, A8). So the end-to-end AC of #19 is covered in two layers. Each is a real test. The GitHub layer runs in the adapter's own package against the fake. The setup layer runs the slice and the composition root with a scripted onboarder.
+
+##### Scenario: GitHub layer — valid inputs against the fake GitHub
+- WHEN, in `internal/provider/github`'s tests, `github.Onboarder.Onboard` runs with the fake App's ID, its installation and a `0600` key file of that App. The fake App's slug is `claude-dev`, its bot id is 12345678, and its installation holds `o/a` and `o/b`. The result is then written through a real temporary `profile.Store` that has the GitHub validator registered.
+- THEN `config.json` holds profile `claude` with `provider: github`, `host: github.com`, the two IDs, `private_key: file:<absolute key path>`, `identity.login: claude-dev[bot]` and `identity.user_id: 12345678`. The result's `Account` is `claude-dev[bot]`, its email is `12345678+claude-dev[bot]@users.noreply.github.com`, and its repositories are `o/a` and `o/b`.
+
+##### Scenario: Setup layer — output of a verified profile
+- WHEN `run` executes `setup github --profile claude …` in-process, with a `FakeOnboarder` scripted with those values, against a temporary store
+- THEN the exit status is 0, the profile is in `config.json`, and stdout shows `claude-dev[bot]`, `12345678+claude-dev[bot]@users.noreply.github.com`, `2` repositories, `o/a` and `o/b`
 
 ##### Scenario: Re-running setup updates the profile
 - WHEN profile `claude` exists for App 1 and setup runs for `claude` with App 2
-- THEN the profile holds App 2 and the identity of App 2's bot, stdout says `updated`, and every other profile is byte-identical
+- THEN the profile holds App 2 and the identity of App 2's bot, stdout says `updated`, and every other profile keeps the same members and values (compared after parsing)
 
 #### ADDED Requirement: A failed setup writes nothing
 The system SHALL exit with a non-zero status and an actionable message, and SHALL leave the configuration file unchanged, when any input, the key, the provider, or the write fails.
@@ -108,8 +115,12 @@ The system SHALL exit with a non-zero status and an actionable message, and SHAL
 The system SHALL NOT create or modify any file other than the profile configuration, its lock file, and its temporary file, and SHALL NOT print a token, a JWT, or key material.
 
 ##### Scenario: Personal configuration untouched
-- WHEN setup succeeds in an isolated environment with a personal `~/.gitconfig` and a `GH_CONFIG_DIR` holding `hosts.yml`
+- WHEN setup succeeds (the setup layer above, run in-process) in an isolated environment with a personal `~/.gitconfig` and a `GH_CONFIG_DIR` holding `hosts.yml`, and when the built binary fails before the network (missing flags, a `0644` key)
 - THEN both are byte-identical afterwards, and the only changed paths under `HOME` are `~/.config/agent-id/config.json` and `~/.config/agent-id/config.json.lock`
+
+##### Scenario: Secret pasted as the key path
+- WHEN `--private-key` is a fake `ghs_` token, a JWT-shaped string, or the one-line `-----BEGIN RSA PRIVATE KEY-----`
+- THEN the exit status is 1, the message names `--private-key` but not the value, and the key loader and the fake GitHub were not called
 
 ##### Scenario: No secret in output
 - WHEN setup succeeds or fails in any scenario of this capability
@@ -131,8 +142,8 @@ flowchart LR
 
 Setup knows the port and the profile store only; the GitHub adapter supplies the flags, the verification, and the block.
 
-- **`internal/provider`** gains `Onboarder`, `SetupField`, `SetupRequest`, `SetupResult`, `SetupDetail`. `providertest` gains `FakeOnboarder` (fields, a scripted result or error, a request recorder) for core tests, and a small contract, `RunOnboarderContract`: fields are non-empty, unique and match `^[a-z][a-z0-9-]*$`; `Onboard` with a missing field fails without calling anything; a successful result has a valid host, an `Account`, a non-empty `Settings` object, and no value that contains a registered token prefix, `-----BEGIN`, or a JWT shape.
-- **`internal/profile`** gains one exported function, `CheckName(name string) error`, the existing name rule, so setup can reject a bad name before any I/O. Nothing else changes.
+- **`internal/provider`** gains `Onboarder`, `SetupField`, `SetupRequest`, `SetupResult`, `SetupDetail`. `providertest` gains `FakeOnboarder` (fields, a scripted result or error, a request recorder) for core tests, and a small contract, `RunOnboarderContract`: fields are non-empty, unique and match `^[a-z][a-z0-9-]*$`; `Onboard` with a missing field fails without calling anything; a successful result has a valid host, an `Account`, a non-empty `Settings` object, and no value that contains a token prefix passed to the contract by the caller (the helper is provider-neutral, so `RunOnboarderContract(t, o, tokenPrefixes)` takes the adapter's prefixes as a parameter), `-----BEGIN`, or a JWT shape; `Check` refuses each of those shapes as a `--private-key`-style value without echoing it.
+- **`internal/profile`** gains two exported members: `CheckName(name string) error` (the existing name rule, so setup can reject a bad name before any I/O) and `Store.Path() string` (the configuration path, for the summary line). Nothing else changes.
 - **`internal/setup`** (slice, new): `contract.go` (`Input{Profile, Provider string; Values map[string]string; Dir string}`, `Output{Profile, Provider, Host, Account string; Identity provider.Identity; Details []provider.SetupDetail; Repositories []string; Created bool; ConfigPath string}`, sentinels), `handler.go` (dependencies: the onboarders by name and a narrow store port `Load() (profile.Config, error)`, `Write(func(*profile.Config) error) error`, `Path() string`), `command.go` (one `setup` command with one subcommand per registered onboarder, its flags from `SetupFields`), `handler_test.go`.
 - **`internal/provider/github`** gains `Onboarder` (`onboard.go`): it parses the values, normalizes the key reference, calls `LoadKey`, `New`, `Token`, `Bot`, `Repositories`, and encodes `ProfileSettings` with `identity`. It reuses #58's `ProfileSettings` and `BotIdentity`; if #58 has not added an encoder, this step adds `ProfileSettings.MarshalJSON` there, with a round-trip test against #58's strict decoder.
 - **`cmd/agent-id`** registers the `setup` command with the GitHub onboarder and builds the production `profile.Store` with the registry that #58 wires. `run` keeps exit status 1 for every setup error.
@@ -153,7 +164,7 @@ agent-id setup github --profile <name> --app-id <id> --installation-id <id> --pr
 | `--app-id` | required; decimal integer, 1 ≤ n ≤ 2⁵³−1, no sign, no leading zero | `--app-id must be a positive integer (the App ID on the App's settings page)` |
 | `--installation-id` | same rule | `--installation-id must be a positive integer (the number at the end of the installation's settings URL)` |
 | `--private-key` | required; `file:<ref>` is parsed with `profile.ParseKeyRef`; otherwise a path: `~/…` becomes `file:~/…`, an absolute path `file:<path>`, a relative path is joined to the working directory and cleaned; `keyring:` gives the store's reserved-scheme error | `--private-key: <ParseKeyRef message>` |
-| missing flags | all missing required flags in one message | `missing required flags: --app-id, --private-key` |
+| missing flags | all missing required flags in one message | `missing required flags: --app-id (the App ID on the App's settings page), --private-key (the .pem file downloaded from the App's settings)` — the hints are the onboarder's `SetupField.Usage` |
 
 Cobra flag errors (unknown flag, missing value) keep cobra's text; the exit status is 1.
 
@@ -175,8 +186,8 @@ Config:        /Users/dev/.config/agent-id/config.json
 Next: agent-id exec --profile claude -- <command>
 ```
 
-- `created` or `updated`. An update that changed the App adds `(App 111 → 123456)` to the `App:` line.
-- The provider lines (`App`, `Installation`, `Private key`) are the onboarder's `Details`, in its order. Setup prints them as given; their values pass the store's `Quote` sanitizer.
+- `created` or `updated`.
+- The provider lines (`App`, `Installation`, `Private key`) are the onboarder's `Details`, in its order. Setup prints them without quotes or truncation, after a pure setup function replaces control and Unicode format characters with `?` (the store's `Quote` would add quotes and cut long key paths at 64 characters).
 - Repositories are sorted. Up to 20 are listed; above that, the 20 first and `… and <n> more`. With zero repositories the count line is `0 (the installation can access no repository; add repositories in the installation's settings)` and the exit status stays 0, because the credentials are valid.
 - The output is for people. It is not a parsed contract: no `--json` in this spec.
 
@@ -203,7 +214,7 @@ The GitHub-specific texts are the GitHub onboarder's; setup prints the error it 
 |---|---|
 | No configuration file yet | Setup creates the directory (`0700`) and the file (`0600`); `created`. |
 | Existing file invalid or group-writable | The store's error; nothing written; no network call (step 3 loads first). |
-| Existing file has a profile of an unknown provider under another name | Kept byte-for-byte. |
+| Existing file has a profile of an unknown provider under another name | Kept with the same members and values. |
 | Same values run twice | `updated`; identity refreshed (`resolved_at` changes); nothing else changes. |
 | Two setups of different profiles at the same time | Both network phases run; the store's lock serializes the writes; both profiles end up in the file. |
 | Two setups of the same profile at the same time | The last write wins; each was fully verified, so the file is valid either way. |
@@ -211,7 +222,7 @@ The GitHub-specific texts are the GitHub onboarder's; setup prints the error it 
 | `--private-key ~/Downloads/app.2026-11-13.private-key.pem` with mode `0644` (GitHub's download) | Credential error with `chmod 600 <path>`; no network. Setup never changes the key file's mode. |
 | `--private-key` is a symlink to a `0600` key | Accepted (credential source rules); the reference stores the path as given, not the target. |
 | The key path contains a newline or control character | Refused by `ParseKeyRef` / the inline-secret scan; the value is not echoed. |
-| Key pasted instead of a path (`--private-key "-----BEGIN…"`) | Refused as an invalid reference without echoing it (the store's inline-secret rule). |
+| Key or token pasted instead of a path (`--private-key "-----BEGIN…"`, a `ghs_…` token, a JWT) | Refused by the onboarder's `Check` before normalization and before any I/O; the message names `--private-key`, never the value. |
 | An App ID typed as `0123` or `1e6` | Integer error. |
 | Installation reaches 5000 repositories | The adapter's page cap (100 pages × 100) covers it; above that, `ErrUnavailable` from the adapter, and nothing is written. |
 | GitHub answers a bot login or repository name with escape characters | Refused by the adapter's patterns (`ErrUnavailable`); nothing printed from the answer. |
@@ -275,18 +286,18 @@ Every test calls `testenv.Isolate(t)` first. GitHub is always `githubtest.NewApp
 ### Phase 1 — ports
 
 1. **Onboarder port.** Add the types to `internal/provider`; `providertest.FakeOnboarder`; `RunOnboarderContract` run against the fake. Update `internal/provider/AGENTS.md`. Tests: the contract passes for the fake; a fake whose result carries a `testenv.FakeToken` value fails the contract.
-2. **Name check.** `profile.CheckName` reusing the existing rule. Tests: the profile spec's name table (`Claude`, `my_bot`, `claude-`, `-a`, 33 characters, `a--b` accepted).
+2. **Name check and path.** `profile.CheckName` reusing the existing rule; `Store.Path`. Tests: the profile spec's name table (`Claude`, `my_bot`, `claude-`, `-a`, 33 characters, `a--b` accepted).
 
 ### Phase 2 — `github.Onboarder`
 
-3. **Values.** Pure `parseSetupValues(values, dir) (appID, installationID int64, key profile.KeyRef, err)`. Table: missing each field, `0`, `-1`, `0123`, `1e6`, `2^53`, whitespace, `~/k.pem`, `/abs/k.pem`, `rel/k.pem` with a `dir`, `file:rel` (refused), `keyring:x` (reserved), a path with a newline, `-----BEGIN RSA PRIVATE KEY-----` as the value (refused, not echoed).
+3. **Values.** `Check`, built on a pure `parseSetupValues(values, dir) (appID, installationID int64, key profile.KeyRef, err)`. Table: missing each field, `0`, `-1`, `0123`, `1e6`, `2^53`, whitespace, `~/k.pem`, `/abs/k.pem`, `rel/k.pem` with a `dir`, `file:rel` (refused), `keyring:x` (reserved), a path with a newline, and as the value: `-----BEGIN RSA PRIVATE KEY-----`, a `testenv.FakeToken`, `ghp_x`, `github_pat_x`, and a JWT shape. Each is refused by `Check`, the error does not contain the value, and `LoadKey` is not called.
 4. **Onboard.** `LoadKey` → `New` → `Token` → `Bot` → `Repositories` → `ProfileSettings` with `identity` (`resolved_at` from an injected clock, UTC, seconds). Tests against `githubtest`: success with two repositories (the Delta's values); 401, 403, 404, 429, 503 on the token, each with its message and the right sentinel; a key of another App; `LoadKey` failing (no request reaches the fake); a hostile bot login; more than 20 repositories; zero repositories. Every error and the result are scanned for the fake token, the JWT, and `-----BEGIN`. `RunOnboarderContract` passes for `github.Onboarder`.
 5. **Block round trip.** The `Settings` that `Onboard` returns pass #58's strict validator and decode to the same values.
 
 ### Phase 3 — `internal/setup` and wiring
 
-6. **Slice.** `contract.go`, `handler.go`, `command.go`, `handler_test.go` with `FakeOnboarder` and a temporary store: created, updated (other profiles byte-identical, an unknown-provider profile kept), provider conflict before the network (the fake's recorder is empty), conflict appearing during the network phase (the change function refuses), store errors before the network, onboarder errors (nothing written: file hash and directory listing unchanged), missing flags listed together, output rendering (20-repository cut-off, zero repositories, App change note).
-7. **Composition root.** Register `setup` with the GitHub onboarder and the production store; inject `LoadKey` through `internal/credential`. Test: with the production registry, `setup github --help` lists the four flags; an unknown provider subcommand fails.
+6. **Slice.** `contract.go`, `handler.go`, `command.go`, `handler_test.go` with `FakeOnboarder` and a temporary store: created, updated (other profiles keep members and values, compared after parsing; an unknown-provider profile kept), provider conflict before the network (the fake's recorder is empty), conflict appearing during the network phase (the change function refuses), store errors before the network, onboarder errors (nothing written: file hash and directory listing unchanged), missing flags listed together, output rendering (20-repository cut-off, zero repositories, a detail value with an escape sequence rendered with `?`).
+7. **Composition root** (`cmd/agent-id/main.go`, the only file depguard lets import the adapter, test files included; the builder of the production root lives there and tests call it). Register `setup` with the GitHub onboarder and the production store; inject `LoadKey` through `internal/credential`. Test: with the production registry, `setup github --help` lists the four flags; an unknown provider subcommand fails.
 8. **Process test.** Build the binary with `testenv.BuildBinary`; `TestMain` calls `testenv.Main`. The adapter's API base URL is an unexported test-only hook (adapter spec, A8), so neither the binary nor a test outside `internal/provider/github` can point the GitHub onboarder at the fake. The split is therefore: step 4 tests the GitHub onboarder against the fake in its own package; `cmd/agent-id` tests run `run` in-process with a root built from `providertest.FakeOnboarder` (wiring, rendering, exit status); and the binary test covers flag parsing and the failures that happen before any network call (missing flags, `0644` key, conflicting provider, invalid config). Assertions: the isolated `~/.gitconfig` and `GH_CONFIG_DIR` hash the same before and after; only `config.json` and its lock appear under `HOME`; stdout and stderr contain no `ghs_`, `-----BEGIN`, or JWT shape.
 
 ### Phase 4 — docs and record
