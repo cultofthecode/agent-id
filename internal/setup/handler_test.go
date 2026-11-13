@@ -306,6 +306,20 @@ func TestHandleWritesNothingWhenTheOnboarderFails(t *testing.T) {
 	}
 }
 
+func TestHandleWritesNothingWhenInterruptedDuringTheNetworkPhase(t *testing.T) {
+	f := newFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.onboarder.OnOnboard(cancel)
+	_, err := f.handler.Handle(ctx, validInput())
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if f.snapshot(t) != nil {
+		t.Errorf("the configuration was written")
+	}
+}
+
 func TestHandleWritesNothingWhenTheResultDoesNotValidate(t *testing.T) {
 	f := newFixture(t)
 	f.writeConfig(t, existingConfig)

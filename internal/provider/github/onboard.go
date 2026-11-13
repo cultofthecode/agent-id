@@ -243,8 +243,6 @@ func verify(ctx context.Context, p *Provider, values setupValues) (BotUser, []st
 // operation and status and never a token.
 func setupError(err error, values setupValues, tokenStep bool) error {
 	switch {
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		return err
 	case errors.Is(err, provider.ErrUnauthorized):
 		return failf(err, "GitHub rejected the App credentials: check that --%s %d is the App's ID and that --%s belongs to that App and is not revoked; a clock more than a minute off also causes this", fieldAppID, values.appID, fieldPrivateKey)
 	case errors.Is(err, provider.ErrNotFound) && tokenStep:

@@ -62,6 +62,9 @@ func (h *Handler) Handle(ctx context.Context, in Input) (Output, error) {
 	if err != nil {
 		return Output{}, err
 	}
+	if err := ctx.Err(); err != nil {
+		return Output{}, fmt.Errorf("setup interrupted before the write: %w", err)
+	}
 	created, err := write(store, in, result)
 	if err != nil {
 		return Output{}, err

@@ -316,8 +316,8 @@ func TestOnboardCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := f.onboarder.Onboard(ctx, f.request())
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v, want context.Canceled", err)
+	if !errors.Is(err, context.Canceled) || !strings.HasPrefix(err.Error(), "cannot reach GitHub: ") {
+		t.Fatalf("error = %v, want context.Canceled under \"cannot reach GitHub: \"", err)
 	}
 }
 

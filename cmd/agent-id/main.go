@@ -35,10 +35,13 @@ const (
 // commandName is the name of the binary (ARCHITECTURE.md, Key decisions).
 const commandName = "agent-id"
 
-// main runs agent-id with a context that SIGINT and SIGTERM cancel, so that
-// an interrupted command fails closed with exit status 1.
+// main runs agent-id with a context that the first SIGINT or SIGTERM
+// cancels, so that an interrupted command fails closed with exit status 1.
+// The handler is removed on that first signal, so a second one ends a
+// command that is blocked, for example on the configuration lock.
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	context.AfterFunc(ctx, stop)
 	code := run(ctx, newRoot(), os.Args[1:], os.Stdout, os.Stderr)
 	stop()
 	os.Exit(code)
