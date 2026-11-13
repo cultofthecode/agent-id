@@ -2,6 +2,8 @@
 
 > ⚠️ Superseded by `.ai/specs/2026-11-13-env-claude-session-start.md` (2026-11-13) — sections: Architecture (the `Activate` return type and the new `Plan.Unshadow` field). Partly superseded: everything else in this spec stands.
 
+> 🔧 Amended by #23 (2026-11-13): the `gh` stub in `neutral-bin` is now the launcher of the `gh` shim, see `.ai/specs/2026-11-13-gh-shim.md`. Where this spec says "refusing stub", read "launcher that starts `agent-id cli gh`". Every other rule of the neutral baseline stays.
+>
 > 🔒 Amended by #68 (2026-11-13): `exec` fails closed from its first merge. The child never reaches the developer's credentials through Git or `gh`, independently of #21–#23. See [Neutral credential baseline](#-neutral-credential-baseline-68). The amendment replaces the delivery-order rule "no release may contain `exec` before #21, #22, and #23", and it moves O1 from #22 into #20.
 
 > 🔧 Amended by the follow-up PR for #69–#77 (2026-11-13; post-merge review of #48, findings M1–M8 and N1; #87 in part). Each amendment is marked `(#NN)` in place. In short: the `GIT_CONFIG_COUNT` rule and the idempotence property (#69); re-entry removes the previous plan's own `PATH` directories and `Set` names, recorded in two new context variables (#70); no inherited environment value is echoed in an error (#71); the parent environment is normalized to unique names before any decision (#72); the "Git entries changed" scenario is tested where it can fail (#73); the full O2 refused set is in `ARCHITECTURE.md` (#74); the three conflicts with the GitHub adapter spec are settled (#75); the owner's sign-off of contract v1 is pending (#76, OQ5); `ENOENT` from `execve` is 127 (#77).

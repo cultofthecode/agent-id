@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"syscall"
 
 	"github.com/cultofthecode/agent-id/internal/provider"
@@ -16,7 +17,7 @@ import (
 type NeutralPaths struct {
 	// ConfigDir is the CLI's empty configuration directory.
 	ConfigDir string
-	// BinDir holds the refusing stub of the CLI.
+	// BinDir holds the launcher of the CLI.
 	BinDir string
 }
 
@@ -32,9 +33,21 @@ type FileNeutralDirs struct{}
 
 var binaryName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 
-// StubScript is the content of the refusing stub of the CLI named binary.
-func StubScript(binary string) string {
-	return "#!/bin/sh\nprintf '%s\\n' 'agent-id: " + binary + " is not available in this agent context: this agent-id version gives " + binary + " no bot token, and it never uses your personal login. Run " + binary + " in your own terminal.' >&2\nexit 1\n"
+// LauncherScript is the content of the launcher of the CLI named binary. It
+// starts "agent-id cli <binary>", which checks the arguments, takes a token,
+// and replaces itself with the real CLI (#23, spec
+// .ai/specs/2026-11-13-gh-shim.md). It holds no token and no profile. When
+// AGENT_ID_BIN is not an executable file, it refuses with exit 125 and never
+// starts the real CLI, so a removed binary cannot let the shell fall through
+// to the developer's CLI.
+func LauncherScript(binary string) string {
+	code := "AID-" + strings.ToUpper(binary) + "-TOKEN"
+	return "#!/bin/sh\n" +
+		"if [ -n \"${AGENT_ID_BIN:-}\" ] && [ -x \"$AGENT_ID_BIN\" ]; then\n" +
+		"  exec \"$AGENT_ID_BIN\" cli " + binary + " -- \"$@\"\n" +
+		"fi\n" +
+		"printf '%s\\n' 'agent-id: " + code + ": " + binary + " was not started because the agent-id binary is not available (AGENT_ID_BIN). Run agent-id doctor outside the agent context.' >&2\n" +
+		"exit 125\n"
 }
 
 // CacheDir returns the cache directory for the environment parent.
@@ -72,7 +85,7 @@ func (FileNeutralDirs) Ensure(parent []string, providerName string, cli provider
 	}
 	for _, name := range cli.ForbiddenConfigFiles {
 		if _, err := os.Lstat(filepath.Join(paths.ConfigDir, name)); err == nil {
-			return NeutralPaths{}, neutralErr(paths.ConfigDir, "contains "+name, "remove it, then log in only outside the agent context")
+			return NeutralPaths{}, neutralErr(paths.ConfigDir, "contains "+name, "remove it, and change CLI settings or log in only outside the agent context")
 		}
 	}
 	if err := ensureStub(filepath.Join(paths.BinDir, cli.Binary), cli.Binary); err != nil {
@@ -125,7 +138,7 @@ func ensurePrivateDir(dir string) error {
 // atomically when its content or mode differ, and refusing a symlink or a
 // file of another user.
 func ensureStub(path, binary string) error {
-	want := []byte(StubScript(binary))
+	want := []byte(LauncherScript(binary))
 	info, err := os.Lstat(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):

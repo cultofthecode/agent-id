@@ -22,6 +22,7 @@ import (
 	"github.com/cultofthecode/agent-id/internal/activation"
 	activationenv "github.com/cultofthecode/agent-id/internal/activation/env"
 	activationexec "github.com/cultofthecode/agent-id/internal/activation/exec"
+	"github.com/cultofthecode/agent-id/internal/cliint"
 	"github.com/cultofthecode/agent-id/internal/credential"
 	"github.com/cultofthecode/agent-id/internal/diagnose"
 	"github.com/cultofthecode/agent-id/internal/gitint/credentialhelper"
@@ -62,6 +63,46 @@ func main() {
 // profile store at the default location.
 func newRoot() *cobra.Command {
 	return buildRootWith([]provider.Onboarder{github.NewOnboarder(loadKey)}, openStore, newExecHandler())
+}
+
+// newCLIHandler returns the production handler of the hidden cli command that
+// the launcher of gh starts (#23): the agent context of the environment, the
+// GitHub adapter's rules and provider, the token manager at the default
+// cache directory, and the neutral directories of exec. The real CLI
+// replaces the process.
+func newCLIHandler() *cliint.Handler {
+	return &cliint.Handler{
+		Profile: func(parent []string) (string, error) {
+			ctx, err := activation.ReadContext(parent)
+			if err != nil {
+				return "", err
+			}
+			if ctx == nil {
+				return "", errors.New("no agent context in the environment")
+			}
+			return ctx.Profile, nil
+		},
+		Activator: func(name string) (provider.Activator, error) {
+			p, err := lazyProfiles{}.Resolve(name)
+			if err != nil {
+				return nil, err
+			}
+			return productionProviders{}.Activator(p)
+		},
+		Provider: func(name string) (provider.Provider, error) {
+			p, err := lazyProfiles{}.Resolve(name)
+			if err != nil {
+				return nil, err
+			}
+			return openProvider(p)
+		},
+		NeutralDirs: func(parent []string, a provider.Activator) (string, string, error) {
+			paths, err := activation.FileNeutralDirs{}.Ensure(parent, a.Name(), a.NeutralCLI())
+			return paths.ConfigDir, paths.BinDir, err
+		},
+		Tokens: tokenManager{},
+		Execer: activationexec.SyscallExecer{},
+	}
 }
 
 // newExecHandler returns the production handler of exec: the profile store
@@ -168,6 +209,7 @@ func buildRootWith(onboarders []provider.Onboarder, openStore func() (setup.Stor
 	root.AddCommand(setup.NewCommand(&setup.Handler{Onboarders: onboarders, OpenStore: openStore}))
 	root.AddCommand(diagnosticCommands(github.ProfileRegistration(), openProvider)...)
 	root.AddCommand(activationexec.NewCommand(execHandler))
+	root.AddCommand(cliint.NewCommand(newCLIHandler()))
 	root.AddCommand(credentialhelper.NewCommand(newCredentialHelper()))
 	root.AddCommand(activationenv.NewCommand(newEnvHandler()))
 	root.AddCommand(newClaudeCodeCommand())

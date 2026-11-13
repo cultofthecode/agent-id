@@ -213,7 +213,7 @@ func TestExecNeutralBaselineIsolation(t *testing.T) {
 	f.workdir = repo
 	f.extra = []string{
 		"GIT_CONFIG_NOSYSTEM=0", "GIT_CONFIG_SYSTEM=" + system,
-		"GH_TOKEN=" + fakePersonal, "GITHUB_TOKEN=" + fakePersonal, "GH_ENTERPRISE_TOKEN=" + fakePersonal, "GITHUB_ENTERPRISE_TOKEN=" + fakePersonal,
+		"GH_TOKEN=" + fakePersonal, "GITHUB_TOKEN=" + fakePersonal, "GH_ENTERPRISE_TOKEN=" + fakePersonal, "GITHUB_ENTERPRISE_TOKEN=" + fakePersonal, "GH_HOST=ghe.example.test",
 		"GIT_ASKPASS=" + ask, "SSH_ASKPASS=" + ask,
 		"PATH=" + filepath.Join(env.TempDir, "later") + ":" + os.Getenv("PATH"),
 	}
@@ -231,15 +231,15 @@ env`
 			t.Errorf("the child saw %q", bad)
 		}
 	}
-	for _, want := range []string{"credential-rc=128", "ls-remote-rc=128", "gh-rc=1", "GH_TOKEN=" + decoy, "GH_ENTERPRISE_TOKEN=" + decoy} {
+	for _, want := range []string{"credential-rc=128", "ls-remote-rc=128", "gh-rc=125", "GH_TOKEN=" + decoy, "GH_ENTERPRISE_TOKEN=" + decoy} {
 		if !strings.Contains(out, want) {
 			t.Errorf("child output lacks %q", want)
 		}
 	}
-	if !strings.Contains(r.stderr, "agent-id: gh is not available in this agent context") {
-		t.Errorf("gh did not print the stub message; stderr %q", r.stderr)
+	if !strings.Contains(r.stderr, "agent-id: AID-GH-USER:") {
+		t.Errorf("gh api user was not refused by the shim; stderr %q", r.stderr)
 	}
-	for _, absent := range []string{"\nGITHUB_TOKEN=", "\nGITHUB_ENTERPRISE_TOKEN=", "\nGIT_ASKPASS=", "\nSSH_ASKPASS="} {
+	for _, absent := range []string{"\nGITHUB_TOKEN=", "\nGH_HOST=", "\nGITHUB_ENTERPRISE_TOKEN=", "\nGIT_ASKPASS=", "\nSSH_ASKPASS="} {
 		if strings.Contains("\n"+out, absent) {
 			t.Errorf("the child environment has %q", strings.TrimSpace(absent))
 		}
@@ -445,8 +445,8 @@ func TestExecNeutralDirectories(t *testing.T) {
 	if r := f.run("exec", "--profile", "claude", "--", "true"); r.code != 0 {
 		t.Fatalf("rewrite of the stub: %d %s", r.code, r.stderr)
 	}
-	if data, _ := os.ReadFile(stub); !strings.Contains(string(data), "agent-id: gh is not available") {
-		t.Error("a stub with other content was not rewritten")
+	if data, _ := os.ReadFile(stub); !strings.Contains(string(data), `cli gh -- "$@"`) {
+		t.Error("a launcher with other content was not rewritten")
 	}
 	if err := os.Chmod(filepath.Join(root, "cli-config"), 0o770); err != nil {
 		t.Fatal(err)

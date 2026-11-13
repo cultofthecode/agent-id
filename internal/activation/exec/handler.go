@@ -64,7 +64,7 @@ func execCode(err error) int {
 func reason(err error) string {
 	switch {
 	case errors.Is(err, syscall.ENOENT):
-		return "command not found"
+		return "interpreter or loader not found"
 	case errors.Is(err, syscall.EACCES):
 		return "permission denied"
 	case errors.Is(err, syscall.ENOEXEC):

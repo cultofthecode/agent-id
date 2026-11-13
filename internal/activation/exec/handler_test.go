@@ -117,7 +117,7 @@ func TestHandleFailures(t *testing.T) {
 		{"execve fails with EACCES", func(h *Handler, _ *Input) {
 			h.Execer = &recorder{err: &os.PathError{Op: "fork/exec", Path: "x", Err: syscall.EACCES}}
 		}, 126, "permission denied"},
-		{"execve fails with ENOENT", func(h *Handler, _ *Input) { h.Execer = &recorder{err: syscall.ENOENT} }, 127, "command not found"},
+		{"execve fails with ENOENT", func(h *Handler, _ *Input) { h.Execer = &recorder{err: syscall.ENOENT} }, 127, "interpreter or loader not found"},
 		{"empty drop list", func(h *Handler, _ *Input) {
 			h.Deps.Providers = source{&providertest.FakeActivator{CLI: providertest.NewFakeActivator().CLI, Ident: providertest.NewFakeActivator().Ident}}
 		}, 125, "plan contains"},

@@ -41,7 +41,7 @@ func (a *activator) Host() string { return host }
 func (a *activator) GitHosts() []string { return []string{host, "ssh.github.com", "gist.github.com"} }
 
 func (a *activator) CredentialVariables() []string {
-	return []string{"GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"}
+	return []string{"GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_HOST"}
 }
 
 func (a *activator) TokenPrefixes() []string { return slices.Clone(tokenPrefixes) }
@@ -51,7 +51,7 @@ func (a *activator) NeutralCLI() provider.NeutralCLI {
 		ConfigDirVar:         "GH_CONFIG_DIR",
 		Decoys:               map[string]string{"GH_TOKEN": decoyToken, "GH_ENTERPRISE_TOKEN": decoyToken},
 		Binary:               "gh",
-		ForbiddenConfigFiles: []string{"hosts.yml"},
+		ForbiddenConfigFiles: []string{"hosts.yml", "config.yml"},
 	}
 }
 

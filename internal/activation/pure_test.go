@@ -13,7 +13,7 @@ func TestMain(m *testing.M) { testenv.Main(m) }
 
 func TestReadContextAndDecide(t *testing.T) {
 	testenv.Isolate(t)
-	valid := []string{"AGENT_ID_CONTEXT=1", "AGENT_ID_ACTIVE_PROFILE=claude", "AGENT_ID_GIT_CONFIG_BASE=0", "AGENT_ID_GIT_CONFIG_END=3"}
+	valid := []string{"AGENT_ID_CONTEXT=1", "AGENT_ID_ACTIVE_PROFILE=claude", "AGENT_ID_GIT_CONFIG_BASE=0", "AGENT_ID_GIT_CONFIG_END=3", "AGENT_ID_PATH_PREPEND=", "AGENT_ID_SET_NAMES="}
 	with := func(over ...string) []string { return append(slices.Clone(valid), over...) }
 	tests := []struct {
 		name    string
@@ -75,17 +75,17 @@ func TestCheckInheritedGit(t *testing.T) {
 		{"trailing space", []string{"GIT_CONFIG_COUNT=2 "}, "GIT_CONFIG_COUNT"},
 		{"hex", []string{"GIT_CONFIG_COUNT=0x2"}, "GIT_CONFIG_COUNT"},
 		{"credential helper", []string{"GIT_CONFIG_PARAMETERS='credential.helper'='store'"}, "credential.helper"},
-		{"mixed case url", []string{"GIT_CONFIG_PARAMETERS='URL.x.insteadOf'='y'"}, "url.<subsection>.insteadof"},
+		{"mixed case url", []string{"GIT_CONFIG_PARAMETERS='URL.x.insteadOf'='y'"}, "url.<…>.insteadof"},
 		{"http", []string{"GIT_CONFIG_PARAMETERS='http.extraheader'='A: b'"}, "http.extraheader"},
 		{"include path", []string{"GIT_CONFIG_PARAMETERS='include.path'='/tmp/x.gitconfig'"}, "include.path"},
-		{"includeIf", []string{"GIT_CONFIG_PARAMETERS='includeIf.gitdir:/x/.path'='/y'"}, "includeif.<subsection>.path"},
+		{"includeIf", []string{"GIT_CONFIG_PARAMETERS='includeIf.gitdir:/x/.path'='/y'"}, "includeif.<…>.path"},
 		{"push gpgSign", []string{"GIT_CONFIG_PARAMETERS='push.gpgSign'='true'"}, "push.gpgsign"},
 		{"old quoting", []string{"GIT_CONFIG_PARAMETERS='credential.helper=store'"}, "credential.helper"},
-		{"bare key", []string{"GIT_CONFIG_PARAMETERS='http.sslverify'"}, "http.sslverify"},
+		{"bare key", []string{"GIT_CONFIG_PARAMETERS='http.sslverify'"}, "sets http,"},
 		{"harmless", []string{"GIT_CONFIG_PARAMETERS='core.pager'='less'"}, ""},
 		{"escape kept", []string{`GIT_CONFIG_PARAMETERS='alias.x'='!cmd'\'''`}, ""},
 		{"unterminated", []string{"GIT_CONFIG_PARAMETERS='core.pager"}, "cannot be parsed"},
-		{"url credentials not echoed", []string{"GIT_CONFIG_PARAMETERS='credential.https://user:tok@github.com.helper'='x'"}, "credential.<subsection>.helper"},
+		{"url credentials not echoed", []string{"GIT_CONFIG_PARAMETERS='credential.https://user:tok@github.com.helper'='x'"}, "credential.<…>.helper"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -50,8 +50,10 @@ func Build(parent []string, plan Plan) ([]string, error) {
 	return render(env), nil
 }
 
-// stripContribution removes the Git entries that a previous Build appended,
-// after checking that nothing changed them since.
+// stripContribution removes what a previous Build contributed, after
+// checking that no Git entry changed since: its appended Git entries, its
+// PATH directories, and its Set names. It leaves GIT_CONFIG_COUNT at the
+// previous base, in canonical form.
 func stripContribution(env map[string]string, ctx *Context) error {
 	count, err := inheritedCount(env)
 	if err != nil || count != ctx.GitConfigEnd {
@@ -61,12 +63,28 @@ func stripContribution(env map[string]string, ctx *Context) error {
 		delete(env, "GIT_CONFIG_KEY_"+strconv.Itoa(n))
 		delete(env, "GIT_CONFIG_VALUE_"+strconv.Itoa(n))
 	}
-	if ctx.GitConfigBase == 0 {
-		delete(env, "GIT_CONFIG_COUNT")
-	} else {
-		env["GIT_CONFIG_COUNT"] = strconv.Itoa(ctx.GitConfigBase)
+	env["GIT_CONFIG_COUNT"] = strconv.Itoa(ctx.GitConfigBase)
+	for _, name := range ctx.SetNames {
+		delete(env, name)
+	}
+	if len(ctx.PathPrepend) > 0 {
+		removePathDirs(env, ctx.PathPrepend)
 	}
 	return nil
+}
+
+func removePathDirs(env map[string]string, dirs []string) {
+	path, ok := env["PATH"]
+	if !ok {
+		return
+	}
+	var rest []string
+	for _, p := range strings.Split(path, ":") {
+		if !slices.Contains(dirs, p) {
+			rest = append(rest, p)
+		}
+	}
+	env["PATH"] = strings.Join(rest, ":")
 }
 
 func removeOwned(env map[string]string, drop []string) {
@@ -87,15 +105,20 @@ func setContext(env map[string]string, plan Plan, base int) {
 	env[VarBinary] = plan.Binary
 	env[VarGitBase] = strconv.Itoa(base)
 	env[VarGitEnd] = strconv.Itoa(base + len(plan.GitConfig))
+	env[VarPathPrepend] = strings.Join(plan.PathPrepend, ":")
+	env[VarSetNames] = strings.Join(setNames(plan.Set), ",")
+}
+
+func setNames(set map[string]string) []string {
+	names := make([]string, 0, len(set))
+	for name := range set {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
 }
 
 func appendGitConfig(env map[string]string, entries []GitConfigEntry, base int) {
-	if len(entries) == 0 {
-		if env["GIT_CONFIG_COUNT"] == "" {
-			delete(env, "GIT_CONFIG_COUNT")
-		}
-		return
-	}
 	for i, e := range entries {
 		env["GIT_CONFIG_KEY_"+strconv.Itoa(base+i)] = e.Key
 		env["GIT_CONFIG_VALUE_"+strconv.Itoa(base+i)] = e.Value
@@ -145,7 +168,7 @@ func checkPlan(plan Plan) error {
 		return nil
 	}
 	for name, value := range plan.Set {
-		if !varName.MatchString(name) || strings.HasPrefix(name, Prefix) {
+		if !validSetName(name) {
 			return unsafePlan("an invalid variable name")
 		}
 		if err := check(name, value); err != nil {
@@ -163,6 +186,9 @@ func checkPlan(plan Plan) error {
 			return err
 		}
 	}
+	if hasDuplicate(plan.PathPrepend) {
+		return unsafePlan("a duplicate PATH directory")
+	}
 	for _, dir := range plan.PathPrepend {
 		if !strings.HasPrefix(dir, "/") || strings.Contains(dir, ":") {
 			return unsafePlan("an invalid PATH directory")
@@ -172,6 +198,13 @@ func checkPlan(plan Plan) error {
 		}
 	}
 	return check(VarBinary, plan.Binary)
+}
+
+// validSetName reports whether name may be set by a plan: a variable name
+// that is not owned by agent-id and not one that Build writes itself.
+func validSetName(name string) bool {
+	return varName.MatchString(name) && !strings.HasPrefix(name, Prefix) &&
+		name != "PATH" && !strings.HasPrefix(name, "GIT_CONFIG_")
 }
 
 func unsafePlan(what string) error {
