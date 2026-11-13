@@ -22,7 +22,7 @@ Decisions this spec follows:
   1. it resets the `credential.helper` list to empty through `GIT_CONFIG_*`;
   2. it sets `GIT_TERMINAL_PROMPT=0`;
   3. it points `GH_CONFIG_DIR` at an empty directory owned by agent-id;
-  4. it leaves `GH_TOKEN` and `GITHUB_TOKEN` unset until #23;
+  4. it gives the child no developer or bot token until #23 (`GH_TOKEN` holds only a fixed, non-secret decoy that closes `gh`'s keychain fallback: OQ4, required by the owner's Definition of Done of 13.11);
   5. it refuses to start while a GitHub remote resolves to SSH (O1, moved from #22 into #20);
   6. the regression test belongs to the fail-closed suite #25.
 
@@ -263,7 +263,7 @@ The system SHALL start the command only with the neutral credential baseline in 
 
 ##### Scenario: No token in the child
 - WHEN the parent has fake values in `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN`
-- THEN the command's environment has none of them, and no value of the command's environment matches a registered token prefix, `-----BEGIN`, or a JWT shape
+- THEN none of the developer's values reaches the command: `GITHUB_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` are absent, `GH_TOKEN` and `GH_ENTERPRISE_TOKEN` hold only the fixed decoy, and no value of the command's environment matches a registered token prefix, `-----BEGIN`, or a JWT shape
 
 ##### Scenario: Refusal on an SSH remote
 - WHEN the working directory is a repository whose `origin` is `git@github.com:o/r.git`, or `https://github.com/o/r.git` rewritten to SSH by a personal `url.git@github.com:.insteadOf`, or a `pushurl` of `ssh://git@ssh.github.com:443/o/r.git`
@@ -589,7 +589,7 @@ path=o/r.git
    - The fake `hosts.yml`, holding a fake `oauth_token` in the parent's `GH_CONFIG_DIR`, is never opened: a fake `gh` placed later on `PATH` that would read it records zero calls.
    - `gh` by name is the stub: it prints agent-id's message and exits 1.
    - The child's `GH_TOKEN` is the decoy, so `gh` started any way, including by absolute path, resolves its token from `GH_TOKEN` and never reaches `hosts.yml` or the keyring. Proved offline: the real `gh` by absolute path runs `gh auth token` inside `exec` and prints the decoy (skipped when `gh` is not installed). The test never touches a real keychain.
-2a. **The developer's `.netrc`.** A fake `$HOME/.netrc` with a provider entry makes `exec` refuse (125); a transport test against `testenv.NewGitServer` with that file and the refusal bypassed in a unit-level harness shows why: Git would send it.
+2a. **The developer's `.netrc`.** A fake `$HOME/.netrc` with a provider entry makes `exec` refuse (125); a transport test against `testenv.NewGitServer` with that file, run with the netrc check switched off in a test-only harness, shows why the refusal is needed: Git sends the `.netrc` credentials.
 3. **The developer's tokens.** With fake values (`testenv.FakeToken`) in `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` in the parent, the child's environment (`env` inside `exec`) contains no developer value in these variables (`GH_TOKEN` and `GH_ENTERPRISE_TOKEN` hold only the fixed decoy; `GITHUB_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` are absent) and no value with a registered token prefix, `-----BEGIN`, or a JWT shape.
 
 The test passes without #21–#23 and stays required after they land.
