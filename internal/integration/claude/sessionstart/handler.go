@@ -71,7 +71,7 @@ func (h *Handler) handleOpen(ctx context.Context, f *os.File, in Input) error {
 	if claude.HasBlock(string(existing), block) {
 		return nil
 	}
-	return h.appendBlock(f, shell, size, in.Profile, block)
+	return h.appendBlock(f, shell, size, existing, in.Profile, block)
 }
 
 func (h *Handler) render(ctx context.Context, existing string, in Input) (string, error) {
@@ -141,9 +141,10 @@ func parseHook(data []byte) (string, error) {
 	return cwd, nil
 }
 
-func (h *Handler) appendBlock(f *os.File, shell string, size int64, profile, block string) error {
-	n, err := h.write(f, []byte(block))
-	if err == nil && n == len(block) {
+func (h *Handler) appendBlock(f *os.File, shell string, size int64, existing []byte, profile, block string) error {
+	text := []byte(leadingNewline(existing) + block)
+	n, err := h.write(f, text)
+	if err == nil && n == len(text) {
 		all, rerr := io.ReadAll(io.NewSectionReader(f, 0, size+int64(n)))
 		if rerr == nil && h.checkSyntax(shell, all) == nil {
 			return nil
@@ -171,17 +172,22 @@ func (h *Handler) refuse(f *os.File, shell string, size int64, existing []byte, 
 	if bytes.Contains(existing, []byte(line)) {
 		return refused(reason)
 	}
-	prefix := ""
-	if len(existing) > 0 && existing[len(existing)-1] != '\n' {
-		prefix = "\n"
-	}
-	text := []byte(prefix + line)
+	text := []byte(leadingNewline(existing) + line)
 	n, err := h.write(f, text)
 	if err != nil || n != len(text) || !h.parses(f, shell, size+int64(len(text))) {
 		_ = f.Truncate(size)
 		return noFile(fmt.Errorf("cannot write the refusal line (%v)", reason))
 	}
 	return refused(reason)
+}
+
+// leadingNewline keeps another hook's last line intact when it has no
+// trailing newline.
+func leadingNewline(existing []byte) string {
+	if len(existing) > 0 && existing[len(existing)-1] != '\n' {
+		return "\n"
+	}
+	return ""
 }
 
 func (h *Handler) parses(f *os.File, shell string, size int64) bool {

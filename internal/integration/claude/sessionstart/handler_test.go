@@ -376,3 +376,18 @@ func TestWriteFailureAfterRollbackFailureIsExit4(t *testing.T) {
 		t.Fatal("the file was changed")
 	}
 }
+
+func TestOtherHooksLastLineWithoutNewlineIsKept(t *testing.T) {
+	testenv.Isolate(t)
+	file := envFile(t, "export FOO=bar", 0o600)
+	h := newHandler(t)
+	for range 2 {
+		if err := h.Handle(context.Background(), input(file)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := read(t, file)
+	if !strings.HasPrefix(got, "export FOO=bar\n"+claude.BlockStart) || strings.Count(got, claude.BlockStart) != 1 {
+		t.Fatalf("file:\n%s", got)
+	}
+}
