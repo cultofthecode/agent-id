@@ -5,9 +5,14 @@ name: release
 # checksums.txt, and a build provenance attestation. GoReleaser creates a
 # draft; it is published only after the attestation succeeds. The job runs in
 # the environment "release": the owner must approve the deployment, and only
-# v* tags may deploy to it. The only credential is the default GITHUB_TOKEN.
-# The explicit fetch below has no
-# credentials, so it relies on the repository being public.
+# v* tags may deploy to it. The release job holds only the default
+# GITHUB_TOKEN. The explicit fetch below has no credentials, so it relies on
+# the repository being public.
+#
+# The job "tap" (issue #46) runs after the release is published, for a stable
+# tag only. It is the only job that reads the secret TAP_GITHUB_TOKEN, a
+# secret of the environment "release". It opens a PR on the Homebrew tap with
+# the formula for the tag. Nothing merges that PR automatically.
 
 on:
   push:
@@ -74,3 +79,63 @@ jobs:
         run: gh release edit "$TAG" --draft=false --repo "$GITHUB_REPOSITORY"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  tap:
+    name: tap
+    needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ github.ref_name }}
+      TAP: cultofthecode/homebrew-tap
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: render the formula
+        run: bash .github/scripts/render-tap-formula.sh "$TAG" "${RUNNER_TEMP}/agent-id.rb"
+      - name: open the formula PR on the tap
+        env:
+          GH_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "Secret TAP_GITHUB_TOKEN is empty in the release environment. Update the tap by hand (RELEASING.md)." >&2
+            exit 1
+          fi
+          version="${TAG#v}"
+          branch="bump-agent-id-${version}"
+          formula="${RUNNER_TEMP}/agent-id.rb"
+          if [ -n "$(gh pr list --repo "$TAP" --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            echo "A PR for ${branch} is already open. Nothing to do."
+            exit 0
+          fi
+          base="$(gh api "repos/${TAP}" --jq .default_branch)"
+          base_sha="$(gh api "repos/${TAP}/git/ref/heads/${base}" --jq .object.sha)"
+          current_sha=""
+          if gh api "repos/${TAP}/contents/Formula/agent-id.rb?ref=${base_sha}" >"${RUNNER_TEMP}/current.json" 2>/dev/null; then
+            current_sha="$(jq -r .sha "${RUNNER_TEMP}/current.json")"
+            jq -r .content "${RUNNER_TEMP}/current.json" | base64 -d >"${RUNNER_TEMP}/current.rb"
+            if cmp -s "${RUNNER_TEMP}/current.rb" "$formula"; then
+              echo "The formula on ${base} already names ${TAG}. Nothing to do."
+              exit 0
+            fi
+          fi
+          refs="$(gh api "repos/${TAP}/git/matching-refs/heads/${branch}")"
+          if jq -e --arg ref "refs/heads/${branch}" 'any(.[]; .ref == $ref)' <<<"$refs" >/dev/null; then
+            echo "${branch} is left from an earlier run and has no open PR. Resetting it to ${base}."
+            gh api -X PATCH "repos/${TAP}/git/refs/heads/${branch}" -f "sha=${base_sha}" -F force=true >/dev/null
+          else
+            gh api "repos/${TAP}/git/refs" -f "ref=refs/heads/${branch}" -f "sha=${base_sha}" >/dev/null
+          fi
+          args=(-f "message=agent-id ${version}" -f "branch=${branch}" -f "content=$(base64 -w0 "$formula")")
+          if [ -n "$current_sha" ]; then
+            args+=(-f "sha=${current_sha}")
+          fi
+          gh api -X PUT "repos/${TAP}/contents/Formula/agent-id.rb" "${args[@]}" >/dev/null
+          gh pr create --repo "$TAP" --base "$base" --head "$branch" \
+            --title "agent-id ${version}" \
+            --body "Release [${TAG}](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}) of agent-id. Sets \`url\` and \`sha256\` of the source tarball. Merge after the tap CI passes. Nothing merges this automatically."
