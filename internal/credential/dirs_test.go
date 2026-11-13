@@ -253,7 +253,7 @@ func TestSymlinkHopsResolvesTheDirectoryOfARelativeLink(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := filepath.Join(realRoot, "real", "other", "app.pem")
-	if len(hops) != 1 || hops[0] != want {
+	if len(hops) == 0 || hops[len(hops)-1] != want {
 		t.Errorf("hops = %v, want [%s]", hops, want)
 	}
 }
@@ -382,8 +382,42 @@ func TestLinkTarget(t *testing.T) {
 		root + "/alias/../x":                    filepath.Join(root, "real", "x"),
 	}
 	for link, want := range cases {
-		if got := linkTarget(from, link); got != want {
+		if got, _ := linkTarget(from, link); got != want {
 			t.Errorf("linkTarget(%q) = %q, want %q", link, got, want)
 		}
 	}
+}
+
+func TestFileRejectsUnsafeDirectoryBehindASymlinkBeforeDotDot(t *testing.T) {
+	env := testenv.Isolate(t)
+	writeKey(t, filepath.Join(env.Root, "safe", "app.pem"), pkcs1PEM(t), 0o600)
+	if err := os.MkdirAll(filepath.Join(env.Root, "safe", "b"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	evil := filepath.Join(env.Root, "evil")
+	if err := os.MkdirAll(evil, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(evil, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(env.Root, "safe", "b"), filepath.Join(evil, "s")); err != nil {
+		t.Fatal(err)
+	}
+	keys := filepath.Join(env.Home, "keys")
+	if err := os.MkdirAll(keys, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(evil, "s"), filepath.Join(keys, "sub2")); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(keys, "link")
+	if err := os.Symlink("sub2/../app.pem", path); err != nil {
+		t.Fatal(err)
+	}
+	if !chainReaches(t, chainOf(path), evil) {
+		t.Errorf("chain lacks the directory that decides where sub2 points")
+	}
+	key, err := File{Path: path}.PrivateKeyPEM()
+	assertRejected(t, key, err, ErrInsecureKeyFile, "mode 0777", "chmod go-w")
 }

@@ -61,12 +61,14 @@ const maxSymlinkHops = 40
 // does.
 func symlinkHops(path string) []string {
 	var hops []string
-	for current := path; len(hops) < maxSymlinkHops; {
+	for current, n := path, 0; n < maxSymlinkHops; n++ {
 		link, err := os.Readlink(current)
 		if err != nil {
 			break
 		}
-		current = linkTarget(current, link)
+		var via []string
+		current, via = linkTarget(current, link)
+		hops = append(hops, via...)
 		hops = append(hops, current)
 	}
 	return hops
@@ -75,9 +77,12 @@ func symlinkHops(path string) []string {
 // linkTarget returns the place a link at path points to. A dot-dot component
 // is applied to the real directory reached so far, as the kernel does, and not
 // to the text: "sub/../x" with a symlinked sub is the parent of the target of
-// sub, not the directory that holds sub. When a prefix cannot be resolved, the
-// textual prefix stays and the later directory check fails closed on it.
-func linkTarget(path, link string) string {
+// sub, not the directory that holds sub. The second result lists the textual
+// prefix before each dot-dot, so the caller can walk the symlinks inside it
+// too. When a prefix cannot be resolved, the textual prefix stays and the later
+// directory check fails closed on it.
+func linkTarget(path, link string) (string, []string) {
+	var via []string
 	current := resolvedDir(path)
 	if filepath.IsAbs(link) {
 		current = string(filepath.Separator)
@@ -86,12 +91,13 @@ func linkTarget(path, link string) string {
 		switch part {
 		case "", ".":
 		case "..":
+			via = append(via, current)
 			current = filepath.Dir(realOrSelf(current))
 		default:
 			current = filepath.Join(current, part)
 		}
 	}
-	return current
+	return current, via
 }
 
 func realOrSelf(path string) string {
