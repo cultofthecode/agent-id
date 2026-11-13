@@ -131,29 +131,35 @@ func guardUserinfo(s string) bool {
 
 // guardLabels reports whether s holds a credential label with a value other
 // than the redaction marker. Text that a renderer put after the marker (a
-// closing quote, a comma, a source in parentheses) is not the value.
+// closing quote, a comma, a source in parentheses) is not the value, but it
+// is scanned again, because it can hold another label.
 func guardLabels(s string) bool {
 	for _, m := range labelPattern.FindAllStringSubmatch(s, -1) {
-		if !isRedactedValue(strings.TrimSpace(m[2])) {
+		rest, ok := afterRedactedValue(strings.TrimSpace(m[2]))
+		if !ok || guardLabels(rest) {
 			return true
 		}
 	}
 	return false
 }
 
-// isRedactedValue reports whether v is the redaction marker, alone or
-// followed by a delimiter (Redact shows a line break as "?") or a
-// parenthesized note, or empty.
-func isRedactedValue(v string) bool {
-	if v == "" || v == redacted {
-		return true
+// afterRedactedValue reports whether v is empty or starts with the
+// redaction marker followed by the end, a delimiter (Redact shows a line
+// break as "?") or a parenthesized note, and returns the text after the
+// marker.
+func afterRedactedValue(v string) (string, bool) {
+	if v == "" {
+		return "", true
 	}
 	rest, ok := strings.CutPrefix(v, redacted)
 	if !ok {
-		return false
+		return "", false
 	}
 	rest = strings.TrimLeft(rest, " ")
-	return rest == "" || strings.ContainsRune("\"',;)]}(?", rune(rest[0]))
+	if rest == "" || strings.ContainsRune("\"',;)]}(?", rune(rest[0])) {
+		return rest, true
+	}
+	return "", false
 }
 
 // AbbreviateHome replaces the home directory in text by "~", so that a pasted

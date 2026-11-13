@@ -263,7 +263,7 @@ func checkIdentity(s Snapshot) []Result {
 	case id.Err.failed():
 		return []Result{{ID: "provider.identity", Status: StatusFail, Title: "the bot identity cannot be resolved", Detail: id.Err.text(), Fix: tokenFix(id.Err.Class)}}
 	case id.RefreshErr != "":
-		return []Result{{ID: "provider.identity", Status: StatusWarn, Title: id.Bot + " differs from the cached identity, and the cache could not be refreshed", Detail: id.RefreshErr, Fix: "make the configuration file writable, or run agent-id setup again"}}
+		return []Result{{ID: "provider.identity", Status: StatusWarn, Title: id.Bot + " differs from the cached identity, and the cache could not be refreshed", Detail: id.RefreshErr, Fix: "make the configuration file writable; if the message says the profile changed, run the command again, or run agent-id setup again"}}
 	case id.Refreshed:
 		return []Result{{ID: "provider.identity", Status: StatusWarn, Title: id.Bot + " refreshed in the cached identity", Fix: "none needed: the cache was missing or stale and doctor updated it"}}
 	case id.Match:
