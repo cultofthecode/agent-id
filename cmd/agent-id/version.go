@@ -13,7 +13,7 @@ var (
 	commit  string
 )
 
-// devVersion is what aidentity reports when no source knows its version.
+// devVersion is what agent-id reports when no source knows its version.
 const devVersion = "dev"
 
 // buildInfoReader returns the build information of the running binary, like
@@ -44,7 +44,7 @@ func versionText(linkedVersion, linkedCommit string, readBuildInfo buildInfoRead
 }
 
 // withVersion gives root the flag --version, which prints
-// "aidentity version" followed by text.
+// "agent-id version" followed by text.
 func withVersion(root *cobra.Command, text string) *cobra.Command {
 	root.Version = text
 	root.SetVersionTemplate(commandName + " version {{.Version}}\n")
