@@ -3,8 +3,10 @@ name: release
 # Publishes a GitHub Release for an annotated SemVer tag v* on main (issue
 # #11, RELEASING.md): four archives (darwin and linux, amd64 and arm64),
 # checksums.txt, and a build provenance attestation. GoReleaser creates a
-# draft; it is published only after the attestation succeeds. The only
-# credential is the default GITHUB_TOKEN. The explicit fetch below has no
+# draft; it is published only after the attestation succeeds. The job runs in
+# the environment "release": the owner must approve the deployment, and only
+# v* tags may deploy to it. The only credential is the default GITHUB_TOKEN.
+# The explicit fetch below has no
 # credentials, so it relies on the repository being public.
 
 on:
@@ -23,6 +25,7 @@ jobs:
     name: release
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    environment: release
     permissions:
       contents: write
       id-token: write

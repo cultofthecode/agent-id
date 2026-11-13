@@ -55,9 +55,24 @@ expect fail 0.0.3
 expect fail v01.0.0
 expect fail v1.0.0-01
 expect pass v1.0.0-0.alpha-1
+expect fail v1.0.0+build.5
+expect fail v1.0.0-
+expect fail v1.0
+expect fail 'v0.0.1
+v0.0.1'
+expect fail ''
 expect fail v0.0.4
 expect fail v9.9.9
 expect fail 'v0.0.1;true'
 expect fail v0.0.1 origin/no-such-branch
+
+nl='v0.0.1
+v0.0.1'
+if "$script" "$nl" 2>&1 | grep -q 'contains a newline'; then
+	echo "ok   newline is rejected by name"
+else
+	echo "FAIL newline is not rejected by name"
+	failures=$((failures + 1))
+fi
 
 [ "$failures" -eq 0 ] || { echo "$failures case(s) failed" >&2; exit 1; }
