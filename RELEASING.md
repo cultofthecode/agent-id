@@ -34,7 +34,7 @@ It then runs `go vet` and `go test`, builds the binary for the runner and checks
 A tag push runs `release.yml` as it is **at the tagged commit**, so the checks in the workflow cannot, by themselves, stop a tag of a commit whose workflow was modified. The trust model therefore rests on repository settings, which the owner manages and this repository does not change:
 
 - **Who may tag.** Only a repository admin can create, update, or delete a `v*` tag (tag ruleset 27182241; the only bypass is the admin role). A Maintainer who is not an admin asks an admin to push the tag.
-- **Approval.** The publishing job runs in the environment `release`. A deployment to it needs approval from the owner (required reviewer `jakubtobiasz`; self-review is prevented), and the environment accepts deployments from `v*` tags only. The approver checks that the tag is the intended one and that the tagged commit is on `main` before approving.
+- **Approval.** The publishing job runs in the environment `release`. A deployment to it needs approval from the owner (required reviewer `jakubtobiasz`; self-review is prevented; the environment setting that lets admins bypass protection rules is a residual gap for the owner to keep or close), and the environment accepts deployments from `v*` tags only. The approver checks that the tag is the intended one and that the tagged commit is on `main` before approving.
 - **Immutable releases.** Releases are immutable: once published, a release's assets and tag cannot be changed.
 - **Secrets.** Any future release secret (for example the Homebrew tap token of #46) is stored only as a secret of the environment `release`, never as a repository or organization secret, so that only an approved release job can read it. Today the only credential is the default `GITHUB_TOKEN` (`contents: write`, plus `id-token: write` and `attestations: write` for the attestation).
 
@@ -54,7 +54,8 @@ Check the archive against `checksums.txt`, then check where it was built. The si
 ```sh
 gh attestation verify agent-id_X.Y.Z_linux_amd64.tar.gz \
   --repo cultofthecode/agent-id \
-  --signer-workflow cultofthecode/agent-id/.github/workflows/release.yml
+  --signer-workflow cultofthecode/agent-id/.github/workflows/release.yml \
+  --source-ref refs/tags/vX.Y.Z
 ```
 
 Then check that the attested commit is on `main`. Take the commit from the attestation (`gh attestation verify … --format json` shows the source repository digest of the signing certificate) or from the tag, and run in a clone:

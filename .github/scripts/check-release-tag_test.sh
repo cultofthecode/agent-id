@@ -66,4 +66,13 @@ expect fail v9.9.9
 expect fail 'v0.0.1;true'
 expect fail v0.0.1 origin/no-such-branch
 
+nl='v0.0.1
+v0.0.1'
+if "$script" "$nl" 2>&1 | grep -q 'contains a newline'; then
+	echo "ok   newline is rejected by name"
+else
+	echo "FAIL newline is not rejected by name"
+	failures=$((failures + 1))
+fi
+
 [ "$failures" -eq 0 ] || { echo "$failures case(s) failed" >&2; exit 1; }
