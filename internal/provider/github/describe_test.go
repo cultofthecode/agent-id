@@ -68,9 +68,24 @@ func TestVerifyIdentityMatchesAndRefreshes(t *testing.T) {
 }
 
 func TestRefreshRejectsAnInvalidBlock(t *testing.T) {
-	_, err := refreshIdentity(json.RawMessage(`{"app_id":0}`), BotIdentity{})
+	_, err := refreshIdentity(json.RawMessage(`{"app_id":0}`), BotIdentity{}, 0, 0)
 	if err == nil || strings.Contains(err.Error(), "ghs_") {
 		t.Errorf("refreshIdentity of an invalid block: %v, want an error", err)
+	}
+}
+
+func TestRefreshRefusesAChangedAppOrInstallation(t *testing.T) {
+	settings, err := json.Marshal(ProfileSettings{AppID: 7, InstallationID: 9, PrivateKey: mustKeyRef(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, ids := range map[string][2]int64{"app": {8, 9}, "installation": {7, 10}} {
+		if _, err := refreshIdentity(settings, BotIdentity{Login: "x[bot]", UserID: 1}, ids[0], ids[1]); err == nil {
+			t.Errorf("%s changed between the check and the write: want a refusal", name)
+		}
+	}
+	if _, err := refreshIdentity(settings, BotIdentity{Login: "x[bot]", UserID: 1}, 7, 9); err != nil {
+		t.Errorf("unchanged ids: %v", err)
 	}
 }
 
