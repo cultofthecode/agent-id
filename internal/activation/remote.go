@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -104,7 +105,7 @@ func (c *remoteChecker) configList(ctx context.Context, dir string, child []stri
 // repository and in the working directory.
 func (c *remoteChecker) rewrites(ctx context.Context, dir string, child []string) error {
 	for _, where := range []string{emptyDir(), dir} {
-		entries, ok, err := c.configList(ctx, where, child)
+		entries, ok, err := c.configList(ctx, where, withoutRepoVars(child))
 		if err != nil {
 			return err
 		}
@@ -116,7 +117,7 @@ func (c *remoteChecker) rewrites(ctx context.Context, dir string, child []string
 				return failf(ErrSSHRewrite, "url.<...>.insteadOf from %s rewrites https://%s/ to SSH; the agent would use your SSH key for every clone; remove the rule or scope it to a repository", e.source(), host)
 			}
 		}
-		for _, h := range EffectiveHeaders(entries, "https://"+c.a.Host()+"/") {
+		for _, h := range slices.Concat(EffectiveHeaders(entries, "https://"+c.a.Host()+"/"), ScopedHeaders(entries, c.a.GitHosts())) {
 			return failf(ErrRemoteHeader, "https://%s/ gets an extra HTTP header (%s) that agent-id cannot reset; remove that http.extraheader entry", c.a.Host(), h)
 		}
 	}
@@ -234,7 +235,7 @@ func (c *remoteChecker) checkURL(ctx context.Context, dir string, child []string
 // returns it when it is one of the provider's hosts, otherwise "".
 func (c *remoteChecker) resolveAlias(ctx context.Context, dir string, child []string, host string) (string, error) {
 	if !validAlias(host) {
-		return "", nil
+		return "", checkFailed("an SSH remote has a host that cannot be checked")
 	}
 	out, err := c.run.Run(ctx, dir, child, "ssh", "-G", "--", host)
 	if err != nil {
@@ -254,4 +255,12 @@ func (c *remoteChecker) resolveAlias(ctx context.Context, dir string, child []st
 		}
 	}
 	return "", nil
+}
+
+// withoutRepoVars returns env without the variables that point Git at a
+// repository, so that the listing outside any repository really is one.
+func withoutRepoVars(env []string) []string {
+	return slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
+		return strings.HasPrefix(kv, "GIT_DIR=") || strings.HasPrefix(kv, "GIT_WORK_TREE=")
+	})
 }

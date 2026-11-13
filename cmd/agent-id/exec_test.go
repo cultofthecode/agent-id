@@ -201,9 +201,14 @@ func TestExecNeutralBaselineIsolation(t *testing.T) {
 		gitIn(t, repo, "config", "--global", kv[0], kv[1])
 		gitIn(t, repo, "config", "--local", kv[0], kv[1])
 	}
+	system := filepath.Join(env.TempDir, "system.gitconfig")
+	if err := os.WriteFile(system, []byte("[credential]\n\thelper = !"+helper+"\n[credential \"https://github.com\"]\n\thelper = !"+helper+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	gitIn(t, repo, "config", "--global", "url."+server.URL+"/.insteadOf", "https://github.com/")
 	f.workdir = repo
 	f.extra = []string{
+		"GIT_CONFIG_NOSYSTEM=0", "GIT_CONFIG_SYSTEM=" + system,
 		"GH_TOKEN=" + fakePersonal, "GITHUB_TOKEN=" + fakePersonal, "GH_ENTERPRISE_TOKEN=" + fakePersonal, "GITHUB_ENTERPRISE_TOKEN=" + fakePersonal,
 		"GIT_ASKPASS=" + ask, "SSH_ASKPASS=" + ask,
 		"PATH=" + filepath.Join(env.TempDir, "later") + ":" + os.Getenv("PATH"),
@@ -452,5 +457,29 @@ func TestExecLeavesTheParentAlone(t *testing.T) {
 	})
 	if len(created) > 0 {
 		t.Errorf("unexpected files: %v", created)
+	}
+}
+
+// TestNetrcWouldLeakWithoutTheRefusal shows why exec refuses a .netrc: Git
+// sends its credentials with no helper involved (DoD 2a).
+func TestNetrcWouldLeakWithoutTheRefusal(t *testing.T) {
+	env := testenv.Isolate(t)
+	server := testenv.NewGitServer(t, env)
+	testenv.NewBareRepository(t, env, "o-r")
+	host := strings.TrimPrefix(server.URL, "https://")
+	host, _, _ = strings.Cut(host, ":")
+	token := testenv.FakeToken("netrc")
+	if err := os.WriteFile(filepath.Join(env.Home, ".netrc"), []byte("machine "+host+" login x-access-token password "+token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "-c", "credential.helper=", "ls-remote", server.RepositoryURL("o-r"))
+	cmd.Dir = env.Home
+	_ = cmd.Run()
+	sent := false
+	for _, r := range server.Requests() {
+		sent = sent || r.Password == token
+	}
+	if !sent {
+		t.Skip("this Git version does not read .netrc for the fake server")
 	}
 }

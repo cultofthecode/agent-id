@@ -216,7 +216,7 @@ The system SHALL rebuild the environment idempotently when an exec runs inside a
 - THEN the exit status is 125 and the message says that the context comes from an incompatible agent-id
 
 #### ADDED Requirement: Inherited Git process configuration
-The system SHALL refuse to start when the inherited `GIT_CONFIG_COUNT` set is malformed, or when an inherited `GIT_CONFIG_PARAMETERS` sets a `credential.*`, `url.*`, `http.*`, `include.*`, `includeIf.*`, or signing key, and SHALL keep every other inherited `GIT_CONFIG_*` entry and `GIT_CONFIG_PARAMETERS` unchanged.
+The system SHALL refuse to start when the inherited `GIT_CONFIG_COUNT` set is malformed, or when an inherited `GIT_CONFIG_PARAMETERS` sets a `credential.*`, `url.*`, `http.*`, `include.*`, `includeIf.*`, signing key, or `core.askPass`, and SHALL keep every other inherited `GIT_CONFIG_*` entry and `GIT_CONFIG_PARAMETERS` unchanged.
 
 ##### Scenario: Malformed count
 - WHEN the parent has `GIT_CONFIG_COUNT=2` and no `GIT_CONFIG_KEY_1`
@@ -412,7 +412,7 @@ Removing the previous contribution on re-entry means: with `GIT_CONFIG_COUNT == 
 ### Inherited Git process configuration
 
 - **`GIT_CONFIG_COUNT`** (G2–G4): when present, it must be a decimal integer `0 ≤ n ≤ 1000` or the empty string (0, as in Git); the cap of 1000 is agent-id policy, stricter than Git, and `GIT_CONFIG_KEY_i` and `GIT_CONFIG_VALUE_i` must exist for every `i < n` (an empty value is allowed, as in Git). Otherwise `ErrInheritedGitConfig` naming the variable that is missing or bad. A `GIT_CONFIG_KEY_i`/`VALUE_i` with `i ≥ n` is left alone (Git ignores it), and the append overwrites it.
-- **`GIT_CONFIG_PARAMETERS`** (O2): parsed with Git's own quoting (`'key'='value'` pairs, the older `'key=value'` form, and a bare `'key'` meaning true, separated by spaces, with the `'\''` and `'\!'` escapes of Git's `sq_dequote`). A key is forbidden when, compared case-insensitively, its section is `credential`, `url`, `http`, `gpg`, `include`, or `includeif` (an include can pull in any of the others, and Git reads it after `GIT_CONFIG_COUNT`), or it is `commit.gpgsign`, `tag.gpgsign`, `tag.forcesignannotated`, `push.gpgsign`, or `user.signingkey`. A forbidden key or an unparseable value → `ErrInheritedGitConfig`. Anything else is kept unchanged and reported by `doctor` (D4).
+- **`GIT_CONFIG_PARAMETERS`** (O2): parsed with Git's own quoting (`'key'='value'` pairs, the older `'key=value'` form, and a bare `'key'` meaning true, separated by spaces, with the `'\''` and `'\!'` escapes of Git's `sq_dequote`). A key is forbidden when, compared case-insensitively, its section is `credential`, `url`, `http`, `gpg`, `include`, or `includeif` (an include can pull in any of the others, and Git reads it after `GIT_CONFIG_COUNT`), or it is `commit.gpgsign`, `tag.gpgsign`, `tag.forcesignannotated`, `push.gpgsign`, `user.signingkey`, or `core.askpass` (it would override the `core.askPass` reset of the baseline; review of #86). A forbidden key or an unparseable value → `ErrInheritedGitConfig`. Anything else is kept unchanged and reported by `doctor` (D4).
 - Messages name a variable or the **section and variable** of a key (`credential.<url>.helper`), never a value and never the URL subsection, because both can hold credentials (C21, U11 of the analysis).
 
 ### Errors

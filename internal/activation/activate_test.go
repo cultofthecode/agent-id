@@ -213,6 +213,9 @@ func TestRemoteChecks(t *testing.T) {
 		{"password", repoRunner("https://u:secret@"+host+"/o/r.git", "https://"+host+"/o/r.git", ""), ErrRemoteCredentials},
 		{"header", repoRunner("https://"+host+"/o/r.git", "https://"+host+"/o/r.git", gitList("http.https://"+host+"/o/r.git.extraheader", "Authorization: Basic c2VjcmV0")), ErrRemoteHeader},
 		{"rewrite to ssh", repoRunner("https://"+host+"/o/r.git", "https://"+host+"/o/r.git", gitList("url.git@"+host+":.insteadof", "https://"+host+"/")), ErrSSHRewrite},
+		{"unusable ssh host is refused", repoRunner("git@bad_host!:o/r.git", "git@bad_host!:o/r.git", ""), ErrRemoteCheck},
+		{"trailing dot ssh host", repoRunner("git@"+host+".:o/r.git", "git@"+host+".:o/r.git", ""), ErrSSHRemote},
+		{"header scoped under the host", repoRunner("https://"+host+"/o/r.git", "https://"+host+"/o/r.git", gitList("http.https://"+host+"/o/.extraheader", "Authorization: Basic x", "http.https://"+host+"/.extraheader", "")), ErrRemoteHeader},
 		{"no git", &fakeRunner{errs: map[string]error{listCmd: exec.ErrNotFound}}, nil},
 		{"not a repository", &fakeRunner{answers: map[string]string{listCmd: ""}, errs: map[string]error{"git rev-parse --is-inside-work-tree": &exec.ExitError{}}}, nil},
 	}

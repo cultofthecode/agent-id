@@ -361,3 +361,48 @@ func TestParseConfigList(t *testing.T) {
 		t.Errorf("entries %+v", got)
 	}
 }
+
+func TestReviewRegressions(t *testing.T) {
+	testenv.Isolate(t)
+	u := "https://github.com/o/r.git"
+	t.Run("core.askPass in GIT_CONFIG_PARAMETERS is refused", func(t *testing.T) {
+		if err := CheckInheritedGit([]string{"GIT_CONFIG_PARAMETERS='core.askPass'='/x'"}); !errors.Is(err, ErrInheritedGitConfig) {
+			t.Errorf("error %v", err)
+		}
+	})
+	t.Run("a generic reset does not clear a more specific header", func(t *testing.T) {
+		e := entries("http.https://github.com/o/r.git.extraheader", "Authorization: Basic x", "http.extraheader", "")
+		if got := EffectiveHeaders(e, u); !slices.Equal(got, []string{"Authorization"}) {
+			t.Errorf("headers %v", got)
+		}
+	})
+	t.Run("a header without a colon is never echoed", func(t *testing.T) {
+		e := entries("http.https://github.com/.extraheader", "Bearer FAKE-SECRET-VALUE-0123456789")
+		got := EffectiveHeaders(e, u)
+		if len(got) != 1 || strings.Contains(got[0], "FAKE") || got[0] != "unnamed header" {
+			t.Errorf("headers %v", got)
+		}
+	})
+	t.Run("a header scoped under the host is found", func(t *testing.T) {
+		e := entries("http.https://github.com/acme/.extraheader", "Authorization: Basic x", "http.https://github.com/.extraheader", "")
+		if got := ScopedHeaders(e, []string{"github.com"}); !slices.Equal(got, []string{"Authorization"}) {
+			t.Errorf("headers %v", got)
+		}
+		if got := ScopedHeaders(entries("http.https://gitlab.com/a/.extraheader", "A: b"), []string{"github.com"}); len(got) != 0 {
+			t.Errorf("another host: %v", got)
+		}
+	})
+	t.Run("a trailing dot does not hide the host", func(t *testing.T) {
+		for _, raw := range []string{"git@github.com.:o/r.git", "ssh://git@github.com./o/r.git", "https://github.com./o/r.git"} {
+			if !ClassifyRemoteURL(raw, []string{"github.com"}).Provider {
+				t.Errorf("%s is not classified as the provider's", raw)
+			}
+		}
+	})
+	t.Run("a comment mark inside a netrc line is not a comment", func(t *testing.T) {
+		machines, _, err := NetrcHosts("login x # machine github.com\n")
+		if err == nil && len(machines) == 0 {
+			t.Errorf("machines %v", machines)
+		}
+	})
+}

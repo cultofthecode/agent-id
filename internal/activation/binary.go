@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"unicode"
 	"unicode/utf8"
 )
@@ -111,7 +112,7 @@ func LookPath(env []string, name string) (string, error) {
 
 func lookDirect(name string) (string, error) {
 	info, err := os.Stat(name)
-	if errors.Is(err, fs.ErrNotExist) {
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 		return "", failf(ErrCommandNotFound, "%q: no such file or directory", name)
 	}
 	if err != nil {

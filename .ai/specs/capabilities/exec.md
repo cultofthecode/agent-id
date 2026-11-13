@@ -35,7 +35,7 @@ The system SHALL rebuild the environment idempotently for the same profile and S
 - THEN the environment is identical without duplicate `GIT_CONFIG_*` entries, 125 naming both profiles, and 125 `incompatible agent-id`
 
 ## Requirement: Inherited Git process configuration
-The system SHALL refuse a malformed `GIT_CONFIG_COUNT` set and a `GIT_CONFIG_PARAMETERS` that sets a `credential`, `url`, `http`, `gpg`, `include`, `includeIf` or signing key, and keep any other.
+The system SHALL refuse a malformed `GIT_CONFIG_COUNT` set and a `GIT_CONFIG_PARAMETERS` that sets a `credential`, `url`, `http`, `gpg`, `include`, `includeIf`, signing key or `core.askPass`, and keep any other.
 
 ## Requirement: Fail closed from the first merge (#68)
 The system SHALL start the command only with the neutral credential baseline.

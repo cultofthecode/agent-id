@@ -46,7 +46,7 @@ func ClassifyRemoteURL(raw string, gitHosts []string) RemoteURL {
 		out.Kind = KindOther
 	default:
 		if m := scpForm.FindStringSubmatch(raw); m != nil {
-			out.Kind, out.Host = KindSCP, strings.ToLower(strings.Trim(m[1], "[]"))
+			out.Kind, out.Host = KindSCP, strings.TrimRight(strings.ToLower(strings.Trim(m[1], "[]")), ".")
 		}
 	}
 	for _, h := range gitHosts {
@@ -77,7 +77,7 @@ func hostOf(rest string) string {
 		}
 	}
 	host, _, _ := strings.Cut(authority, ":")
-	return strings.ToLower(host)
+	return strings.TrimRight(strings.ToLower(host), ".")
 }
 
 // HasPassword reports whether an http(s) URL carries a password in its

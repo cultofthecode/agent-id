@@ -34,7 +34,7 @@ func NetrcHosts(content string) (machines []string, hasDefault bool, err error) 
 				}
 				j = len(tokens)
 			default:
-				if strings.HasPrefix(tokens[j], "#") {
+				if j == 0 && strings.HasPrefix(tokens[j], "#") {
 					j = len(tokens)
 					continue
 				}

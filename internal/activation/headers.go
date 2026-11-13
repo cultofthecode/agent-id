@@ -2,6 +2,7 @@ package activation
 
 import (
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -34,18 +35,20 @@ func EffectiveHeaders(entries []ConfigEntry, rawURL string) []string {
 		if !ok {
 			continue
 		}
-		if spec != nil {
-			if seen && spec.less(best) {
-				continue
-			}
+		if spec == nil {
+			spec = &specificity{}
+		}
+		if seen && spec.less(best) && e.Value == "" {
+			continue
+		}
+		if !spec.less(best) || !seen {
 			best, seen = *spec, true
 		}
 		if e.Value == "" {
 			headers = nil
 			continue
 		}
-		name, _, _ := strings.Cut(e.Value, ":")
-		headers = append(headers, clean(strings.TrimSpace(name), 40))
+		headers = append(headers, headerName(e.Value))
 	}
 	return headers
 }
@@ -83,4 +86,49 @@ func port(u *url.URL) string {
 		return "80"
 	}
 	return "443"
+}
+
+// headerName returns the name of an extra header for a message, never its
+// value: the text before the colon when it looks like a header name, and a
+// fixed word otherwise.
+func headerName(value string) string {
+	name, _, ok := strings.Cut(value, ":")
+	name = strings.TrimSpace(name)
+	if !ok || !headerNamePattern.MatchString(name) {
+		return "unnamed header"
+	}
+	return name
+}
+
+var headerNamePattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,40}$`)
+
+// ScopedHeaders returns the names of extra headers that a path-scoped
+// http.<url>.extraheader entry on one of hosts would send for URLs under its
+// path. agent-id's reset covers the host, and Git ignores a less specific
+// reset for a more specific entry, so these survive.
+func ScopedHeaders(entries []ConfigEntry, hosts []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, e := range entries {
+		section, sub, variable, ok := splitKey(e.Key)
+		if !ok || sub == "" || !strings.EqualFold(section, "http") || !strings.EqualFold(variable, "extraheader") || seen[sub] {
+			continue
+		}
+		pattern, err := url.Parse(sub)
+		if err != nil || !hostIn(pattern.Hostname(), hosts) {
+			continue
+		}
+		seen[sub] = true
+		out = append(out, EffectiveHeaders(entries, sub)...)
+	}
+	return out
+}
+
+func hostIn(host string, hosts []string) bool {
+	for _, h := range hosts {
+		if strings.EqualFold(strings.TrimSuffix(host, "."), h) {
+			return true
+		}
+	}
+	return false
 }

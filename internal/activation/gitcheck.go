@@ -17,7 +17,7 @@ var forbiddenSections = map[string]bool{"credential": true, "url": true, "http":
 // forbiddenKeys are the signing keys that are refused as a whole.
 var forbiddenKeys = map[string]bool{
 	"commit.gpgsign": true, "tag.gpgsign": true, "tag.forcesignannotated": true,
-	"push.gpgsign": true, "user.signingkey": true,
+	"push.gpgsign": true, "user.signingkey": true, "core.askpass": true,
 }
 
 // inheritedCount returns the inherited GIT_CONFIG_COUNT: unset or empty
