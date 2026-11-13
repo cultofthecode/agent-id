@@ -139,8 +139,9 @@ Derived from `PRODUCT_BRIEF.md`; the brief is the record. Rows with status **OPE
 | 2026-11-12 | Start with existing GitHub Apps; guided or manifest registration is evaluated later | brief §14 onboarding | active |
 | 2026-11-12 | No runtime dependency on GHAPP and no requirement to install it | brief §1, §13 Phase 0 | active |
 | — | Product and binary name: `aidentity` (working) vs `agent-id`; config directory and env prefix follow it | brief §14 | **OPEN** |
-| — | Code provenance and license of agent-id; which GHAPP code is reused and with which notices | brief §14 | **OPEN** |
-| — | Distribution and commercial model (license, hosting, release channel) | brief §14 | **OPEN** |
+| 2026-11-12 | License of agent-id: Apache-2.0 (`LICENSE`). No `NOTICE` file: agent-id reuses no GHAPP code (GHAPP audit, PR #31), and its Go dependencies ship no `NOTICE` (Apache-2.0 §4(d)). Release archives carry the dependency license texts (#11) | owner on #8; GHAPP audit, PR #31 | active |
+| 2026-11-13 | Distribution: open source, released through GitHub Releases and a Homebrew tap; the release pipeline is #11 | owner, through the task for #8 | active |
+| — | Commercial model and hosting beyond the release channel | brief §14 | **OPEN** |
 | — | Agent-specific commit signing as a later feature | brief §14 | **OPEN** |
 | — | Profile auto-detection beyond explicit `exec`, and its precedence | brief §14 | **OPEN** (MVP: explicit only) |
 | — | Profile config format and schema; keyring support | brief §9.4 | **OPEN** |
