@@ -16,7 +16,7 @@ func TestIsolatePointsEverythingIntoTheTestRoot(t *testing.T) {
 	base := filepath.Join(os.TempDir(), RootDirName)
 	t.Setenv("GH_TOKEN", "ghp_must_not_leak")
 	t.Setenv("GITHUB_TOKEN", "ghp_must_not_leak")
-	t.Setenv("AIDENTITY_PROFILE", "claude")
+	t.Setenv("AGENT_ID_PROFILE", "claude")
 	t.Setenv("GIT_CONFIG_COUNT", "1")
 	t.Setenv("GIT_CONFIG_KEY_0", "user.name")
 	t.Setenv("SSH_AUTH_SOCK", "/tmp/agent.sock")
@@ -29,7 +29,7 @@ func TestIsolatePointsEverythingIntoTheTestRoot(t *testing.T) {
 			t.Errorf("%s = %q, want a path under %s", name, got, env.Root)
 		}
 	}
-	for _, name := range []string{"GH_TOKEN", "GITHUB_TOKEN", "AIDENTITY_PROFILE", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "SSH_AUTH_SOCK"} {
+	for _, name := range []string{"GH_TOKEN", "GITHUB_TOKEN", "AGENT_ID_PROFILE", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "SSH_AUTH_SOCK"} {
 		if value, ok := os.LookupEnv(name); ok {
 			t.Errorf("%s is still set to %q", name, value)
 		}

@@ -4,7 +4,7 @@
 .ai/qa/test-env.env
 
 # Binary that `go build` leaves in the repository root
-/aidentity
+/agent-id
 
 # Never commit key material or local environment files
 *.pem

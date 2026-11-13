@@ -1,6 +1,6 @@
 // Package testenv isolates a test from the developer's machine.
 //
-// Every test that runs aidentity code, git, or gh calls Isolate first. Isolate
+// Every test that runs agent-id code, git, or gh calls Isolate first. Isolate
 // points HOME, the XDG directories, the global Git configuration, the gh
 // configuration directory, and TMPDIR into a fresh directory under
 // $TMPDIR/agent-id/, and removes every inherited credential and identity
@@ -36,7 +36,7 @@ var inheritedVariables = []string{
 
 // inheritedPrefixes are variable name prefixes removed from the environment
 // of an isolated test.
-var inheritedPrefixes = []string{"AIDENTITY_", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "GHAPP_"}
+var inheritedPrefixes = []string{"AGENT_ID_", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "GHAPP_"}
 
 // Env describes the isolated environment of one test.
 type Env struct {
