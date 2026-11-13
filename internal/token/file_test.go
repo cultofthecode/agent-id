@@ -126,7 +126,8 @@ func TestReadEntryRefusesUnsafeFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := make(chan bool, 1)
-	go func() { _, ok := readEntry(openDir(t, m), filepath.Base(path), key, uid); done <- ok }()
+	root := openDir(t, m)
+	go func() { _, ok := readEntry(root, filepath.Base(path), key, uid); done <- ok }()
 	select {
 	case ok := <-done:
 		if ok {

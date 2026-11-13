@@ -97,7 +97,10 @@ func readEntry(root *os.Root, name string, key Key, uid uint32) (token provider.
 // openNoFollow opens name in root and refuses a symbolic link with
 // syscall.ELOOP. Methods of os.Root follow a link that stays inside the root
 // even with O_NOFOLLOW, so it checks name with Lstat before the open, and
-// after the open that name still refers to the opened file.
+// after the open that name still refers to the opened file. A read without
+// the lock can see a writer rename a new entry over name between the open and
+// the second Lstat; it then fails with ELOOP, which readEntry treats as a
+// miss, and Token reads the entry again under the lock.
 func openNoFollow(root *os.Root, name string, flag int) (*os.File, error) {
 	if info, err := root.Lstat(name); err == nil && info.Mode()&fs.ModeSymlink != 0 {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: syscall.ELOOP}
@@ -152,16 +155,16 @@ func writeEntry(root *os.Root, name string, data []byte) (err error) {
 		}
 	}()
 	if err := f.Chmod(0o600); err != nil {
-		return fmt.Errorf("%w: restrict %s: %w", ErrCacheWrite, temp, cause(err))
+		return fmt.Errorf("%w: restrict %s: %w", ErrCacheWrite, inRoot(root, temp), cause(err))
 	}
 	if _, err := f.Write(data); err != nil {
-		return fmt.Errorf("%w: write %s: %w", ErrCacheWrite, temp, cause(err))
+		return fmt.Errorf("%w: write %s: %w", ErrCacheWrite, inRoot(root, temp), cause(err))
 	}
 	if err := f.Sync(); err != nil {
-		return fmt.Errorf("%w: sync %s: %w", ErrCacheWrite, temp, cause(err))
+		return fmt.Errorf("%w: sync %s: %w", ErrCacheWrite, inRoot(root, temp), cause(err))
 	}
 	if err := f.Close(); err != nil {
-		return fmt.Errorf("%w: close %s: %w", ErrCacheWrite, temp, cause(err))
+		return fmt.Errorf("%w: close %s: %w", ErrCacheWrite, inRoot(root, temp), cause(err))
 	}
 	if err := root.Rename(temp, name); err != nil {
 		return fmt.Errorf("%w: replace %s: %w", ErrCacheWrite, inRoot(root, name), cause(err))
