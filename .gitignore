@@ -10,3 +10,7 @@
 *.pem
 .env
 .env.*
+
+# Release build scratch (third-party license texts for the archives)
+/.build/
+/dist/

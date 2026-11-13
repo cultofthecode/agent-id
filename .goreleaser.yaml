@@ -1,0 +1,62 @@
+# GoReleaser v2 configuration of agent-id (issue #11, RELEASING.md).
+# The release workflow (.github/workflows/release.yml) runs it on a tag v*;
+# `goreleaser release --snapshot --clean` builds the same archives locally.
+version: 2
+
+project_name: agent-id
+
+before:
+  hooks:
+    - sh .github/scripts/third-party-licenses.sh .build/third_party
+
+builds:
+  - id: agent-id
+    main: ./cmd/agent-id
+    binary: agent-id
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .ShortCommit }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: agent-id
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - src: .build/third_party/*/*
+        dst: third_party
+        strip_parent: false
+        info:
+          mtime: "{{ .CommitDate }}"
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^Merge "
+
+release:
+  github:
+    owner: cultofthecode
+    name: agent-id
+  prerelease: auto
+  draft: false
+  footer: |
+    The archives are not signed or notarized. Verify an archive with
+    `sha256sum -c checksums.txt --ignore-missing` and its build provenance with
+    `gh attestation verify <archive> --repo cultofthecode/agent-id`.
