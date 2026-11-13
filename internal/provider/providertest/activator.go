@@ -28,6 +28,10 @@ type FakeActivator struct {
 	Prefixes   []string
 	CLI        provider.NeutralCLI
 	ReadyError error
+	// Ident is the identity returned by Identity; IdentityError, when set,
+	// makes Identity fail.
+	Ident         provider.Identity
+	IdentityError error
 }
 
 // NewFakeActivator returns a ready activator for the fake host.
@@ -36,6 +40,7 @@ func NewFakeActivator() *FakeActivator {
 		Hosts:     []string{FakeHost, "ssh." + FakeHost},
 		Variables: []string{FakeCredentialVar, FakeCredentialVar + "_ALIAS"},
 		Prefixes:  []string{testenv.FakeTokenPrefix},
+		Ident:     provider.Identity{Name: "agent-id fake bot", Email: "1+fake-bot@" + FakeHost},
 		CLI: provider.NeutralCLI{
 			ConfigDirVar:         FakeConfigDirVar,
 			Decoys:               map[string]string{FakeCredentialVar: FakeDecoy},
@@ -52,6 +57,9 @@ func (f *FakeActivator) CredentialVariables() []string   { return f.Variables }
 func (f *FakeActivator) TokenPrefixes() []string         { return f.Prefixes }
 func (f *FakeActivator) NeutralCLI() provider.NeutralCLI { return f.CLI }
 func (f *FakeActivator) Ready() error                    { return f.ReadyError }
+
+// Identity implements provider.Activator.
+func (f *FakeActivator) Identity() (provider.Identity, error) { return f.Ident, f.IdentityError }
 
 var activatorHostPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]*$`)
 
@@ -98,6 +106,16 @@ func RunActivatorContract(t *testing.T, ready func(t *testing.T) provider.Activa
 		}
 		if len(a.TokenPrefixes()) == 0 {
 			t.Error("TokenPrefixes() is empty, want the provider's token prefixes")
+		}
+	})
+	t.Run("identity comes from the profile without a key", func(t *testing.T) {
+		testenv.Isolate(t)
+		id, err := ready(t).Identity()
+		if err != nil || id.Name == "" || id.Email == "" {
+			t.Errorf("Identity() of a resolved profile = %+v, %v", id, err)
+		}
+		if _, err := notReady(t).Identity(); err == nil {
+			t.Error("Identity() of an unresolved profile succeeded")
 		}
 	})
 	t.Run("ready is silent and not-ready has a hint", func(t *testing.T) {

@@ -23,6 +23,10 @@ type Activator interface {
 	// Ready reports, without a network call, whether the profile can be
 	// activated. Its error carries the adapter's hint.
 	Ready() error
+	// Identity returns the bot's commit author and committer from the
+	// profile's cache, with no network call and no key read. It fails when
+	// the cache is missing or malformed.
+	Identity() (Identity, error)
 }
 
 // NeutralCLI is how a provider's CLI is closed in an agent context: it gets

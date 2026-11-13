@@ -119,7 +119,7 @@ func TestHandleFailures(t *testing.T) {
 		}, 126, "permission denied"},
 		{"execve fails with ENOENT", func(h *Handler, _ *Input) { h.Execer = &recorder{err: syscall.ENOENT} }, 127, "command not found"},
 		{"empty drop list", func(h *Handler, _ *Input) {
-			h.Deps.Providers = source{&providertest.FakeActivator{CLI: providertest.NewFakeActivator().CLI}}
+			h.Deps.Providers = source{&providertest.FakeActivator{CLI: providertest.NewFakeActivator().CLI, Ident: providertest.NewFakeActivator().Ident}}
 		}, 125, "plan contains"},
 	}
 	for _, tt := range tests {
