@@ -4,8 +4,9 @@
 # Runs the steps of .github/workflows/release.yml locally without publishing
 # anything (RELEASING.md). It clones the current HEAD into a throwaway
 # directory under $TMPDIR/agent-id/, with an isolated HOME and Git and gh
-# configuration and no GitHub token, tags HEAD there with an annotated TAG
-# (default v0.0.1), treats HEAD as main, and runs the tag check, the
+# configuration and no GitHub token, tags HEAD there with a TAG (default
+# v0.0.1) signed by a throwaway SSH key that the clone lists in its
+# .github/allowed_signers, treats HEAD as main, and runs the tag check, the
 # single-target build with its version check, and `goreleaser release
 # --skip=publish`. The archives stay in the printed directory; remove it when
 # done. GORELEASER names the goreleaser binary (default: goreleaser on PATH).
@@ -31,9 +32,13 @@ mkdir -p "$HOME"
 
 git clone -q "$src" "$root/repo"
 cd "$root/repo"
+ssh-keygen -q -t ed25519 -N '' -C dry-run -f "$root/dry-run-key"
+printf 'release-dry-run@example.invalid namespaces="git" %s\n' "$(cut -d' ' -f1,2 "$root/dry-run-key.pub")" >.github/allowed_signers
+git add .github/allowed_signers
+git commit -q -m 'dry-run signers'
 git update-ref refs/remotes/origin/main HEAD
 git tag -d "$tag" >/dev/null 2>&1 || true
-git tag -a "$tag" -m "$tag"
+git -c gpg.format=ssh -c "user.signingkey=$root/dry-run-key" tag -s "$tag" -m "$tag"
 
 sh .github/scripts/check-release-tag.sh "$tag" origin/main
 "$goreleaser" build --clean --single-target --id agent-id
