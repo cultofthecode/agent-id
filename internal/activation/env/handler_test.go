@@ -87,7 +87,7 @@ func TestHandleFailuresGive125AndNoBlock(t *testing.T) {
 		{"profile error", func(h *Handler, _ *Input) { h.Deps.Profiles = profiles{err: profile.ErrProfileNotFound} }, ""},
 		{"different profile inside a session", func(_ *Handler, in *Input) {
 			in.Profile = "reviewer"
-			in.Parent = append(in.Parent, "AGENT_ID_CONTEXT=1", "AGENT_ID_ACTIVE_PROFILE=claude", "AGENT_ID_GIT_CONFIG_BASE=0", "AGENT_ID_GIT_CONFIG_END=0")
+			in.Parent = append(in.Parent, "AGENT_ID_CONTEXT=1", "AGENT_ID_ACTIVE_PROFILE=claude", "AGENT_ID_GIT_CONFIG_BASE=0", "AGENT_ID_GIT_CONFIG_END=0", "AGENT_ID_PATH_PREPEND=", "AGENT_ID_SET_NAMES=")
 		}, `"claude"`},
 		{"identity unavailable", func(h *Handler, _ *Input) {
 			a := providertest.NewFakeActivator()
@@ -108,7 +108,7 @@ func TestHandleFailuresGive125AndNoBlock(t *testing.T) {
 	_, err := newHandler(t).Handle(context.Background(), func() Input {
 		i := input()
 		i.Profile = "reviewer"
-		i.Parent = append(i.Parent, "AGENT_ID_CONTEXT=1", "AGENT_ID_ACTIVE_PROFILE=claude", "AGENT_ID_GIT_CONFIG_BASE=0", "AGENT_ID_GIT_CONFIG_END=0")
+		i.Parent = append(i.Parent, "AGENT_ID_CONTEXT=1", "AGENT_ID_ACTIVE_PROFILE=claude", "AGENT_ID_GIT_CONFIG_BASE=0", "AGENT_ID_GIT_CONFIG_END=0", "AGENT_ID_PATH_PREPEND=", "AGENT_ID_SET_NAMES=")
 		return i
 	}())
 	if err == nil || !strings.Contains(err.Error(), "reviewer") {

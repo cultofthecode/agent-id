@@ -213,7 +213,7 @@ func TestExecNeutralBaselineIsolation(t *testing.T) {
 	f.workdir = repo
 	f.extra = []string{
 		"GIT_CONFIG_NOSYSTEM=0", "GIT_CONFIG_SYSTEM=" + system,
-		"GH_TOKEN=" + fakePersonal, "GITHUB_TOKEN=" + fakePersonal, "GH_ENTERPRISE_TOKEN=" + fakePersonal, "GITHUB_ENTERPRISE_TOKEN=" + fakePersonal,
+		"GH_TOKEN=" + fakePersonal, "GITHUB_TOKEN=" + fakePersonal, "GH_ENTERPRISE_TOKEN=" + fakePersonal, "GITHUB_ENTERPRISE_TOKEN=" + fakePersonal, "GH_HOST=ghe.example.test",
 		"GIT_ASKPASS=" + ask, "SSH_ASKPASS=" + ask,
 		"PATH=" + filepath.Join(env.TempDir, "later") + ":" + os.Getenv("PATH"),
 	}
@@ -239,7 +239,7 @@ env`
 	if !strings.Contains(r.stderr, "agent-id: gh is not available in this agent context") {
 		t.Errorf("gh did not print the stub message; stderr %q", r.stderr)
 	}
-	for _, absent := range []string{"\nGITHUB_TOKEN=", "\nGITHUB_ENTERPRISE_TOKEN=", "\nGIT_ASKPASS=", "\nSSH_ASKPASS="} {
+	for _, absent := range []string{"\nGITHUB_TOKEN=", "\nGH_HOST=", "\nGITHUB_ENTERPRISE_TOKEN=", "\nGIT_ASKPASS=", "\nSSH_ASKPASS="} {
 		if strings.Contains("\n"+out, absent) {
 			t.Errorf("the child environment has %q", strings.TrimSpace(absent))
 		}

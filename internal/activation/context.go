@@ -2,14 +2,23 @@ package activation
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
 
 var profileName = regexp.MustCompile(`^[a-z](?:[a-z0-9-]{0,30}[a-z0-9])?$`)
 
-// parseEnv returns the variables of env. The last entry of a name wins, and
-// an entry without a name is ignored.
+// NormalizeEnv returns the parent environment as one value per name, sorted
+// by name (#72). An entry without "=" or with an empty name is discarded,
+// and the last occurrence of a name wins. Names compare byte for byte. Every
+// reader of the parent environment uses this one view, so a check and the
+// child never see different values.
+func NormalizeEnv(env []string) []string {
+	return render(parseEnv(env))
+}
+
+// parseEnv returns the variables of env as NormalizeEnv sees them.
 func parseEnv(env []string) map[string]string {
 	out := make(map[string]string, len(env))
 	for _, kv := range env {
@@ -31,7 +40,7 @@ func ReadContext(parent []string) (*Context, error) {
 		return nil, nil
 	}
 	if version != ContextVersion {
-		return nil, invalid("from an incompatible agent-id (%s=%s)", VarContext, quoteVar(version))
+		return nil, invalid("from an incompatible agent-id (%s is not %s)", VarContext, ContextVersion)
 	}
 	name := env[VarProfile]
 	if name == "" {
@@ -51,7 +60,58 @@ func ReadContext(parent []string) (*Context, error) {
 	if base > end {
 		return nil, invalid("damaged: %s is greater than %s", VarGitBase, VarGitEnd)
 	}
-	return &Context{Version: version, Profile: name, Mechanism: env[VarMechanism], Binary: env[VarBinary], GitConfigBase: base, GitConfigEnd: end}, nil
+	dirs, names, err := readContribution(env)
+	if err != nil {
+		return nil, err
+	}
+	return &Context{Version: version, Profile: name, Mechanism: env[VarMechanism], Binary: env[VarBinary], GitConfigBase: base, GitConfigEnd: end, PathPrepend: dirs, SetNames: names}, nil
+}
+
+// readContribution reads the recorded PATH directories and Set names. A
+// missing variable is damage; the empty string is the empty list.
+func readContribution(env map[string]string) (dirs, names []string, err error) {
+	rawDirs, ok := env[VarPathPrepend]
+	if !ok {
+		return nil, nil, invalid("damaged: %s is missing", VarPathPrepend)
+	}
+	rawNames, ok := env[VarSetNames]
+	if !ok {
+		return nil, nil, invalid("damaged: %s is missing", VarSetNames)
+	}
+	if rawDirs != "" {
+		dirs = strings.Split(rawDirs, ":")
+	}
+	if rawNames != "" {
+		names = strings.Split(rawNames, ",")
+	}
+	for _, dir := range dirs {
+		if !strings.HasPrefix(dir, "/") {
+			return nil, nil, invalid("damaged: %s has a directory that is not absolute", VarPathPrepend)
+		}
+	}
+	if hasDuplicate(dirs) {
+		return nil, nil, invalid("damaged: %s has a duplicate directory", VarPathPrepend)
+	}
+	for _, name := range names {
+		if !validSetName(name) {
+			return nil, nil, invalid("damaged: %s has a name that is not valid", VarSetNames)
+		}
+	}
+	if hasDuplicate(names) || !slices.IsSorted(names) {
+		return nil, nil, invalid("damaged: %s is not a sorted list without duplicates", VarSetNames)
+	}
+	return dirs, names, nil
+}
+
+func hasDuplicate(list []string) bool {
+	seen := make(map[string]bool, len(list))
+	for _, e := range list {
+		if seen[e] {
+			return true
+		}
+		seen[e] = true
+	}
+	return false
 }
 
 // Decide relates a start of profile to the inherited context: a fresh start
@@ -69,11 +129,6 @@ func Decide(ctx *Context, profile string) (Start, error) {
 
 func invalid(format string, args ...any) error {
 	return failf(ErrContextInvalid, "the inherited agent context is "+format+"; start from a terminal outside the agent context", args...)
-}
-
-// quoteVar shortens and sanitizes a value that is echoed in a message.
-func quoteVar(s string) string {
-	return clean(s, 16)
 }
 
 // clean cuts s to n characters and replaces control characters with '?'.
