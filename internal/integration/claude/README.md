@@ -11,7 +11,7 @@ Claude Code runs the contents of `$CLAUDE_ENV_FILE` before every Bash command. A
 - if activation fails at session start (unknown profile, no resolved identity, a nested context, an SSH remote), the hook appends a **refusal line** instead and exits 3: every Bash command of the session stops with 125 and the reason;
 - running the hook again (`resume`, `clear`, `compact`, `fork`) appends nothing when the identical block is already there.
 
-The block removes any shell function and, best effort, any alias named `git` or `gh`, and puts agent-id's `gh` stub first on `PATH`. In this version the bot has no App token for `gh`, and Git has no bot credential yet: both arrive with the credential helper and the `gh` shim (#22, #23). Until then the agent can neither use your personal login nor authenticate as the bot.
+The block removes any shell function and, best effort, any alias named `git` or `gh`, and puts agent-id's `gh` launcher first on `PATH`. The launcher starts the `gh` shim (#23), which takes a fresh bot token for each `gh` call and gives it to that call only. Git gets the bot credential through the agent-id credential helper (#22), which answers only for the profile host over HTTPS. The agent does not use your personal login for Git or `gh`.
 
 ## The hook
 
@@ -45,7 +45,7 @@ agent-id never writes your Claude settings. Add this to `.claude/settings.local.
 - **Bash commands of the session only.** MCP servers and subagents are not covered; start Claude Code with `agent-id exec --profile <name> -- claude` for those.
 - A Bash command that runs `agent-id exec --profile <name> -- …` with the same profile re-enters without duplicates; with another profile it is refused with an error that names both.
 - A function or alias under another name that calls `gh`, another hook that appends `export GH_TOKEN=…` after agent-id's block, `env -i`, and `unset AGENT_ID_CONTEXT` are bypasses. **Local mode is not a sandbox or a security boundary**: it controls attribution and credentials on the supported paths.
-- `agent-id doctor` and `agent-id whoami` (planned) run inside the session and report what the session really uses. `bash -n "$CLAUDE_ENV_FILE"` (or `zsh -n`) checks the env file from a hook when in doubt.
+- `agent-id doctor` and `agent-id whoami` run inside the session and report what the session really uses. `bash -n "$CLAUDE_ENV_FILE"` (or `zsh -n`) checks the env file from a hook when in doubt.
 
 ## Exit statuses of `session-start`
 

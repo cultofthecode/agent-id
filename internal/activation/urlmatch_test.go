@@ -561,12 +561,6 @@ func TestGenericHeaderBelowTheRoot(t *testing.T) {
 	}
 	e := entries(append([]string{"http.extraheader", "X-L: 1"}, append(baseline, "http.https://gist.github.com/.extraheader", "", "http.https://ssh.github.com/.extraheader", "")...)...)
 	if err := c.checkHostHeaders(e); err == nil {
-		t.Error("a generic header that only the https resets clear passes, but Git sends it to the http:// hosts (#107)")
-	}
-	for _, h := range []string{"github.com", "gist.github.com", "ssh.github.com"} {
-		e = append(e, entries("http.http://"+h+"/.extraheader", "")...)
-	}
-	if err := c.checkHostHeaders(e); err != nil {
-		t.Errorf("a generic header that every https and http host reset clears is refused: %v", err)
+		t.Error("a generic header that every https host reset clears passes, but Git sends it over http and on other ports (#107, #112)")
 	}
 }

@@ -3,6 +3,7 @@ package activation
 import (
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -271,24 +272,44 @@ func ScopedHeaders(entries []ConfigEntry, hosts []string) []HostHeader {
 }
 
 // HostRootHeaders returns the names of the extra headers that Git sends to
-// https://host/ and to a URL below the root, and the same for http://host/.
-// The baseline resets only the https form, and Git sends a generic header in
-// plain text to the http form. A reset whose path is "//" matches the root
-// but not the URLs below it, so a generic header must be evaluated at both,
-// as ScopedHeaders does for a scoped one.
+// host over either scheme and on any port. For each scheme it evaluates the
+// root and a URL below the root, on the default port and on a port that no
+// pattern of entries names. A reset whose path is "//" matches the root but
+// not the URLs below it, so both URLs count. A reset for the default port
+// does not cover another port, so a generic header always reaches the
+// unnamed port, as in Git.
 func HostRootHeaders(entries []ConfigEntry, host string) []string {
 	rules := compileHeaderRules(entries)
 	depth := deepSegmentLen(entries)
 	var names []string
-	for _, scheme := range []string{"https", "http"} {
-		root, ok := parseGitURL(scheme+"://"+host+"/", false)
-		if !ok {
-			continue
+	for _, scheme := range []string{"http", "https"} {
+		for _, port := range []string{"", unusedPort(entries)} {
+			root := gitURL{scheme: scheme, host: strings.ToLower(host), port: port, path: "/"}
+			names = append(names, rules.effective(root)...)
+			names = append(names, rules.effective(root.below(depth))...)
 		}
-		names = append(names, rules.effective(root)...)
-		names = append(names, rules.effective(root.below(depth))...)
 	}
 	return names
+}
+
+// unusedPort returns a port number that no http.<url>.* pattern of entries
+// names, so that only a generic header and a pattern without a port apply.
+func unusedPort(entries []ConfigEntry) string {
+	used := map[string]bool{}
+	for _, e := range entries {
+		_, sub, _, ok := splitKey(e.Key)
+		if !ok || sub == "" {
+			continue
+		}
+		if pattern, ok := parseGitURL(sub, true); ok {
+			used[pattern.port] = true
+		}
+	}
+	for n := 1; ; n++ {
+		if p := strconv.Itoa(n); !used[p] {
+			return p
+		}
+	}
 }
 
 // deepSegmentLen returns a length that exceeds the normalized path of every
