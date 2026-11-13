@@ -18,6 +18,7 @@ Before you work on a task of a given kind, read the files in **Read first**. Whe
 | System structure, module boundaries | `ARCHITECTURE.md` | Follow the dependency rules. A new module or a new cross-module dependency needs a row in Key decisions. |
 | Credentials: private key source, installation tokens, the token cache, the Git credential helper, the `gh` token injection | `ARCHITECTURE.md` (Security model), brief §9.3, §10 | Always `risk-high`. Fail closed. Keep the decision in a pure function with hostile-input tests. A token never appears in output, errors, logs, or fixtures. |
 | Git identity and process-scoped Git configuration | `ARCHITECTURE.md` (Git integration), brief §9.3 | Always `risk-high`. Only `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` and the author and committer variables; never `git config --global`, never a file in the developer's home. |
+| A Git forge (GitHub now; GitLab, Bitbucket later): its API, tokens, bot identity, hosts and URLs, CLI | `ARCHITECTURE.md` (Provider abstraction, Dependency rules) | Core code talks to `internal/provider` only. GitHub-specific code lives in `internal/provider/github`; only `cmd/agent-id` constructs that adapter. A new forge is a new adapter that passes the provider contract tests, never a change to the core. |
 | A new CLI operation | `ARCHITECTURE.md` (Slice anatomy) | One slice is one package: `contract.go`, `handler.go`, `command.go`, `handler_test.go`. Write the contract first. |
 | Tests | `ARCHITECTURE.md` (Testing strategy), `internal/testenv/AGENTS.md`, the Test isolation section below | Every test that runs agent-id code, `git`, or `gh` calls `testenv.Isolate(t)` first. GitHub is always the fake. Do not weaken a test to make it pass. |
 | Pipeline configuration | `.ai/agentic.config.json`, `.ai/trackers/github.md` | Change the config and `SDLC.md` together. Run `om-setup-agent-pipeline` again when the toolchain or the labels change. |
@@ -27,6 +28,7 @@ Before you work on a task of a given kind, read the files in **Read first**. Whe
 ## Code conventions
 
 - Standard Go style: `gofmt`, short lowercase package names, errors wrapped with `%w`.
+- **Zero GitHub-specific imports outside `internal/provider/github`.** No other package imports a GitHub client or library or GitHub types, hard-codes the hosts `github.com` or `api.github.com`, or holds App JWT, installation-token, or `gh` wiring. A Go import path that merely lives on GitHub, such as this repository's own module path `github.com/cultofthecode/agent-id`, is not GitHub-specific. Core code depends on the `internal/provider` interface. The only exceptions: `cmd/agent-id` constructs and injects the adapter, and the test-only package `internal/testenv` holds the fake GitHub and the GitHub variables that `Isolate` removes, for test files to use (ADR in `ARCHITECTURE.md`, Provider abstraction).
 - One level of abstraction per function. Split a complicated function into well-named functions.
 - Doc comments on packages and exported identifiers. No comments inside function bodies.
 - No abstraction for single-use code, and no option that nobody asked for.
