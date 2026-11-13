@@ -35,7 +35,7 @@ Claude Code runs the file's contents before every Bash command, so each command 
    - It runs the activation pipeline of #20, `activation.Activate`, with `Mechanism=env`. The parent environment is the environment of the `agent-id env` process.
    - It prints the result as one **activation block** (`Render`, below), with every statement chained with `&&` so that the block succeeds or fails as a whole.
    - On success it exits 0 with the block on stdout. On failure it exits 125, writes one error line to stderr, and writes nothing to stdout.
-   - It writes no file and opens no network connection.
+   - It opens no network connection. Like `exec`, it may create agent-id's own neutral directories under `<cache>/agent-id/<provider>/` (amended by #68, see the exec spec); it writes nothing else.
 2. **`agent-id claude-code session-start --profile <name>`.** This is a `SessionStart` command hook.
    - It runs the same pipeline once. The working directory for preflight is the hook input's `cwd`, so O1 runs there once per session start.
    - It renders the block and wraps it as `{ <block>; } || { <refusal>; exit 125; }`.

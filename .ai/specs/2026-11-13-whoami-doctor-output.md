@@ -3,6 +3,8 @@
 Issue: #24 (E02-S10). Implemented by #24 after #22 and #23.
 
 Extends: `.ai/specs/2026-11-13-exec-child-environment.md` (reads its context variables and re-checks its Git markers).
+
+> 🔒 Amended by #68 (2026-11-13): `env.credential` accepts the provider's fixed decoy `GH_TOKEN` inside a context (see the exec spec, Neutral credential baseline).
 Extends: `.ai/specs/2026-11-12-profile-config.md` (`doctor` lists unsupported profiles and refreshes the identity cache, as that spec and `ARCHITECTURE.md` (Data) already assign to it).
 
 ## 📝 TLDR
@@ -252,7 +254,7 @@ The order below is the output order. `fail` means `exec` refuses, or agent mode 
 | `git.signing` | personal commit or tag signing is configured | info (turned off in agent mode) | S1–S8 |
 | `git.ssh` | D5: `GIT_SSH_COMMAND` or `core.sshCommand` while a remote on the host is not HTTPS | info | D5; O3 |
 | `git.askpass` | D7: `GIT_ASKPASS`, `SSH_ASKPASS`, `core.askPass` | info | D7 |
-| `env.credential` | the provider's `CredentialVariables` present in doctor's own environment | warn outside a context; fail inside one (a startup file re-exported it) | #20; analysis R |
+| `env.credential` | the provider's `CredentialVariables` present in doctor's own environment. Inside a context, a variable whose value is exactly the provider's `NeutralCLI` decoy (`GH_TOKEN=agent-id-no-token`, amended by #68) is expected and passes as `ok`; any other value fails. Outside a context, the decoy value is reported as `info` (a leftover agent shell) and any other value as `warn`. The value is never printed: only its equality with the decoy is evaluated. | warn outside a context; fail inside one for a non-decoy value (a startup file re-exported it) | #20; #68; analysis R |
 | `env.tokenlike` | any other environment variable whose value matches a registered token prefix, a PEM block or a JWT shape | warn, variable name only | exec spec OQ3 |
 | `gh.binary` | `gh` on `PATH`; inside a context, the first `gh` is the agent-id shim (#23) | warn when missing; fail when, inside a context, another `gh` comes first | gh analysis |
 | `gh.host` | `GH_HOST` or `GH_REPO` names a host other than the profile's | warn | gh analysis, host rules |
@@ -367,7 +369,7 @@ Every test calls `testenv.Isolate(t)` first. Packages that run Git or `gh` use `
 
    `Guard` is tested on every report string before rendering and on the rendered text; JSON is rendered only from strings that already passed, so no JSON unescaping is needed. A test runs `Guard` over every static catalog string.
 3. **Renderers.** Golden files for the text and JSON examples of this spec, for `personal/unmanaged`, and for every `Context` variant. `AbbreviateHome` covers a path inside `$HOME`, `$HOME` itself, a prefix collision (`/home/devx` vs `/home/dev`), and a relative path.
-4. **Checks.** One table per catalog id over a constructed `Snapshot`, with the matrix rows as cases. D1 uses U2–U8 and U12. D2 uses C21 and U11. D3 uses H7. D4 uses C19b, O2 keys, and `include.path`. D6 uses R8, an appended foreign entry, and a modified agent entry. `env.tokenlike` covers each pattern, and the value never appears in the result. Every check gets a `skip` row for a missing input.
+4. **Checks.** One table per catalog id over a constructed `Snapshot`, with the matrix rows as cases. D1 uses U2–U8 and U12. D2 uses C21 and U11. D3 uses H7. D4 uses C19b, O2 keys, and `include.path`. D6 uses R8, an appended foreign entry, and a modified agent entry. `env.tokenlike` covers each pattern, and the value never appears in the result. `env.credential` covers the decoy inside a context (`ok`), another value inside a context (`fail`), the decoy outside a context (`info`), and another value outside (`warn`) (#68). Every check gets a `skip` row for a missing input.
 
 ### Phase 2 — `whoami`
 

@@ -2,6 +2,8 @@
 
 > ⚠️ Superseded by `.ai/specs/2026-11-13-env-claude-session-start.md` (2026-11-13) — sections: Architecture (the `Activate` return type and the new `Plan.Unshadow` field). Partly superseded: everything else in this spec stands.
 
+> 🔒 Amended by #68 (2026-11-13): `exec` fails closed from its first merge. The child never reaches the developer's credentials through Git or `gh`, independently of #21–#23. See [Neutral credential baseline](#-neutral-credential-baseline-68). The amendment replaces the delivery-order rule "no release may contain `exec` before #21, #22, and #23", and it moves O1 from #22 into #20.
+
 Issue: #20 (E02-S06). Implemented by #20; extended by #21 (Git identity), #22 (Git transport), #23 (`gh` injection); reused by #26 (`agent-id env`) and read by #24 (`whoami`, `doctor`).
 
 Extends: `.ai/specs/2026-11-12-profile-config.md` (it consumes `Resolve` and decides the consumer rule for an unresolved identity that the profile spec left to #20).
@@ -16,6 +18,13 @@ Decisions this spec follows:
 - **O1–O4 of the Git precedence analysis** (project manager, 2026-11-13, on #20, #22, #24): O1 — `exec` refuses a repository whose GitHub remote still resolves to SSH after the rewrite set; O2 — refuse an inherited `GIT_CONFIG_PARAMETERS` that sets `credential`, `url`, `http`, or signing keys, otherwise keep it; O3 — SSH fallback is documented and detected (`doctor`), the `GIT_SSH_COMMAND` shim is Phase 3; O4 — Git 2.43 is the minimum.
 - **Explicit selection only** (brief §14; profile spec): `--profile` is required. The context variable that `exec` sets is a marker for descendants and diagnostics, never a way to select a profile.
 - **Provider abstraction** (ADR #35): `internal/activation` names no forge; the variables to drop and the hint for an unresolved identity come from the provider adapter.
+- **Fail closed from the first merge** (project manager, 2026-11-13, #68, from the post-merge review of #48, finding F1). From its first version, `exec` neutralizes personal credentials in the child:
+  1. it resets the `credential.helper` list to empty through `GIT_CONFIG_*`;
+  2. it sets `GIT_TERMINAL_PROMPT=0`;
+  3. it points `GH_CONFIG_DIR` at an empty directory owned by agent-id;
+  4. it gives the child no developer or bot token until #23 (`GH_TOKEN` holds only a fixed, non-secret decoy that closes `gh`'s keychain fallback: OQ4, required by the owner's Definition of Done of 13.11);
+  5. it refuses to start while a GitHub remote resolves to SSH (O1, moved from #22 into #20);
+  6. the regression test belongs to the fail-closed suite #25.
 
 ## 📝 Problem Statement
 
@@ -31,14 +40,15 @@ Decisions this spec follows:
 2. **Read the inherited context** (pure). Decide fresh start, idempotent re-entry (same profile), or refusal (different profile, damaged or unknown context). Nesting is decided first, so a refused nested start names both profiles even when the inner profile is also not ready.
 3. **Resolve.** Load the config and `Resolve(name)` (profile spec). Take the provider for the profile. Ask it whether the profile is ready to activate: in the MVP, the GitHub adapter answers "not ready" when `github.identity` is missing, with its own hint (`run agent-id setup github --profile <name>`). `exec` refuses such a profile and never resolves the identity over the network.
 4. **Check the inherited Git process configuration** (pure). Refuse a malformed `GIT_CONFIG_COUNT` set (G2–G4 of the analysis) and an inherited `GIT_CONFIG_PARAMETERS` that sets a forbidden key (O2).
-5. **Preflight checks.** Run the checks that later stories register and that need the file system or Git, in a fixed order. #20 ships the list empty; #22 registers O1 (a GitHub remote of the working directory's repository that resolves to SSH after the rewrite set).
+5. **Prepare the neutral directories** (#68). Ensure that the empty `gh` configuration directory and the `gh` stub directory exist, are owned by the user, and are private. See [Neutral credential baseline](#-neutral-credential-baseline-68).
 6. **Build** the child environment with one pure function from the parent environment and an activation plan (below). The result never contains a token or key.
+7. **Remote checks** (#68; O1, D2, D3). With the **child** environment and in the working directory, refuse a remote on the provider's host when it resolves to SSH (O1), carries a password in its user-info (D2), or gets an `Authorization` header that survives the plan's reset (D3). The rewrites of #22 count automatically, because the check runs with the child's `GIT_CONFIG_*` entries. Later stories may register further checks in the same list, in a fixed order.
 
-Steps 2–6 are one root-package function, `activation.Activate`, so that `agent-id env` (#26) runs exactly the same pipeline (dependency rule 2: a slice never imports another slice).
+Steps 2–7 are one root-package function, `activation.Activate`, so that `agent-id env` (#26) runs exactly the same pipeline (dependency rule 2: a slice never imports another slice).
 
-7. **Look up** the command with the child's `PATH` (so the `gh` shim of #23 wins, as it would in the agent's shell), then `execve` it with the child environment. agent-id is gone; its process id, open descriptors, controlling terminal, process group, and working directory now belong to the command.
+8. **Look up** the command with the child's `PATH` (so the `gh` shim of #23 wins, as it would in the agent's shell), then `execve` it with the child environment. agent-id is gone; its process id, open descriptors, controlling terminal, process group, and working directory now belong to the command.
 
-`exec` writes no file, opens no network connection, and prints nothing on success.
+`exec` opens no network connection and prints nothing on success. The only files it writes are the two agent-id-owned neutral directories and the stub script of step 5, and only when they are missing or their content differs. It writes nothing in the developer's configuration.
 
 ### The activation plan
 
@@ -49,12 +59,66 @@ Steps 2–6 are one root-package function, `activation.Activate`, so that `agent
 | `Profile` | the resolved profile name | #20 |
 | `Mechanism` | `exec` or `env` | #20, #26 |
 | `Binary` | absolute path of the running agent-id binary | #20 |
-| `Drop` | variable names removed from the child; never empty (an empty list is `ErrPlanUnsafe`, fail closed) | the provider (CLI integration: `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN` for GitHub) — #20 wires it |
+| `Drop` | variable names removed from the child: the core part (`GIT_ASKPASS`, `SSH_ASKPASS`, #68) plus the provider's `CredentialVariables()`, which must be non-empty (an empty provider list is `ErrPlanUnsafe`, fail closed) | the provider (CLI integration: `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN` for GitHub) — #20 wires it |
 | `Set` | variables set in the child | #21 (author and committer) |
 | `GitConfig` | ordered `key=value` entries appended to the process-scoped Git configuration | #21 (signing), #22 (helper reset, helper, `useHttpPath`, `extraHeader` reset, SSH rewrites, `core.askPass`) |
 | `PathPrepend` | directories prepended to `PATH` | #23 (the `gh` shim directory) |
 
-In #20 only `Profile`, `Mechanism`, `Binary`, and `Drop` are filled. The builder treats the other fields generically and is fully tested with them in #20, so #21–#23 add data, not composition logic.
+In #20, `Profile`, `Mechanism`, `Binary` and `Drop` are filled, plus the **neutral credential baseline** of #68 in `Drop`, `Set`, `GitConfig` and `PathPrepend` (next section). The builder treats the other fields generically and is fully tested with them in #20, so #21–#23 add data, not composition logic.
+
+### 🔒 Neutral credential baseline (#68)
+
+**Invariant.** `exec` never starts a child in which Git or `gh`, used through the supported paths, can reach the developer's credentials. This holds from the first merge of #20, whether or not #21, #22 and #23 have landed. It is enforced by the plan below and by the refusals of step 7, and tested by #25. It does not depend on release discipline. #21–#23 later replace the neutral entries with the bot's identity, helper and shim. They never remove the baseline, so the invariant holds at every point in between.
+
+#20 contributes these plan entries (`<host>` is the provider's `Host()`). Forge-specific values (the CLI's configuration variable, the decoy variables and their value, the CLI binary name for the stub) come from the provider through a new interface method, `NeutralCLI() NeutralCLI{ConfigDirVar string; Decoys map[string]string; Binary string; ForbiddenConfigFiles []string}` (GitHub: `GH_CONFIG_DIR`; `GH_TOKEN` and `GH_ENTERPRISE_TOKEN` → `agent-id-no-token`; `gh`; `hosts.yml`). `providertest.RunContract` requires: every decoy name is one of `CredentialVariables()`; every decoy value passes the `Build` secret guard and has no registered token prefix; `Binary` and `ConfigDirVar` are non-empty; the core creates the directories generically under `<cache>/agent-id/<provider>/`, so no GitHub name lives outside the adapter (ADR #35):
+
+| Plan field | Entry | Closes | Replaced later by |
+|---|---|---|---|
+| `GitConfig` | `credential.helper` = *(empty)*, appended after the inherited entries | Every helper collected before it, for every host: system `osxkeychain`, global, `includeIf`, repository, path-scoped, inherited `GIT_CONFIG_COUNT` (analysis C1–C18; a generic empty value resets the list in config order). Personal helpers of other hosts are also off inside the agent context. | #22 appends the agent-id helper for `<host>` after this entry |
+| `GitConfig` | `http.https://<host>/.extraHeader` = *(empty)* | A generic or host-scoped personal `Authorization` header (H1, H3, H5, H8) | stays |
+| `GitConfig` | `core.askPass` = *(empty)* | A configured askpass program (A2, A3) | stays |
+| `Set` | `GIT_TERMINAL_PROMPT=0` | Git's terminal prompt for a username or password | stays |
+| refusal (step 7) | a `~/.netrc` (or `$HOME/.netrc` of the child) with a `machine` entry for a provider host, or a `default` entry | Git's HTTP transport reads `.netrc` itself, with no helper involved, so none of the resets above stop it (found by the independent review of #80 on Git 2.54: the server received `Authorization: Basic` from a fake `.netrc`) | stays |
+| `Drop` (core part) | `GIT_ASKPASS`, `SSH_ASKPASS` | An IDE's askpass answering for the developer (A1, A4). `GIT_TERMINAL_PROMPT=0` does not stop these. | stays |
+| `Drop` (provider part) | `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN` (`CredentialVariables`, must be non-empty) | Inherited personal tokens | #23 sets the bot token per `gh` invocation, never in the environment |
+| `Set` (provider's `NeutralCLI`) | GitHub: `GH_CONFIG_DIR=<cache>/agent-id/github/cli-config` | The developer's `hosts.yml` and per-user lookups (gh analysis, steps 3–4) | stays; #23 keeps it |
+| `Set` (provider's `NeutralCLI`) | GitHub: `GH_TOKEN=agent-id-no-token` and `GH_ENTERPRISE_TOKEN=agent-id-no-token`: fixed, non-secret decoys with no token prefix | The keychain fallback of `gh` however it is started: by absolute path, or through a `PATH` that a startup file re-prepends (`brew shellenv`). `gh` takes `GH_TOKEN` (or, for other hosts, `GH_ENTERPRISE_TOKEN`) before `hosts.yml` and the keyring (gh analysis, token order), so it sends the decoy and GitHub answers 401. Verified offline with `gh auth token`, which printed the decoy although a `hosts.yml` with a fake token was present. | #23's shim replaces `GH_TOKEN` with the bot token for each invocation |
+| `PathPrepend` (provider's `NeutralCLI`) | `<cache>/agent-id/github/neutral-bin`, holding the `gh` stub | Gives a clear agent-id message instead of `gh`'s 401 when `gh` is started by name. The decoy, not the stub, is what closes the keychain path. | #23 replaces the stub with the shim in its own directory, prepended before this one |
+
+`<cache>` is `$XDG_CACHE_HOME` when it is an absolute path, and `$HOME/.cache` otherwise. This is the same rule as the token cache.
+
+**The two directories (step 5).** They are `<cache>/agent-id/<provider>/cli-config` and `<cache>/agent-id/<provider>/neutral-bin`. `exec` creates each directory with mode `0700` when it is missing, together with a missing `agent-id` parent (`0700`). It then checks, on an opened descriptor, that the directory is not a symlink, is owned by the current user, and has no group or other bits. Otherwise it refuses with `ErrNeutralDir`, naming the path and the fix, and never `chmod`s a directory it did not just create.
+
+- `cli-config` must not contain `hosts.yml` (the GitHub adapter's `NeutralCLI` names the forbidden file). If it does, `exec` refuses with `ErrNeutralDir`: a `gh auth login` run inside the agent context would otherwise turn the empty directory into a token store. Other files that `gh` writes there (`state.yml`, `config.yml`) are allowed.
+- `neutral-bin/<Binary>` (`gh`) is a regular file with mode `0700`, owned by the user, with exactly this content:
+
+  ```sh
+  #!/bin/sh
+  printf '%s\n' 'agent-id: gh is not available in this agent context: this agent-id version gives gh no bot token, and it never uses your personal login. Run gh in your own terminal.' >&2
+  exit 1
+  ```
+
+  `exec` writes the file atomically (temporary file, `0700`, `rename`) when it is missing or its content differs. A symlink or a file owned by someone else is refused. The stub is a self-contained script, not a link to the agent-id binary, so an upgrade or removal of the binary cannot leave a dangling entry. A dangling entry would let the shell fall through to the real `gh`.
+
+**Remote checks (step 7).** The remote checks below run only inside a Git work tree (`git rev-parse --is-inside-work-tree` with the child environment), and are skipped outside one or when `git` is not installed: then there is no Git path at all. For each remote, `exec` reads the effective fetch URL (`git ls-remote --get-url <remote>`) and every push URL (`git remote get-url --push --all <remote>`) with the child environment, so the effective `insteadOf`/`pushInsteadOf` rules apply. Remotes are not the only path: a global `url.<ssh>.insteadOf=https://<host>/` rewrite would send every later `git clone https://<host>/…` of the agent over SSH with the developer's key. So step 7 also evaluates the rewrite rules of the system, global and command scopes (`git config --list -z --show-origin` with the child environment, run twice: in an empty directory outside any repository, and in the working directory, so that a global `includeIf "gitdir:…"` rewrite and the starting repository's own rules are seen) with a pure `RewritesToSSH(entries, "https://<host>/")`. It evaluates fetch and push separately, as Git does (verified on Git 2.54 in the review of #80): fetch uses only the longest matching `insteadOf`; push first applies the longest matching `pushInsteadOf`, and falls back to `insteadOf` only when no `pushInsteadOf` matches; an explicit `pushurl` is not subject to `pushInsteadOf` and is covered by the per-remote O1 check. It refuses (`ErrSSHRewrite`) when the provider's HTTPS base, or any path under it, would be rewritten to SSH. A URL belongs to the provider when its host (scheme form, or the `[user@]host:path` scp form) matches one of the provider's `GitHosts()` (new interface method; GitHub: `github.com`, `ssh.github.com`) case-insensitively, or when it is an SSH alias whose `ssh -G <alias>` `hostname` matches.
+
+| Check | Refuses when | Error |
+|---|---|---|
+| O1 | a provider URL uses SSH: scp form, `ssh://`, `git+ssh://`, `ssh+git://`. Before #22 every SSH form is refused; after #22 its rewrites turn the common forms into HTTPS first. | `ErrSSHRemote` |
+| D2 | a provider URL has a password in its user-info | `ErrRemoteCredentials` |
+| D3 | any `http.<url>.extraHeader` value, other than one that agent-id's own plan entries set (#22 may add some later), survives for a provider URL. `git config --get-urlmatch` is not used, because it prints only the last value of the best match. The pure `EffectiveHeaders(entries, url)` evaluates the ordered `--list -z` entries with Git's URL-specificity rule and the empty-value reset (H2, H4, H5, H7, H8). Any surviving header is refused, not only `Authorization`: `Cookie`, `Private-Token` and custom headers can carry credentials too. | `ErrRemoteHeader` |
+| netrc | any of the child's `$HOME/.netrc`, `$HOME/_netrc`, or the file named by `$NETRC` exists and has a `machine` entry for a provider host (compared case-insensitively) or a `default` entry. When `HOME` is unset, the user's home from the password database is used, as libcurl does. Apple Git 2.54 (libcurl 8.7.1) reads only `$HOME/.netrc`, but Linux libcurl builds differ, so all three are checked. A pure netrc tokenizer handles `machine`/`default`/`login`/`password`/`macdef`. An unreadable or unparsable file is refused. Values are never printed. | `ErrNetrc` |
+
+Every Git or `ssh` call has a 10 s timeout. A timeout, a failed `ssh -G` for a host that could be an alias, or any other error makes `exec` refuse (`ErrRemoteCheck`) rather than guess. An alias passed to `ssh -G` must match `^[A-Za-z0-9._-]+$` and not start with `-`, and is passed after `--`. Messages name the remote and the configuration source of the rule, never a URL's user-info or a header value.
+
+**Not covered** (documented bypasses; local mode is not a sandbox, brief §10):
+- the agent's own `git -c credential.helper=…`, or a `git clone git@github.com:…` that names an SSH URL itself, which uses the developer's SSH agent (SSH neutralization for the provider's hosts is the Phase 3 `GIT_SSH_COMMAND` shim, O3);
+- a repository other than the starting one with its own `insteadOf` to SSH, or a `.netrc` written after the start;
+- the agent unsetting the decoy and calling `gh` by absolute path;
+- `env -i`;
+- shell startup files that undo the environment (R8–R10).
+
+`doctor` (#24) reports the detectable ones.
 
 ### Alternatives considered
 
@@ -79,7 +143,7 @@ The system SHALL start the command with the child environment of the resolved pr
 
 ##### Scenario: Parent unchanged
 - WHEN a test process runs `agent-id exec --profile claude -- sh -c 'exit 0'` in an isolated environment and then inspects its own environment and the isolated `HOME`
-- THEN both are byte-identical to the state before the run, and no file under `HOME`, `XDG_*`, or `GIT_CONFIG_GLOBAL` was created or modified
+- THEN its environment is byte-identical to the state before the run, and no file under `HOME`, `XDG_*`, or `GIT_CONFIG_GLOBAL` was created or modified except agent-id's own `<cache>/agent-id/<provider>/cli-config` and `neutral-bin` (#68)
 
 ##### Scenario: Marker in the child only
 - WHEN the command is `sh -c 'printf %s "$AGENT_ID_ACTIVE_PROFILE"'`
@@ -120,7 +184,7 @@ The system SHALL remove from the child environment every variable that the profi
 
 ##### Scenario: Personal GH_TOKEN
 - WHEN the parent has `GH_TOKEN` and `GITHUB_TOKEN` set to fake personal tokens and the profile's provider is `github`
-- THEN the command's environment has neither variable
+- THEN no developer value reaches the command: `GITHUB_TOKEN` is absent, and `GH_TOKEN` equals the provider's fixed decoy (#68)
 
 ##### Scenario: No secret added to the child environment
 - WHEN the child environment is built for any profile of the test fixtures from a parent with no token-shaped value
@@ -170,6 +234,49 @@ The system SHALL refuse to start when the inherited `GIT_CONFIG_COUNT` set is ma
 - WHEN the parent has `GIT_CONFIG_PARAMETERS="'core.pager'='less'"`
 - THEN the command sees the same `GIT_CONFIG_PARAMETERS`
 
+#### ADDED Requirement: Fail closed from the first merge (#68)
+The system SHALL start the command only with the neutral credential baseline in place. In that state Git has no credential helper, no terminal or askpass prompt, and no personal `Authorization` header for the provider's host; `gh` started by name is the refusing stub and finds no `hosts.yml`; and no token variable is inherited. This SHALL hold whether or not #21–#23 have landed.
+
+##### Scenario: Personal credential helper neutralized
+- WHEN the isolated global Git config sets a fake recording helper as `credential.helper` and as `credential.https://github.com.helper`, the system config sets another, and the command runs `git ls-remote https://<fake host>/o/r.git` (or `git credential fill` for `https://github.com/o/r.git`) against the local Git server of `internal/testenv`
+- THEN no fake helper records a call, Git asks no prompt (`GIT_TERMINAL_PROMPT=0`), and the operation fails without credentials
+
+##### Scenario: Askpass neutralized
+- WHEN the parent has `GIT_ASKPASS` and `SSH_ASKPASS` set to fake recording programs and the global config sets `core.askPass`
+- THEN none of them records a call during the operation above
+
+##### Scenario: Empty GH_CONFIG_DIR and refusing gh stub
+- WHEN the parent's `GH_CONFIG_DIR` holds a fake `hosts.yml` with a fake personal `oauth_token`, and the command runs `gh api user`
+- THEN the command's `GH_CONFIG_DIR` is agent-id's own directory, which has no `hosts.yml`; `GH_TOKEN` is the decoy; `gh` resolves to the stub, which prints agent-id's message and exits 1; and the fake `hosts.yml` value never reaches any process (a fake `gh` placed later on `PATH` records zero calls)
+
+##### Scenario: gh by absolute path gets the decoy, not the keychain
+- WHEN the command runs the real `gh` by absolute path as `gh auth token` (skipped when `gh` is not installed; offline)
+- THEN it prints `agent-id-no-token`, proving that `gh`'s token resolution stops at `GH_TOKEN` before `hosts.yml` and the keyring
+
+##### Scenario: netrc refused
+- WHEN the child's `$HOME/.netrc` has `machine github.com login x password <fake>` or a `default` entry
+- THEN the exit status is 125 (`ErrNetrc`), the message names the file and not the password, and a transport test against the local Git server shows that no `Authorization` header was sent because the command never ran
+
+##### Scenario: Global rewrite to SSH refused
+- WHEN the isolated global config holds `url.git@github.com:.insteadOf=https://github.com/` and the working directory is not a repository
+- THEN the exit status is 125 (`ErrSSHRewrite`), naming the rule and its scope
+
+##### Scenario: No token in the child
+- WHEN the parent has fake values in `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN`
+- THEN none of the developer's values reaches the command: `GITHUB_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` are absent, `GH_TOKEN` and `GH_ENTERPRISE_TOKEN` hold only the fixed decoy, and no value of the command's environment matches a registered token prefix, `-----BEGIN`, or a JWT shape
+
+##### Scenario: Refusal on an SSH remote
+- WHEN the working directory is a repository whose `origin` is `git@github.com:o/r.git`, or `https://github.com/o/r.git` rewritten to SSH by a personal `url.git@github.com:.insteadOf`, or a `pushurl` of `ssh://git@ssh.github.com:443/o/r.git`
+- THEN the exit status is 125 (`ErrSSHRemote`), the message names the remote and the configuration source of the rule, and the command does not run
+
+##### Scenario: Refusal on embedded credentials or a surviving header
+- WHEN a remote is `https://u:secret@github.com/o/r.git`, or the repository config holds a path-scoped `http.https://github.com/o/r.git.extraheader` with an `Authorization` value followed by a harmless second header, or a host-scoped `Cookie` header added after agent-id's reset
+- THEN the exit status is 125 (`ErrRemoteCredentials` or `ErrRemoteHeader`), and the message contains neither `secret` nor the header value
+
+##### Scenario: Neutral directories are checked
+- WHEN `<cache>/agent-id/gh-config` is a symlink, is group-writable, or contains `hosts.yml`, or `neutral-bin/gh` is a symlink
+- THEN the exit status is 125 (`ErrNeutralDir`), and nothing is changed
+
 #### ADDED Requirement: Unresolved identity
 The system SHALL refuse to activate a profile that its provider reports as not ready, with the provider's hint, and SHALL NOT contact the provider to resolve it.
 
@@ -193,7 +300,7 @@ flowchart LR
 
 `internal/activation` is the only owner of the child environment; `exec` executes it and `env` (#26) prints it. Dashed edges are data that later stories add to the plan.
 
-- **`internal/activation`** (module root, new). `ReadContext`, `Decide`, `CheckInheritedGit`, `ParseGitConfigParameters` and `Build` are pure. `Activate` orchestrates the pipeline and performs I/O only through its ports (profile resolver, provider source, preflight checks); the `Execer` is the slice's port:
+- **`internal/activation`** (module root, new). `ReadContext`, `Decide`, `CheckInheritedGit`, `ParseGitConfigParameters` and `Build` are pure. `Activate` orchestrates the pipeline and performs I/O only through its ports (profile resolver, provider source, the neutral-directory port, remote checks); the `Execer` is the slice's port:
   ```go
   type Plan struct {
       Profile     string
@@ -209,15 +316,16 @@ flowchart LR
   type Deps struct {
       Profiles  ProfileResolver // narrow port: Resolve(name) → the profile's provider name and host; satisfied by internal/profile (#17)
       Providers ProviderSource  // narrow port: the provider.Provider for a resolved profile; built by the composition root
-      Preflight []Check
+      Neutral   NeutralDirs     // narrow port: ensures and checks the gh-config and neutral-bin directories (#68)
+      Checks    []Check         // remote checks run with the child environment (#68: O1, D2, D3)
   }
   type Request struct {
       Profile, Mechanism string
       Binary             string   // from ResolveBinary, resolved by the caller
-      Dir                string   // working directory, for preflight checks
+      Dir                string   // working directory, for the remote checks
       Parent             []string // the parent environment
   }
-  func Activate(ctx context.Context, d Deps, r Request) ([]string, error) // steps 2–6
+  func Activate(ctx context.Context, d Deps, r Request) ([]string, error) // steps 2–7
   func ReadContext(parent []string) (ctx *Context, err error)              // pure
   func Decide(ctx *Context, profile string) (Start, error)                 // fresh | reenter | ErrNestedProfile
   func CheckInheritedGit(parent []string) error                            // G2–G4, O2; pure
@@ -231,8 +339,9 @@ flowchart LR
   - `CredentialVariables() []string` — the CLI-integration variables the core must remove from any child (the names that `CLIEnvironment` sets, plus their aliases). GitHub: `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN`. The contract test requires a non-empty list that contains every name `CLIEnvironment` returns.
   - `Ready(ctx) error` — whether the profile can be activated without a network call; GitHub: the identity cache is present. Its error carries the adapter's hint.
   The provider source builds a `provider.Provider` from the resolved profile, including its cached identity, and for `exec` it must neither read the private key nor touch the network (keys are loaded lazily by `Token`). `githubtest.App.Provider` gains a control for the identity cache so that the contract suite can exercise `Ready`. The production wiring of #20 therefore needs the GitHub adapter (#15): the GitHub drop list is the adapter's data, and a test in `cmd/agent-id` must prove that the production registry removes an inherited `GH_TOKEN`; without it, `exec` would fail open.
-- **Preflight checks** are values of `type Check func(ctx context.Context, dir string, parent []string) error`, registered by the composition root in a fixed order. #22 registers O1.
-- **Dependencies on other work:** #17 (profile store) and #15 (GitHub adapter: drop list and readiness) are required before the `exec` command is registered; Phase 1 (the pure core) needs neither. Until #21–#23 land, a started command has the context markers but not the bot's Git identity, helper, or `gh` shim (see Risks).
+- **Remote checks** (step 7) are values of `type Check func(ctx context.Context, dir string, child []string) error`, run with the **child** environment in a fixed order. #20 registers O1, D2 and D3 (#68). They live in `internal/activation`, which runs `git` and `ssh` through a narrow `Runner` port so the decisions stay pure: `ClassifyRemoteURL(url, gitHosts)` and `HasPassword(url)` are table-tested. Later stories may append checks.
+- **Provider interface, one more method** (#68): `GitHosts() []string`, the host names whose Git remotes belong to the provider. For GitHub these are `github.com` and `ssh.github.com`. This is the "host and URL mapping" responsibility of ADR #35. `providertest.RunContract` requires a non-empty list that contains `Host()`.
+- **Dependencies on other work:** #17 (profile store) and #15 (GitHub adapter: drop list and readiness) are required before the `exec` command is registered; Phase 1 (the pure core) needs neither. Until #21–#23 land, a started command has the neutral credential baseline (#68): it cannot reach personal credentials, and Git and `gh` fail with agent-id's messages instead of acting as anyone.
 
 ## 📝 API Contracts
 
@@ -253,7 +362,7 @@ agent-id exec --profile <name> [--] <command> [args…]
 | Status | When |
 |---|---|
 | the command's | always, once the command started (`execve` succeeded) |
-| 125 | agent-id failed before starting the command: usage, config, profile, nesting, inherited Git configuration, preflight, binary path |
+| 125 | agent-id failed before starting the command: usage, config, profile, nesting, inherited Git configuration, neutral directories, remote checks, binary path |
 | 126 | the command was found but `execve` failed (permission denied, not an executable format) |
 | 127 | the command was not found in the child's `PATH` |
 
@@ -318,9 +427,16 @@ Removing the previous contribution on re-entry means: with `GIT_CONFIG_COUNT == 
 | `ErrNestedProfile` | 125 | `already in an agent context for profile "claude"; refusing to start profile "reviewer" inside it (nested exec with a different profile is not supported); start it from a terminal outside the agent context` |
 | `ErrContextInvalid` | 125 | `the inherited agent context is <damaged: AGENT_ID_ACTIVE_PROFILE is missing \| from an incompatible agent-id (AGENT_ID_CONTEXT=2)>; start from a terminal outside the agent context` |
 | `ErrInheritedGitConfig` | 125 | `inherited GIT_CONFIG_COUNT=2 has no GIT_CONFIG_KEY_1; every git command would fail; fix or unset the GIT_CONFIG_* variables` / `inherited GIT_CONFIG_PARAMETERS sets credential.<url>.helper, which would override agent-id's credentials; unset GIT_CONFIG_PARAMETERS or remove that setting (agent-id doctor shows its source)` |
-| a preflight check's error (for example O1 from #22) | 125 | the check's message |
+| a remote check's error from a later story | 125 | the check's message |
 | `ErrBinaryPath` | 125 | `cannot determine the path of the agent-id binary: <reason>` |
 | `ErrPlanUnsafe` | 125 | `internal error: activation plan contains a forbidden value in <variable>` (never the value) |
+| `ErrNeutralDir` (#68) | 125 | `<path>: <is a symlink \| is writable by group or others \| is owned by another user \| contains hosts.yml>; agent-id keeps this directory private and empty of credentials; <fix>` |
+| `ErrSSHRemote` (#68, O1) | 125 | `remote "origin" reaches github.com over SSH (<scp form \| ssh:// \| alias "<alias>">)<, through <rule key> from <scope> <file>>; the agent would use your SSH key; use an HTTPS remote (agent-id doctor shows details)` |
+| `ErrRemoteCredentials` (#68, D2) | 125 | `remote "origin" has a password in its URL; remove it (git remote set-url origin https://<host>/<owner>/<repo>.git)` (the URL is printed with the user-info replaced by `[redacted]`; `<host>` and `<owner>/<repo>` come from the remote, never a hard-coded host) |
+| `ErrRemoteHeader` (#68, D3) | 125 | `remote "origin" gets an extra HTTP header (<header name>) from <scope> <file> that agent-id cannot reset; remove that http.<url>.extraheader entry` |
+| `ErrSSHRewrite` (#68, O1) | 125 | `<rule key> from <scope> <file> rewrites https://<host>/ to SSH; the agent would use your SSH key for every clone; remove the rule or scope it to a repository` |
+| `ErrNetrc` (#68) | 125 | `<path> has credentials for <host> (or a default entry), which Git would send for the agent; move it aside while the agent runs` |
+| `ErrRemoteCheck` (#68) | 125 | `cannot check remote "origin" (<timeout \| ssh -G failed \| git failed>); refusing to start` |
 | `ErrCommandNotFound` | 127 | `"<command>": command not found` / `"<command>" resolves to a relative path through an empty or "." PATH entry; use ./<command>` |
 | `ErrCommandNotExecutable` | 126 | `"<command>": <permission denied \| exec format error>` |
 
@@ -349,7 +465,11 @@ Echoed values are cut to 64 characters with control characters replaced by `?`, 
 | A startup file of the agent's shell unset `GIT_CONFIG_COUNT` but not the markers | 125 `ErrContextInvalid` (`GIT_CONFIG_COUNT` no longer equals `AGENT_ID_GIT_CONFIG_END`) on the next nested exec; `doctor` D6 explains. |
 | Inherited `GIT_CONFIG_COUNT` with a value like `2 ` or `0x2` | 125, malformed. |
 | Inherited `GIT_CONFIG_PARAMETERS` with `core.editor` only | Kept. |
-| Git older than 2.43 | Not checked by `exec` (no Git call in #20); `doctor` reports it (O4). |
+| Git older than 2.43 | Not checked by `exec`. The remote checks use commands that also exist in older Git versions, and `doctor` reports the version (O4). |
+| A repository with a GitHub SSH remote before #22 lands | 125 `ErrSSHRemote`: every SSH form is refused until #22's rewrites exist. Use an HTTPS clone. |
+| `git push` inside the agent before #21–#22 land | Fails: no helper and no prompt, so Git reports missing credentials. This is the intended fail-closed result. |
+| `gh` inside the agent before #23 lands | The stub's message, exit 1. |
+| `ssh` not installed and a remote host that could be an alias | 125 `ErrRemoteCheck`: `exec` cannot prove the remote is not the provider's. |
 | Ctrl-C in an interactive agent | Delivered once, to the agent only: agent-id is no longer running. |
 | The agent-id binary is removed or upgraded during a long session | Later helper or shim invocations fail closed (Git and `gh` report a failed helper); `AGENT_ID_BIN` prefers the stable symlink to make this rare. |
 | `exec` on Windows | Not supported (brief §8); only the `Execer` is built for darwin and linux, and elsewhere `exec` fails with 125. |
@@ -357,7 +477,8 @@ Echoed values are cut to 64 characters with control characters replaced by `?`, 
 ## 📝 Risks & Impact Review
 
 - **Contract.** The variable names, the contract version `1`, the exit codes 125–127, and the append rule are consumed by `env` (#26), `whoami`/`doctor` (#24), the Claude Code hook, and user scripts. A later change needs `AGENT_ID_CONTEXT=2` and a re-entry rule for version 1. This is the "environment that `exec` and `env` emit" of `AGENTS.md` (Ask first): the owner's sign-off on this spec is that confirmation.
-- **Intermediate state on `main`.** Between #20 and #21–#23, `exec` starts a command that is marked as agent mode, has no inherited forge tokens, but has no bot identity, no agent-id credential helper, and no `gh` shim: Git would still use the developer's helpers, and `gh` the developer's `hosts.yml`. No release may contain `exec` before #21, #22, and #23 merge; the end-to-end story #27 is the release gate. This is a delivery-order fact, not a design gap.
+- **Intermediate state on `main`** (amended by #68). Between #20 and #21–#23, a command started by `exec` cannot reach the developer's credentials through Git or `gh` on the supported paths: Git has no helper, no prompt, no personal header and no `.netrc` credentials for the provider, no SSH remote or rewrite to SSH; `gh` has a decoy token and an empty configuration. The documented bypasses (Not covered, above) remain, as everywhere in local mode. The guarantee is the enforced invariant of the neutral credential baseline, tested by #25, not a release rule. An earlier version of this spec relied on the prose rule "no release may contain `exec` before #21, #22, and #23", which the post-merge review of #48 (F1) classed as a fail-open blocker.
+- **Generic helper reset** (#68, decision 1). Inside the agent context the developer's credential helpers for every host are off, not only the provider's. This is deliberate: the reset is the fail-closed baseline. The agent's access to other hosts is outside the MVP (brief §8).
 - **Not a security boundary** (brief §10). The agent can unset the markers, call another binary, or start a shell that rewrites the environment; `exec` controls only what it starts. The spec claims nothing more.
 - **`execve` removes the chance to clean up.** Any future feature that needs a supervising parent (a local token broker, audit events) belongs to the Phase 3 hardened runtime and would be a new mechanism, not a change to this one.
 - **Refusing on inherited Git configuration may surprise** a developer whose environment carries `GIT_CONFIG_PARAMETERS` from another tool. The message names the key and the fix; refusing is the decided fail-closed behavior (O2).
@@ -379,6 +500,7 @@ These change product behavior, not the design's structure. The spec applies the 
 | OQ1 | Should `exec` obtain (or check) an installation token before it starts the command, so that an agent never starts without working credentials? | **No.** Start without network; the credential helper (#22) and the `gh` shim (#23) fail closed at use; `agent-id doctor --profile` is the explicit pre-check. | Keeps `exec` deterministic, fast, and usable offline; fail closed is preserved at the point of use; adding a check later is backward compatible. | owner, non-blocking |
 | OQ2 | Should `exec` resolve a missing bot identity over the network on start, instead of refusing? | **No, refuse** with the adapter's `setup` hint. | The profile spec proposed this; no network on start (OQ1); a silent resolution would hide a half-configured profile. | owner, non-blocking |
 | OQ3 | Should `exec` also remove inherited variables that are not the CLI's credential variables but commonly hold a personal GitHub token (`HOMEBREW_GITHUB_API_TOKEN`, `GITHUB_PERSONAL_ACCESS_TOKEN` of the GitHub MCP server, …)? | **No in the MVP:** remove only the provider's CLI credential variables; `doctor` reports every inherited value with a registered token prefix (#24). | The drop list stays a provider contract with a test; an open-ended name list would be incomplete anyway, and removing variables other tools rely on changes their behavior; local mode is not a sandbox (brief §10). | owner, non-blocking (security model) |
+| OQ4 | (#68) How is the unkeyed keychain lookup of a `gh` started by absolute path closed? | **Resolved: a non-secret decoy `GH_TOKEN` (and `GH_ENTERPRISE_TOKEN`) from the provider's `NeutralCLI`**, plus the stub for a clear message. | The owner's Definition of Done for #20 (13.11) requires that the child cannot reach the keychain entry `gh:github.com`; the stub alone does not meet it (the independent review of #80, M3). This narrows decision 4 of #68: no *developer or bot* token is in the environment until #23, only a fixed decoy. | owner approve on #80 |
 
 ## Resolved assumptions (autonomous defaults)
 
@@ -391,7 +513,7 @@ Technical decisions taken by this spec, recorded for override:
 | A3 | Context variable names? | `AGENT_ID_CONTEXT=1`, `AGENT_ID_ACTIVE_PROFILE`, `AGENT_ID_MECHANISM`, `AGENT_ID_BIN`, `AGENT_ID_GIT_CONFIG_BASE`, `AGENT_ID_GIT_CONFIG_END`. | `AGENT_ID_` prefix (#6); distinct from the reserved selection name `AGENT_ID_PROFILE`. | reversible before the first release |
 | A4 | Same-profile nesting? | Deterministic rebuild after removing the previous contribution. | Idempotent; picks up a refreshed profile; refuses a context whose Git entries changed; no duplicates (#26). | reversible |
 | A5 | Who appends `GIT_CONFIG_*` entries? | `internal/activation`, from plan data of #21/#22. | One composition rule; enables re-entry and `doctor` D6. | reversible |
-| A6 | Where do O2 and G2–G4 live? | `internal/activation` (pure, inherited environment only); O1 is a preflight check of #22. | O2 and G2–G4 need only the environment; O1 needs Git and the provider's host mapping. | reversible |
+| A6 | Where do O1, O2, G2–G4, D2 and D3 live? | `internal/activation`. O2 and G2–G4 are pure checks of the inherited environment. O1, D2 and D3 are remote checks with the child environment, in #20 (amended by #68; O1 was planned for #22). | O1 must hold from the first merge (#68). D2 and D3 close the same invariant with the same remote listing. | decided (#68) |
 | A7 | Flag parsing | `--profile` required, interspersed flags off, `--` optional. | Matches `env`, `sudo`, `aws-vault exec`. | reversible |
 | A8 | Output on success | None. | The command owns stdout and stderr. | reversible |
 
@@ -415,10 +537,63 @@ Every test calls `testenv.Isolate(t)` first. `risk-high` evidence per `SDLC.md`:
 
 ### Phase 2 — `internal/activation/exec`
 
-6. **Slice.** `contract.go`, `handler.go` (`activation.Activate(ctx, deps, Request{…})`: read context → validate the name and decide → resolve → ready → inherited Git → preflight → build; then look up → `Execer.Exec`), `command.go` (`SetInterspersed(false)`, `SetFlagErrorFunc`, `--profile` checked in the handler). Handler tests with a fake profile resolver, `providertest.Fake` extended with the drop list and readiness, a fake preflight check, and a recording `Execer`: every row of the Errors table (including an unknown flag and a missing `--profile` → 125), an empty drop list → `ErrPlanUnsafe`, the order of checks (nesting before readiness before inherited Git before preflight), and that the recorded environment equals `Build`'s output.
-7. **Composition root** (after #15 and #17). Register the slice; build `activation.Deps` with the GitHub adapter; add `CredentialVariables` and `Ready` to `provider.Provider`, `providertest.Fake`, `providertest.RunContract`, and `githubtest.App.Provider`; add the exit-code error type and map it in `run`; the default for other commands stays 1. Tests: `run` returns 125/126/127 for the slice's errors and 1 for others; with the production registry, a fake inherited `GH_TOKEN` is absent from the environment that `Activate` returns.
-8. **Process tests.** Build `agent-id` with `testenv.BuildBinary`; the package's `TestMain` calls `testenv.Main`, which fails the run if the developer's Git or `gh` configuration changed; write a fixture config with a fake App and a cached identity. Cases: `exit 7` → 7; SIGTERM with a trap, sent only after the command created its readiness file → 42; SIGKILL → killed by signal; parent environment and isolated `HOME` tree unchanged (hash before and after); fake `GH_TOKEN`/`GITHUB_TOKEN` absent in the command; nested same profile prints an identical environment; nested different profile → 125; `does-not-exist` → 127; profile without identity → 125 with the fake GitHub recording zero requests. Scan stdout and stderr of every case for `ghs_`, `-----BEGIN`, and a JWT shape. These tests skip on platforms other than darwin and linux.
+6. **Slice.** `contract.go`, `handler.go` (`activation.Activate(ctx, deps, Request{…})`: read context → validate the name and decide → resolve → ready → inherited Git → neutral directories → build → remote checks; then look up → `Execer.Exec`), `command.go` (`SetInterspersed(false)`, `SetFlagErrorFunc`, `--profile` checked in the handler). Handler tests with a fake profile resolver, `providertest.Fake` extended with the drop list and readiness, a fake remote check and a fake neutral-directory port, and a recording `Execer`: every row of the Errors table (including an unknown flag and a missing `--profile` → 125), an empty drop list → `ErrPlanUnsafe`, the order of checks (nesting before readiness before inherited Git before the neutral directories before the remote checks), and that the recorded environment equals `Build`'s output.
+7. **Composition root** (after #15 and #17). Register the slice; build `activation.Deps` with the GitHub adapter; add `CredentialVariables` and `Ready` to `provider.Provider`, `providertest.Fake`, `providertest.RunContract`, and `githubtest.App.Provider`; add the exit-code error type and map it in `run`; the default for other commands stays 1. Tests: `run` returns 125/126/127 for the slice's errors and 1 for others; with the production registry, a fake inherited `GH_TOKEN` value is not in the environment that `Activate` returns (`GH_TOKEN` equals the provider's decoy, #68).
+8. **Process tests.** Build `agent-id` with `testenv.BuildBinary`; the package's `TestMain` calls `testenv.Main`, which fails the run if the developer's Git or `gh` configuration changed; write a fixture config with a fake App and a cached identity. Cases: `exit 7` → 7; SIGTERM with a trap, sent only after the command created its readiness file → 42; SIGKILL → killed by signal; parent environment unchanged, and the isolated `HOME` tree unchanged (hash before and after) except agent-id's own `<cache>/agent-id/<provider>/` directories; no fake `GH_TOKEN`/`GITHUB_TOKEN` value in the command (`GITHUB_TOKEN` absent, `GH_TOKEN` the decoy, #68); nested same profile prints an identical environment; nested different profile → 125; `does-not-exist` → 127; profile without identity → 125 with the fake GitHub recording zero requests. Scan stdout and stderr of every case for `ghs_`, `-----BEGIN`, and a JWT shape. These tests skip on platforms other than darwin and linux.
+8a. **Fail-closed baseline (#68), in the #25 suite.** Process tests with decoys that record any use:
+   - a fake personal `credential.helper` in the isolated global and system config, and a host-scoped one;
+   - fake `GIT_ASKPASS`, `SSH_ASKPASS` and `core.askPass`;
+   - a fake `hosts.yml` with a fake `oauth_token` in the parent's `GH_CONFIG_DIR`;
+   - fake values in all four token variables;
+   - a fake `gh` later on `PATH`.
+
+   Inside `agent-id exec`:
+   - `git ls-remote` and `git push` against `testenv.NewGitServer` fail without a prompt, and every decoy records zero uses;
+   - `gh api user` prints the stub's message and exits 1, and the fake `gh` records zero calls;
+   - the child environment holds no token variable.
+
+   The SSH remote cases give 125 for:
+   - scp form, `ssh://`, `ssh.github.com:443`, and an SSH alias through a fake `~/.ssh/config` read by `ssh -G`;
+   - a personal `insteadOf` to SSH;
+   - an SSH `pushurl`.
+
+   The D2 and D3 cases give 125, and the message does not contain the secret.
+
+   The neutral directory cases give 125: a symlink, a group-writable directory, a `hosts.yml` present, a stub that is a symlink or has different content (rewritten), and a missing parent (created `0700`).
+
+   These tests run without #21–#23 and stay in the suite after they land. They prove that the baseline remains under the bot's entries: with #22 present, the decoy helper still records zero calls.
+8b. **Pure tables.** `ClassifyRemoteURL` covers scp form, `ssh://`, `git+ssh://`, `ssh+git://`, upper-case hosts, `ssh.github.com:443`, look-alike hosts (`github.com.evil.example`, `evilgithub.com`), `https`, `file://`, and local paths. `HasPassword` covers user-only, user and password, a percent-encoded `@`, and no user-info. The baseline entries are tested for their order after inherited entries (C18, G1) and for idempotence under re-entry.
+
+### Definition of Done for #20: the isolation test (owner decision, 13.11, #68)
+
+#20 is done only when this process test passes in CI and on darwin. It is a required condition, not one case among others. It belongs to the #25 suite and runs in `testenv.Isolate`:
+
+- a fake `HOME`, `XDG_*`, `GIT_CONFIG_GLOBAL` and `GH_CONFIG_DIR`, all under `$TMPDIR/agent-id/`, with `testenv.Main` checking that the real configuration is untouched;
+- a recording fake credential helper;
+- a fake `hosts.yml`.
+
+No real keychain, token or network is used.
+
+It proves that the child of `agent-id exec` does **not** see:
+
+0. Setup notes: the system-scope helper uses `GIT_CONFIG_SYSTEM=<tmp file>` with `GIT_CONFIG_NOSYSTEM` unset for that test, because `testenv.Isolate` sets `GIT_CONFIG_NOSYSTEM=1`.
+1. **The developer's credential helper**, neither the global one (`credential.helper` and `credential.https://github.com.helper` in the fake global config) nor the repository's (the same keys in the test repository's `.git/config`).
+   - Inside `exec`, `printf 'protocol=https
+host=github.com
+path=o/r.git
+
+' | git credential fill` prints no `username=` or `password=`, exits non-zero without prompting (`GIT_TERMINAL_PROMPT=0`), and every recording helper logs zero calls.
+   - The same holds for `git ls-remote` against `testenv.NewGitServer`.
+2. **The developer's `gh` configuration or the keychain entry `gh:github.com`.**
+   - The child's `GH_CONFIG_DIR` is agent-id's own directory and has no `hosts.yml`.
+   - The fake `hosts.yml`, holding a fake `oauth_token` in the parent's `GH_CONFIG_DIR`, is never opened: a fake `gh` placed later on `PATH` that would read it records zero calls.
+   - `gh` by name is the stub: it prints agent-id's message and exits 1.
+   - The child's `GH_TOKEN` is the decoy, so `gh` started any way, including by absolute path, resolves its token from `GH_TOKEN` and never reaches `hosts.yml` or the keyring. Proved offline: the real `gh` by absolute path runs `gh auth token` inside `exec` and prints the decoy (skipped when `gh` is not installed). The test never touches a real keychain.
+2a. **The developer's `.netrc`.** A fake `$HOME/.netrc` with a provider entry makes `exec` refuse (125); a transport test against `testenv.NewGitServer` with that file, run with the netrc check switched off in a test-only harness, shows why the refusal is needed: Git sends the `.netrc` credentials.
+3. **The developer's tokens.** With fake values (`testenv.FakeToken`) in `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` in the parent, the child's environment (`env` inside `exec`) contains no developer value in these variables (`GH_TOKEN` and `GH_ENTERPRISE_TOKEN` hold only the fixed decoy; `GITHUB_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` are absent) and no value with a registered token prefix, `-----BEGIN`, or a JWT shape.
+
+The test passes without #21–#23 and stays required after they land.
 
 ### Phase 3 — record
 
-9. **Architecture and archive.** Add a Key decisions row to `ARCHITECTURE.md` (the child environment contract v1, `execve`, exit codes 125–127; source this spec and #20) and the `exec` exit codes to Cross-cutting concerns; archive the Delta into `.ai/specs/capabilities/exec.md`.
+9. **Architecture and archive.** Add a Key decisions row to `ARCHITECTURE.md` (the child environment contract v1, `execve`, exit codes 125–127, the neutral credential baseline of #68, and O1 in #20; source this spec, #20 and #68) and the `exec` exit codes to Cross-cutting concerns; archive the Delta into `.ai/specs/capabilities/exec.md`.
