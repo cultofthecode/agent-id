@@ -1,0 +1,9 @@
+# internal/setup
+
+The setup slice: `agent-id setup <provider>` writes a verified agent profile (spec `.ai/specs/2026-11-13-setup-github.md`, #19; requirements in `.ai/specs/capabilities/setup.md`). Every change here is `risk-high`: it decides which key and identity a profile uses, and its flags are a shared contract.
+
+- **Names no forge.** The slice imports `internal/provider` (the `Onboarder` port) and `internal/profile`, never an adapter. Each registered onboarder adds one subcommand with `--profile` and the onboarder's `SetupFields`. The composition root builds the GitHub onboarder and the production store.
+- **Order is the contract.** Missing flags (all named in one error), then `Store.CheckName`, then the onboarder's pure `Check`, then `Load` and the provider-conflict check: none of these does network I/O. Only after them does `Onboard` verify over the network, and only then does one `Store.Write` set the profile, re-checking the conflict under the lock. Only a configuration file that does not exist counts as empty; every other store error stops setup.
+- **Nothing written before verification.** A failure at any step leaves `config.json` byte-identical (or absent). Only the configuration file, its lock file, and the store's temporary file may change; never Git, `gh`, or shell configuration, and never the key file.
+- **No secret in output.** Errors name flags, never a refused value; a secret-shaped `--profile` is not echoed. `Render` passes every value through `clean` (control and format characters become `?`). The token never reaches this package.
+- **Tests** call `testenv.Isolate(t)` first, use `providertest.FakeOnboarder` and a real temporary `profile.Store` with a fake provider, and assert the file is unchanged on every failure. The GitHub onboarder is tested in `internal/provider/github`; the wiring and the built binary in `cmd/agent-id`.
