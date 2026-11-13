@@ -42,6 +42,8 @@ jobs:
         run: go build ./...
       - name: release tag check tests
         run: sh .github/scripts/check-release-tag_test.sh
+      - name: tap formula render tests
+        run: bash .github/scripts/render-tap-formula_test.sh
       - name: GOOS=darwin golangci-lint run
         run: GOOS=darwin golangci-lint run
       - name: GOOS=darwin go vet
