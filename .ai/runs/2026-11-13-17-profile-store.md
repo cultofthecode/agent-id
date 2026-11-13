@@ -40,15 +40,17 @@ Ship the provider-agnostic profile store `internal/profile`: strict v1 validatio
 
 ## Progress
 
+PR: #52
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: internal/profile core store
 
-- [ ] 1.1 Contract, sentinels, port, registry, AGENTS.md
-- [ ] 1.2 Strict document decode
-- [ ] 1.3 Inline-secret scan
-- [ ] 1.4 Core rules and validation
-- [ ] 1.5 Path resolution
-- [ ] 1.6 Load and Resolve
-- [ ] 1.7 Write
-- [ ] 1.8 Record the decision and archive the Delta
+- [x] 1.1 Contract, sentinels, port, registry, AGENTS.md — 53daa92
+- [x] 1.2 Strict document decode — 53daa92
+- [x] 1.3 Inline-secret scan — 53daa92
+- [x] 1.4 Core rules and validation — 53daa92
+- [x] 1.5 Path resolution — 53daa92
+- [x] 1.6 Load and Resolve — a2dbbbf
+- [x] 1.7 Write — 64b6b43
+- [x] 1.8 Record the decision and archive the Delta — 73bf6cf
