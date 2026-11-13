@@ -83,6 +83,7 @@ func TestEndToEnd(t *testing.T) {
 	r := newRun(t, cfg)
 	botEmail := r.setupProfile(t)
 	r.initRepository(t)
+	r.baseOnRemoteMain(t)
 	prBranch := r.newBranchName("pr")
 	badBranch := r.newBranchName("bad")
 	t.Cleanup(func() { r.cleanupBranch(t, prBranch) })
@@ -290,6 +291,16 @@ func (r *run) initRepository(t *testing.T) {
 	}
 }
 
+// baseOnRemoteMain fetches main as the bot and resets the local main to it, so
+// that every test commit has the history of the remote main. Without a common
+// history, gh pr create fails with "no history in common". The developer has
+// no credential, so the bot reads the remote.
+func (r *run) baseOnRemoteMain(t *testing.T) {
+	t.Helper()
+	mustOK(t, "bot fetch main", r.asBot(t, profileName, "git", "fetch", "-q", "origin", "main"))
+	mustOK(t, "git checkout main", r.asDeveloper(t, "checkout", "-q", "-B", "main", "FETCH_HEAD"))
+}
+
 // commitLine returns "author name <email>|committer name <email>" of rev.
 func (r *run) commitLine(t *testing.T, rev string) string {
 	t.Helper()
@@ -340,11 +351,19 @@ func (r *run) botCommit(t *testing.T, botEmail string) {
 // rejects, the credential helper refuses with its fixed message, the push
 // fails, and no branch appears. The key is a throwaway RSA key made here,
 // written 0600 in the isolated tree. The caller registered the branch cleanup
-// before this step runs.
+// before this step runs. The token cache key holds the provider, the host, and
+// the installation, not the profile name. The push therefore runs with its own
+// empty XDG_CACHE_HOME. Without it, the bad profile would reuse the valid
+// token that the earlier bot steps cached for the same installation.
 func (r *run) badCredentialsPush(t *testing.T, branch string) {
 	t.Helper()
 	r.writeBadProfile(t)
-	res := r.asBot(t, badProfileName, "git", "push", "origin", "HEAD:refs/heads/"+branch)
+	cache := filepath.Join(r.env.Root, "bad-cache")
+	if err := os.MkdirAll(cache, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	env := r.childEnv("XDG_CACHE_HOME=" + cache)
+	res := r.exec(t, r.repo, env, r.binary, "exec", "--profile", badProfileName, "--", "git", "push", "origin", "HEAD:refs/heads/"+branch)
 	if res.code == 0 {
 		t.Fatalf("push with invalid App credentials succeeded")
 	}
