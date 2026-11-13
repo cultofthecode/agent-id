@@ -137,8 +137,8 @@ func (c *remoteChecker) checkHostHeaders(entries []ConfigEntry) error {
 			return failf(ErrRemoteHeader, "Git host %s gets an extra HTTP header (%s) from an http.extraheader entry that agent-id cannot reset; remove that entry", h, name)
 		}
 	}
-	for _, name := range ScopedHeaders(entries, c.a.GitHosts()) {
-		return failf(ErrRemoteHeader, "%s gets an extra HTTP header (%s) from a path-, user- or host-pattern-scoped http.extraheader entry that agent-id cannot reset; remove that entry", c.a.Host(), name)
+	for _, hh := range ScopedHeaders(entries, c.a.GitHosts()) {
+		return failf(ErrRemoteHeader, "Git host %s gets an extra HTTP header (%s) from a path-, user- or host-pattern-scoped http.extraheader entry that agent-id cannot reset; remove that entry", hh.Host, hh.Name)
 	}
 	return nil
 }

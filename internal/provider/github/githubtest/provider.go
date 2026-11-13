@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -88,6 +89,40 @@ func (p appProvider) GitCredential(token provider.Token) provider.GitCredential 
 // CLIEnvironment implements provider.Provider for gh.
 func (p appProvider) CLIEnvironment(token provider.Token) []string {
 	return []string{"GH_TOKEN=" + token.Value, "GH_HOST=" + Host}
+}
+
+// Describe implements provider.Provider as the GitHub adapter does for a
+// cached identity.
+func (p appProvider) Describe() []provider.Field {
+	return []provider.Field{
+		{Label: "Identity", Value: BotLogin()},
+		{Label: "Installation", Value: strconv.FormatInt(p.installationID, 10)},
+		{Label: "Credentials", Value: "GitHub App installation token"},
+	}
+}
+
+// VerifyIdentity implements provider.Provider: the App's bot matches the
+// cache.
+func (p appProvider) VerifyIdentity(ctx context.Context) (provider.IdentityCheck, error) {
+	if err := ctx.Err(); err != nil {
+		return provider.IdentityCheck{}, fmt.Errorf("github: resolve the bot user: %w", err)
+	}
+	return provider.IdentityCheck{Bot: BotLogin(), Cached: BotLogin(), Match: true}, nil
+}
+
+// Repositories implements provider.Provider for a token that the fake
+// issued for this installation.
+func (p appProvider) Repositories(ctx context.Context, token provider.Token) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("github: list the installation repositories: %w", err)
+	}
+	issued, ok := p.app.issued(token.Value)
+	if !ok || issued.InstallationID != p.installationID {
+		return nil, fmt.Errorf("github: list the installation repositories: %w", provider.ErrUnauthorized)
+	}
+	p.app.mu.Lock()
+	defer p.app.mu.Unlock()
+	return slices.Clone(p.app.installations[p.installationID]), nil
 }
 
 // BotEmail returns the noreply address of the App's bot user,
