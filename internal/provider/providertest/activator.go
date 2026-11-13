@@ -32,6 +32,8 @@ type FakeActivator struct {
 	// makes Identity fail.
 	Ident         provider.Identity
 	IdentityError error
+	// CLIRule, when set, is the CheckCLI of the fake.
+	CLIRule func(args, parent []string) error
 }
 
 // NewFakeActivator returns a ready activator for the fake host.
@@ -60,6 +62,14 @@ func (f *FakeActivator) Ready() error                    { return f.ReadyError }
 
 // Identity implements provider.Activator.
 func (f *FakeActivator) Identity() (provider.Identity, error) { return f.Ident, f.IdentityError }
+
+// CheckCLI allows every invocation unless CLIRule is set.
+func (f *FakeActivator) CheckCLI(args, parent []string) error {
+	if f.CLIRule == nil {
+		return nil
+	}
+	return f.CLIRule(args, parent)
+}
 
 var activatorHostPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]*$`)
 
