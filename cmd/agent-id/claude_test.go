@@ -215,8 +215,8 @@ func TestSessionStartSimulatedSession(t *testing.T) {
 			if r.code != 0 || !strings.Contains(r.stdout, bot+"|"+bot) || strings.Contains(r.stdout, "decoy") || !strings.Contains(r.stdout, "other=1 tok=agent-id-no-token mech=env") || !strings.Contains(r.stdout, "gh=1") {
 				t.Fatalf("%+v", r)
 			}
-			if !strings.Contains(r.stderr, "gh is not available in this agent context") {
-				t.Errorf("gh did not reach the refusing stub: %q", r.stderr)
+			if !strings.Contains(r.stderr, "AID-GH-TOKEN") || !strings.Contains(r.stderr, "gh was not started") {
+				t.Errorf("gh did not reach the shim refusal: %q", r.stderr)
 			}
 			nested := f.command(shell, `"$BIN" exec --profile claude -- env`)
 			direct := f.command(shell, `env`)
