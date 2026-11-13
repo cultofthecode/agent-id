@@ -28,7 +28,7 @@ import (
 // refers to secret material, and it holds a path, never the key.
 const (
 	envEnable         = "AGENT_ID_E2E"
-	envPush           = "AGENT_ID_E2E_PUSH"
+	envGH             = "AGENT_ID_E2E_GH"
 	envKey            = "AGENT_ID_E2E_KEY"
 	envAppID          = "AGENT_ID_E2E_APP_ID"
 	envInstallationID = "AGENT_ID_E2E_INSTALLATION_ID"
@@ -59,13 +59,12 @@ type config struct {
 	repoURL        string
 	repoSlug       string
 	botLogin       string
-	push           bool
+	gh             bool
 	path           string
 }
 
 // run is the isolated environment of one test run.
 type run struct {
-	t      *testing.T
 	cfg    config
 	env    testenv.Env
 	binary string
@@ -77,18 +76,23 @@ func TestMain(m *testing.M) {
 }
 
 // TestEndToEnd is the scenario of issue #27: a developer and a bot work in
-// one disposable repository.
+// one disposable repository. Each step is a subtest and fails through its own
+// *testing.T, so one failure does not stop the other steps.
 func TestEndToEnd(t *testing.T) {
 	cfg := loadConfig(t)
 	r := newRun(t, cfg)
-	botEmail := r.setupProfile()
-	r.initRepository()
-	r.t.Run("developer commits as the developer", func(t *testing.T) { r.developerCommit(t) })
-	r.t.Run("bot commits as the bot", func(t *testing.T) { r.botCommit(t, botEmail) })
-	r.t.Run("bot commits are not signed", func(t *testing.T) { r.checkUnsigned(t) })
-	r.t.Run("invalid App credentials: no push, no fallback", func(t *testing.T) { r.badCredentialsPush(t) })
-	r.t.Run("bot pushes a branch and opens a PR", func(t *testing.T) { r.pushAndPullRequest(t, botEmail) })
-	r.t.Run("no secret in diagnostics", func(t *testing.T) { r.diagnostics(t) })
+	botEmail := r.setupProfile(t)
+	r.initRepository(t)
+	prBranch := r.newBranchName("pr")
+	badBranch := r.newBranchName("bad")
+	t.Cleanup(func() { r.cleanupBranch(t, prBranch) })
+	t.Cleanup(func() { r.cleanupBranch(t, badBranch) })
+	t.Run("developer commits as the developer, signed", func(t *testing.T) { r.developerCommit(t) })
+	t.Run("bot commits as the bot, unsigned", func(t *testing.T) { r.botCommit(t, botEmail) })
+	t.Run("invalid App credentials: no push, no fallback", func(t *testing.T) { r.badCredentialsPush(t, badBranch) })
+	t.Run("bot pushes a branch through the credential helper", func(t *testing.T) { r.botPush(t, prBranch, botEmail) })
+	t.Run("bot opens a PR with gh", func(t *testing.T) { r.pullRequest(t, prBranch, botEmail) })
+	t.Run("no secret in diagnostics", func(t *testing.T) { r.diagnostics(t) })
 }
 
 // loadConfig reads and checks the environment. It skips the test unless the
@@ -108,7 +112,7 @@ func loadConfig(t *testing.T) config {
 		installationID: os.Getenv(envInstallationID),
 		repoURL:        os.Getenv(envRepoURL),
 		botLogin:       os.Getenv(envBotLogin),
-		push:           os.Getenv(envPush) == "1",
+		gh:             os.Getenv(envGH) == "1",
 	}
 	for name, value := range map[string]string{envKey: cfg.keyPath, envAppID: cfg.appID, envInstallationID: cfg.installationID, envRepoURL: cfg.repoURL, envBotLogin: cfg.botLogin} {
 		if value == "" {
@@ -148,7 +152,7 @@ func newRun(t *testing.T, cfg config) *run {
 	if err := os.MkdirAll(repo, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return &run{t: t, cfg: cfg, env: env, binary: binary, repo: repo}
+	return &run{cfg: cfg, env: env, binary: binary, repo: repo}
 }
 
 // childEnv returns the environment of every child: the isolated directories
@@ -178,10 +182,10 @@ type result struct {
 }
 
 // exec runs name with args in dir and returns its combined output and exit
-// code. It fails the test when the output holds secret-looking material, and
-// then it prints no output.
-func (r *run) exec(dir string, env []string, name string, args ...string) result {
-	r.t.Helper()
+// code. It fails t when the output holds secret-looking material, and then it
+// prints no output.
+func (r *run) exec(t *testing.T, dir string, env []string, name string, args ...string) result {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
@@ -197,10 +201,10 @@ func (r *run) exec(dir string, env []string, name string, args ...string) result
 	case errors.As(err, &exit):
 		res.code = exit.ExitCode()
 	default:
-		r.t.Fatalf("start %s: %v", filepath.Base(name), err)
+		t.Fatalf("start %s: %v", filepath.Base(name), err)
 	}
 	if secretPattern.MatchString(res.out) {
-		r.t.Fatalf("output of %s %s matches a token or key pattern: output withheld", filepath.Base(name), firstWord(args))
+		t.Fatalf("output of %s %s matches a token or key pattern: output withheld", filepath.Base(name), firstWord(args))
 	}
 	return res
 }
@@ -213,50 +217,50 @@ func firstWord(args []string) string {
 }
 
 // agentID runs the agent-id binary.
-func (r *run) agentID(dir string, args ...string) result {
-	r.t.Helper()
-	return r.exec(dir, r.childEnv(), r.binary, args...)
+func (r *run) agentID(t *testing.T, dir string, args ...string) result {
+	t.Helper()
+	return r.exec(t, dir, r.childEnv(), r.binary, args...)
 }
 
 // asBot runs a command through agent-id exec with the profile.
-func (r *run) asBot(profile string, args ...string) result {
-	r.t.Helper()
+func (r *run) asBot(t *testing.T, profile string, args ...string) result {
+	t.Helper()
 	all := append([]string{"exec", "--profile", profile, "--"}, args...)
-	return r.agentID(r.repo, all...)
+	return r.agentID(t, r.repo, all...)
 }
 
 // asDeveloper runs git as the developer: the developer's identity comes from
 // the environment, and no agent-id variable is present.
-func (r *run) asDeveloper(args ...string) result {
-	r.t.Helper()
+func (r *run) asDeveloper(t *testing.T, args ...string) result {
+	t.Helper()
 	env := r.childEnv(
 		"GIT_AUTHOR_NAME="+developerName, "GIT_AUTHOR_EMAIL="+developerEmail,
 		"GIT_COMMITTER_NAME="+developerName, "GIT_COMMITTER_EMAIL="+developerEmail,
 	)
-	return r.exec(r.repo, env, "git", args...)
+	return r.exec(t, r.repo, env, "git", args...)
 }
 
-// mustOK fails the test unless res has exit code 0.
-func (r *run) mustOK(what string, res result) result {
-	r.t.Helper()
+// mustOK fails t unless res has exit code 0.
+func mustOK(t *testing.T, what string, res result) result {
+	t.Helper()
 	if res.code != 0 {
-		r.t.Fatalf("%s: exit %d\n%s", what, res.code, res.out)
+		t.Fatalf("%s: exit %d\n%s", what, res.code, res.out)
 	}
 	return res
 }
 
 // setupProfile runs agent-id setup github with the real App and returns the
 // commit email of the bot from the summary.
-func (r *run) setupProfile() string {
-	r.t.Helper()
-	res := r.mustOK("setup github", r.agentID(r.repo, "setup", "github", "--profile", profileName,
+func (r *run) setupProfile(t *testing.T) string {
+	t.Helper()
+	res := mustOK(t, "setup github", r.agentID(t, r.repo, "setup", "github", "--profile", profileName,
 		"--app-id", r.cfg.appID, "--installation-id", r.cfg.installationID, "--private-key", r.cfg.keyPath))
 	email := summaryValue(res.out, "Commit email:")
 	if email == "" {
-		r.t.Fatalf("setup summary has no commit email line:\n%s", res.out)
+		t.Fatalf("setup summary has no commit email line:\n%s", res.out)
 	}
 	if got := summaryValue(res.out, "Identity:"); !strings.Contains(got, r.cfg.botLogin) {
-		r.t.Fatalf("setup identity is %q, want the bot %q", got, r.cfg.botLogin)
+		t.Fatalf("setup identity is %q, want the bot %q", got, r.cfg.botLogin)
 	}
 	return email
 }
@@ -271,69 +275,84 @@ func summaryValue(out, label string) string {
 	return ""
 }
 
-// initRepository creates the local working repository. It sets the remote
-// URL but contacts no host.
-func (r *run) initRepository() {
-	r.t.Helper()
-	r.mustOK("git init", r.asDeveloper("init", "-q", "-b", "main"))
-	r.mustOK("git remote add", r.asDeveloper("remote", "add", "origin", r.cfg.repoURL))
+// initRepository creates the local working repository and gives the developer
+// a personal signing setup in the isolated global Git configuration: an SSH
+// signing key made here, never read from the developer's machine. The remote
+// URL is set but no host is contacted.
+func (r *run) initRepository(t *testing.T) {
+	t.Helper()
+	mustOK(t, "git init", r.asDeveloper(t, "init", "-q", "-b", "main"))
+	mustOK(t, "git remote add", r.asDeveloper(t, "remote", "add", "origin", r.cfg.repoURL))
+	signingKey := filepath.Join(r.env.Root, "developer-signing-key")
+	mustOK(t, "ssh-keygen", r.exec(t, r.repo, r.childEnv(), "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "e2e-developer", "-f", signingKey))
+	for _, kv := range [][2]string{{"gpg.format", "ssh"}, {"user.signingkey", signingKey}, {"commit.gpgsign", "true"}} {
+		mustOK(t, "git config "+kv[0], r.asDeveloper(t, "config", "--global", kv[0], kv[1]))
+	}
 }
 
-// commitLine returns "author name <email>|committer name <email>" of HEAD.
-func (r *run) commitLine(rev string) string {
-	r.t.Helper()
-	res := r.mustOK("git log", r.asDeveloper("log", "-1", "--format=%an <%ae>|%cn <%ce>", rev))
+// commitLine returns "author name <email>|committer name <email>" of rev.
+func (r *run) commitLine(t *testing.T, rev string) string {
+	t.Helper()
+	res := mustOK(t, "git log", r.asDeveloper(t, "log", "-1", "--format=%an <%ae>|%cn <%ce>", rev))
 	return strings.TrimSpace(res.out)
+}
+
+// hasSignature reports whether the commit object of rev has a gpgsig header.
+func (r *run) hasSignature(t *testing.T, rev string) bool {
+	t.Helper()
+	res := mustOK(t, "git cat-file", r.asDeveloper(t, "cat-file", "commit", rev))
+	header, _, _ := strings.Cut(res.out, "\n\n")
+	return strings.Contains(header, "\ngpgsig ")
 }
 
 func (r *run) developerCommit(t *testing.T) {
 	t.Helper()
 	write(t, filepath.Join(r.repo, "developer.txt"), "written by the developer\n")
-	r.mustOK("git add", r.asDeveloper("add", "developer.txt"))
-	r.mustOK("git commit", r.asDeveloper("commit", "-q", "-m", "e2e: developer commit"))
+	mustOK(t, "git add", r.asDeveloper(t, "add", "developer.txt"))
+	mustOK(t, "git commit", r.asDeveloper(t, "commit", "-q", "-m", "e2e: developer commit"))
 	want := fmt.Sprintf("%s <%s>|%s <%s>", developerName, developerEmail, developerName, developerEmail)
-	if got := r.commitLine("HEAD"); got != want {
-		t.Fatalf("developer commit identity = %q, want %q", got, want)
+	if got := r.commitLine(t, "HEAD"); got != want {
+		t.Errorf("developer commit identity = %q, want %q", got, want)
+	}
+	if !r.hasSignature(t, "HEAD") {
+		t.Errorf("developer commit has no signature: the personal signing setup does not work, so the unsigned bot check proves nothing")
 	}
 }
 
 func (r *run) botCommit(t *testing.T, botEmail string) {
 	t.Helper()
 	write(t, filepath.Join(r.repo, "bot.txt"), "written by the bot\n")
-	r.mustOK("bot git add", r.asBot(profileName, "git", "add", "bot.txt"))
-	r.mustOK("bot git commit", r.asBot(profileName, "git", "commit", "-q", "-m", "e2e: bot commit"))
+	mustOK(t, "bot git add", r.asBot(t, profileName, "git", "add", "bot.txt"))
+	mustOK(t, "bot git commit", r.asBot(t, profileName, "git", "commit", "-q", "-m", "e2e: bot commit"))
 	bot := r.cfg.botLogin + " <" + botEmail + ">"
-	if got, want := r.commitLine("HEAD"), bot+"|"+bot; got != want {
-		t.Fatalf("bot commit identity = %q, want %q", got, want)
+	if got, want := r.commitLine(t, "HEAD"), bot+"|"+bot; got != want {
+		t.Errorf("bot commit identity = %q, want %q", got, want)
 	}
-	if got := r.commitLine("HEAD~1"); strings.Contains(got, r.cfg.botLogin) {
-		t.Fatalf("developer commit carries the bot identity after the bot commit")
+	if got := r.commitLine(t, "HEAD~1"); strings.Contains(got, r.cfg.botLogin) {
+		t.Errorf("developer commit carries the bot identity after the bot commit")
 	}
-}
-
-func (r *run) checkUnsigned(t *testing.T) {
-	t.Helper()
-	res := r.mustOK("git log signature", r.asDeveloper("log", "-2", "--format=%G?"))
-	for _, status := range strings.Fields(res.out) {
-		if status != "N" {
-			t.Fatalf("a local commit has signature status %q, want N (not signed): attribution only, never verified", status)
-		}
+	if r.hasSignature(t, "HEAD") {
+		t.Errorf("bot commit is signed with the personal signing setup: attribution only, never the developer's key")
 	}
 }
 
 // badCredentialsPush proves the negative case: with an App key that GitHub
-// rejects, the bot push fails and no branch appears. The key is a throwaway
-// RSA key made here, written 0600 in the isolated tree.
-func (r *run) badCredentialsPush(t *testing.T) {
+// rejects, the credential helper refuses with its fixed message, the push
+// fails, and no branch appears. The key is a throwaway RSA key made here,
+// written 0600 in the isolated tree. The caller registered the branch cleanup
+// before this step runs.
+func (r *run) badCredentialsPush(t *testing.T, branch string) {
 	t.Helper()
 	r.writeBadProfile(t)
-	branch := r.newBranchName("bad")
-	res := r.asBot(badProfileName, "git", "push", "origin", "HEAD:refs/heads/"+branch)
+	res := r.asBot(t, badProfileName, "git", "push", "origin", "HEAD:refs/heads/"+branch)
 	if res.code == 0 {
 		t.Fatalf("push with invalid App credentials succeeded")
 	}
-	r.t.Cleanup(func() { r.assertBranchAbsent(branch) })
-	t.Logf("push with invalid App credentials failed with exit %d", res.code)
+	refusal := fmt.Sprintf("cannot get a token for profile %q", badProfileName)
+	if !strings.Contains(res.out, refusal) {
+		t.Fatalf("push failed with exit %d but without the credential helper refusal %q: another failure, the test proves nothing\n%s", res.code, refusal, res.out)
+	}
+	t.Logf("push with invalid App credentials refused by the credential helper, exit %d", res.code)
 }
 
 // writeBadProfile adds a profile that uses the real App and installation
@@ -391,41 +410,71 @@ func (r *run) newBranchName(tag string) string {
 	return fmt.Sprintf("%s%s-%d", branchPrefix, tag, time.Now().UnixNano())
 }
 
-// requirePush skips the subtest unless the push phase is enabled.
-func (r *run) requirePush(t *testing.T) {
+// remoteHasBranch asks the remote, as the bot, whether the branch exists.
+func (r *run) remoteHasBranch(t *testing.T, branch string) (bool, bool) {
 	t.Helper()
-	if !r.cfg.push {
-		t.Skipf("%s is not 1: the push and PR steps need token injection (#22, #23)", envPush)
+	res := r.asBot(t, profileName, "git", "ls-remote", "--heads", "origin", branch)
+	if res.code != 0 {
+		return false, false
+	}
+	return strings.TrimSpace(res.out) != "", true
+}
+
+// cleanupBranch runs at the end of the test for every branch the run owns,
+// whatever the push did. A branch that does not exist is clean. A branch that
+// exists is deleted. A branch that cannot be checked or deleted is reported as
+// a manual step.
+func (r *run) cleanupBranch(t *testing.T, branch string) {
+	exists, known := r.remoteHasBranch(t, branch)
+	switch {
+	case !known:
+		t.Errorf("CLEANUP NEEDED: check and delete branch %s in %s", branch, r.cfg.repoSlug)
+	case exists:
+		if res := r.asBot(t, profileName, "git", "push", "origin", "--delete", branch); res.code != 0 {
+			t.Errorf("CLEANUP NEEDED: delete branch %s in %s", branch, r.cfg.repoSlug)
+		}
 	}
 }
 
-// assertBranchAbsent checks with the bot that the branch does not exist. It
-// does nothing when the push phase is off, because the bot cannot read the
-// repository without token injection.
-func (r *run) assertBranchAbsent(branch string) {
-	if !r.cfg.push {
-		return
+// botPush pushes the bot commit through the Git credential helper and checks
+// with git alone that the remote commit has the bot identity and no signature.
+func (r *run) botPush(t *testing.T, branch, botEmail string) {
+	t.Helper()
+	mustOK(t, "bot push", r.asBot(t, profileName, "git", "push", "origin", "HEAD:refs/heads/"+branch))
+	if exists, known := r.remoteHasBranch(t, branch); !known || !exists {
+		t.Fatalf("branch %s is not on the remote after the bot push", branch)
 	}
-	res := r.asBot(profileName, "git", "ls-remote", "--heads", "origin", branch)
-	if res.code != 0 || strings.TrimSpace(res.out) != "" {
-		r.t.Errorf("branch %s is not absent after the negative push (exit %d)", branch, res.code)
+	mustOK(t, "bot fetch", r.asBot(t, profileName, "git", "fetch", "-q", "origin", branch))
+	bot := r.cfg.botLogin + " <" + botEmail + ">"
+	if got, want := r.commitLine(t, "FETCH_HEAD"), bot+"|"+bot; got != want {
+		t.Errorf("remote commit identity = %q, want %q", got, want)
+	}
+	if r.hasSignature(t, "FETCH_HEAD") {
+		t.Errorf("remote bot commit is signed")
 	}
 }
 
-func (r *run) pushAndPullRequest(t *testing.T, botEmail string) {
-	r.requirePush(t)
-	branch := r.newBranchName("pr")
-	t.Cleanup(func() { r.deleteBranch(branch) })
-	r.mustOK("bot push", r.asBot(profileName, "git", "push", "origin", "HEAD:refs/heads/"+branch))
+// requireGH skips the subtest unless the gh steps are enabled.
+func (r *run) requireGH(t *testing.T) {
+	t.Helper()
+	if !r.cfg.gh {
+		t.Skipf("%s is not 1: the gh steps need the gh token injection (#23)", envGH)
+	}
+}
+
+// pullRequest opens a PR for the pushed branch with gh and checks the author
+// and the GitHub commit record.
+func (r *run) pullRequest(t *testing.T, branch, botEmail string) {
+	r.requireGH(t)
 	number := r.openPullRequest(t, branch)
-	t.Cleanup(func() { r.closePullRequest(number) })
+	t.Cleanup(func() { r.closePullRequest(t, number) })
 	r.checkPullRequestAuthor(t, number)
 	r.checkRemoteCommit(t, branch, botEmail)
 }
 
 func (r *run) openPullRequest(t *testing.T, branch string) string {
 	t.Helper()
-	res := r.mustOK("gh pr create", r.asBot(profileName, "gh", "pr", "create", "--repo", r.cfg.repoSlug,
+	res := mustOK(t, "gh pr create", r.asBot(t, profileName, "gh", "pr", "create", "--repo", r.cfg.repoSlug,
 		"--head", branch, "--base", "main", "--title", networkTestsTitle+": "+branch, "--body", "Created by the manual E2E run. Safe to close."))
 	m := regexp.MustCompile(`/pull/(\d+)`).FindStringSubmatch(res.out)
 	if m == nil {
@@ -436,16 +485,16 @@ func (r *run) openPullRequest(t *testing.T, branch string) string {
 
 func (r *run) checkPullRequestAuthor(t *testing.T, number string) {
 	t.Helper()
-	res := r.mustOK("gh pr view", r.asBot(profileName, "gh", "pr", "view", number, "--repo", r.cfg.repoSlug, "--json", "author", "--jq", ".author.login"))
+	res := mustOK(t, "gh pr view", r.asBot(t, profileName, "gh", "pr", "view", number, "--repo", r.cfg.repoSlug, "--json", "author", "--jq", ".author.login"))
 	want := strings.TrimSuffix(r.cfg.botLogin, "[bot]")
 	if got := strings.TrimSpace(res.out); got != want && got != r.cfg.botLogin && got != "app/"+want {
-		t.Fatalf("PR author = %q, want the bot %q", got, r.cfg.botLogin)
+		t.Errorf("PR author = %q, want the bot %q", got, r.cfg.botLogin)
 	}
 }
 
 func (r *run) checkRemoteCommit(t *testing.T, branch, botEmail string) {
 	t.Helper()
-	res := r.mustOK("gh api commit", r.asBot(profileName, "gh", "api", "repos/"+r.cfg.repoSlug+"/commits/"+branch,
+	res := mustOK(t, "gh api commit", r.asBot(t, profileName, "gh", "api", "repos/"+r.cfg.repoSlug+"/commits/"+branch,
 		"--jq", `[.commit.author.name, .commit.author.email, .commit.committer.name, .commit.committer.email, (.commit.verification.verified|tostring)]|join("|")`))
 	got := strings.Split(strings.TrimSpace(res.out), "|")
 	want := []string{r.cfg.botLogin, botEmail, r.cfg.botLogin, botEmail, "false"}
@@ -459,29 +508,22 @@ func (r *run) checkRemoteCommit(t *testing.T, branch, botEmail string) {
 	}
 }
 
-// closePullRequest and deleteBranch run in cleanup. They never fail the
-// test run before the other cleanups run, but they log a manual step.
-func (r *run) closePullRequest(number string) {
-	if res := r.asBot(profileName, "gh", "pr", "close", number, "--repo", r.cfg.repoSlug); res.code != 0 {
-		r.t.Errorf("CLEANUP NEEDED: close PR #%s in %s", number, r.cfg.repoSlug)
-	}
-}
-
-func (r *run) deleteBranch(branch string) {
-	if res := r.asBot(profileName, "git", "push", "origin", "--delete", branch); res.code != 0 {
-		r.t.Errorf("CLEANUP NEEDED: delete branch %s in %s", branch, r.cfg.repoSlug)
+// closePullRequest runs in cleanup. It reports a manual step when it fails.
+func (r *run) closePullRequest(t *testing.T, number string) {
+	if res := r.asBot(t, profileName, "gh", "pr", "close", number, "--repo", r.cfg.repoSlug); res.code != 0 {
+		t.Errorf("CLEANUP NEEDED: close PR #%s in %s", number, r.cfg.repoSlug)
 	}
 }
 
 // diagnostics runs whoami and doctor inside an agent context and requires
-// exit 0. exec already fails the test on a token or key shape in the output.
-// doctor prints the key file path by design, so the check does not forbid it.
+// exit 0. exec already fails t on a token or key shape in the output. doctor
+// prints the key file path by design, so the check does not forbid it.
 func (r *run) diagnostics(t *testing.T) {
 	t.Helper()
 	for _, args := range [][]string{{"whoami"}, {"doctor", "--profile", profileName}} {
-		res := r.asBot(profileName, append([]string{r.binary}, args...)...)
+		res := r.asBot(t, profileName, append([]string{r.binary}, args...)...)
 		if res.code != 0 {
-			t.Fatalf("agent-id %s: exit %d (3 means the output guard withheld the report)\n%s", args[0], res.code, res.out)
+			t.Errorf("agent-id %s: exit %d (3 means the output guard withheld the report)\n%s", args[0], res.code, res.out)
 		}
 	}
 }
