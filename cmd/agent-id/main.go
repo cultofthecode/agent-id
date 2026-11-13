@@ -17,8 +17,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/cultofthecode/agent-id/internal/credential"
 	"github.com/cultofthecode/agent-id/internal/profile"
+	"github.com/cultofthecode/agent-id/internal/provider"
 	"github.com/cultofthecode/agent-id/internal/provider/github"
+	"github.com/cultofthecode/agent-id/internal/setup"
 )
 
 // Exit codes of agent-id.
@@ -34,9 +37,17 @@ func main() {
 	os.Exit(run(context.Background(), newRoot(), os.Args[1:], os.Stdout, os.Stderr))
 }
 
-// newRoot returns the root command of agent-id. Slices add their commands
-// here as they are implemented.
+// newRoot returns the production root command of agent-id: the GitHub
+// onboarder, which loads keys through the credential source, and the
+// profile store at the default location.
 func newRoot() *cobra.Command {
+	return buildRoot([]provider.Onboarder{github.NewOnboarder(loadKey)}, openStore)
+}
+
+// buildRoot returns the root command of agent-id with the onboarders of
+// setup and the store opener. Slices add their commands here as they are
+// implemented; tests build a root with fakes.
+func buildRoot(onboarders []provider.Onboarder, openStore func() (setup.Store, error)) *cobra.Command {
 	root := &cobra.Command{
 		Use:           commandName,
 		Short:         "Run AI agents under their own GitHub App identity",
@@ -48,7 +59,33 @@ func newRoot() *cobra.Command {
 			return cmd.Help()
 		},
 	}
+	root.AddCommand(setup.NewCommand(&setup.Handler{Onboarders: onboarders, OpenStore: openStore}))
 	return withVersion(root, versionText(version, commit, debug.ReadBuildInfo))
+}
+
+// openStore returns the production profile store: the configuration at the
+// default location with the production registry.
+func openStore() (setup.Store, error) {
+	registry, err := newRegistry()
+	if err != nil {
+		return nil, err
+	}
+	path, err := profile.Path(os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	return profile.NewStore(path, registry), nil
+}
+
+// loadKey loads the private key that ref names through the credential
+// source, which refuses a file that is not a protected regular file of the
+// current user.
+func loadKey(ref profile.KeyRef) ([]byte, error) {
+	path, err := ref.Path(os.Getenv("HOME"))
+	if err != nil {
+		return nil, err
+	}
+	return credential.File{Path: path}.PrivateKeyPEM()
 }
 
 // newRegistry returns the providers this agent-id supports, for the profile
