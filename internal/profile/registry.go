@@ -90,8 +90,10 @@ func (r *Registry) Supported() []string {
 	return slices.Sorted(maps.Keys(r.providers))
 }
 
-// tokenPrefixes returns the token prefixes of every registered provider.
-func (r *Registry) tokenPrefixes() []string {
+// TokenPrefixes returns a copy of the token prefixes of every registered
+// provider, so that diagnostics redact the same prefixes that the
+// inline-secret scan rejects. A nil registry has none.
+func (r *Registry) TokenPrefixes() []string {
 	var prefixes []string
 	for _, name := range r.Supported() {
 		prefixes = append(prefixes, r.providers[name].TokenPrefixes...)

@@ -31,6 +31,7 @@ func TestFakeActivatorMeetsTheContract(t *testing.T) {
 		func(*testing.T) provider.Activator {
 			a := NewFakeActivator()
 			a.ReadyError = errors.New("bot identity is not resolved; run agent-id setup fake --profile x")
+			a.IdentityError = a.ReadyError
 			return a
 		})
 }

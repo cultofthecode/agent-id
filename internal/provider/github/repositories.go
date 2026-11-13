@@ -38,10 +38,10 @@ type repositoriesAnswer struct {
 	} `json:"repositories"`
 }
 
-// Repositories lists the repositories that token, an installation token, can
+// ListRepositories lists the repositories that token, an installation token, can
 // access. It reads the pages of the fixed base URL in order until a page is
 // not full, and never follows a Link header to another URL.
-func (p *Provider) Repositories(ctx context.Context, token provider.Token) ([]Repository, error) {
+func (p *Provider) ListRepositories(ctx context.Context, token provider.Token) ([]Repository, error) {
 	const op = "list the installation repositories"
 	if !validToken(token.Value) {
 		return nil, fmt.Errorf("github: %s: %w: no usable installation token", op, provider.ErrUnauthorized)
@@ -64,4 +64,18 @@ func (p *Provider) Repositories(ctx context.Context, token provider.Token) ([]Re
 		}
 	}
 	return nil, fmt.Errorf("github: %s: %w: %w: more than %d pages", op, provider.ErrUnavailable, errUnusableAnswer, maxRepositoryPages)
+}
+
+// Repositories implements provider.Provider: the "owner/name" of each
+// repository that ListRepositories returns.
+func (p *Provider) Repositories(ctx context.Context, token provider.Token) ([]string, error) {
+	listed, err := p.ListRepositories(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, len(listed))
+	for i, r := range listed {
+		names[i] = r.Owner + "/" + r.Name
+	}
+	return names, nil
 }

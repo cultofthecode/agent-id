@@ -55,6 +55,14 @@ func (a *activator) NeutralCLI() provider.NeutralCLI {
 	}
 }
 
+// Identity implements provider.Activator from the cached bot identity.
+func (a *activator) Identity() (provider.Identity, error) {
+	if a.settings.Identity == nil {
+		return provider.Identity{}, fmt.Errorf("%w; run agent-id setup github --profile %s", ErrNotReady, a.name)
+	}
+	return CommitIdentity(a.settings.Identity.Login, a.settings.Identity.UserID)
+}
+
 // Ready implements provider.Activator: the identity cache must be present.
 func (a *activator) Ready() error {
 	if a.settings.Identity == nil {

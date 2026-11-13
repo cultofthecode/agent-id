@@ -45,6 +45,10 @@ type Config struct {
 	// least 2048 bits, as loaded by the credential source. New keeps only
 	// the parsed key. Neither fmt nor encoding/json prints it.
 	PrivateKeyPEM []byte `json:"-"`
+	// Cached is the bot identity that the profile caches, nil when none.
+	// Describe reports it and VerifyIdentity compares the host's answer
+	// with it.
+	Cached *BotIdentity
 }
 
 // Format implements fmt.Formatter: it prints the IDs and redacts the key.
@@ -68,6 +72,7 @@ type Provider struct {
 	appID          int64
 	installationID int64
 	key            *rsa.PrivateKey
+	cached         *BotIdentity
 	baseURL        string
 	client         *http.Client
 	now            func() time.Time
@@ -100,6 +105,7 @@ func newProvider(cfg Config, a api) (*Provider, error) {
 		appID:          cfg.AppID,
 		installationID: cfg.InstallationID,
 		key:            key,
+		cached:         cfg.Cached,
 		baseURL:        baseURL,
 		client:         withoutRedirects(a.client),
 		now:            clock(a.now),
