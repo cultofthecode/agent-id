@@ -385,6 +385,12 @@ func TestExecRefusesHeaderPatternsGitApplies(t *testing.T) {
 		{"tab in the path", section("https://github.com/org/a\tb/", "X-L: 1"), "extra HTTP header (X-L)"},
 		{"DEL in the path", section("https://github.com/org/a\x7fb/", "X-L: 1"), "extra HTTP header (X-L)"},
 		{"space in the user", section("https://us er@github.com/", "X-L: 1"), "extra HTTP header (X-L)"},
+		{"header on a host with a trailing dot", section("https://github.com./", "X-L: 1"), "extra HTTP header (X-L)"},
+		{"reset with two trailing dots", section("https://github.com/org/", "X-L: 1") + section("https://github.com../", ""), "extra HTTP header (X-L)"},
+		{"reset with an empty user", section("https://github.com/org/", "X-L: 1") + section("https://@github.com/org/", ""), "extra HTTP header (X-L)"},
+		{"reset with dot segments in a query", section("https://github.com/org/", "X-L: 1") + section("https://github.com/org/x?/../", ""), "extra HTTP header (X-L)"},
+		{"reset with one more slash", section("https://github.com/org/", "X-L: 1") + section("https://github.com/org//", ""), "extra HTTP header (X-L)"},
+		{"wildcard reset with one more slash", section("https://*.github.com/", "X-L: 1") + section("https://*.github.com//", ""), "extra HTTP header (X-L)"},
 		{"pattern that cannot be parsed", section("https://github.com/a%zz/", "X-L: 1"), "cannot parse as Git does"},
 	}
 	for _, tt := range refused {

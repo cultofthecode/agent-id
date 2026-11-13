@@ -2,6 +2,7 @@ package activation
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -140,9 +141,16 @@ type HostHeader struct{ Host, Name string }
 // for that host, such as *.com, reports nothing. agent-id's reset covers the
 // host only, and Git ignores a less specific reset for a more specific
 // entry, so a header of a path- or user-scoped entry survives.
+//
+// Each entry is evaluated at its own URL and at a URL below its path. A reset
+// with a longer path, such as /org// against /org/, matches the entry's own
+// URL but not the URLs below it, and Git still sends the header there. The
+// deep URL ends in a segment longer than any pattern, so only a pattern whose
+// path is the entry's path or one of its ancestors can match it.
 func ScopedHeaders(entries []ConfigEntry, hosts []string) []HostHeader {
 	var out []HostHeader
 	seen := map[string]bool{}
+	depth := deepSegmentLen(entries)
 	for _, e := range entries {
 		section, sub, variable, ok := splitKey(e.Key)
 		if !ok || sub == "" || !strings.EqualFold(section, "http") || !strings.EqualFold(variable, "extraheader") || seen[sub] {
@@ -157,12 +165,27 @@ func ScopedHeaders(entries []ConfigEntry, hosts []string) []HostHeader {
 			if !hostPatternMatches(pattern.host, h) {
 				continue
 			}
-			for _, name := range effectiveHeaders(entries, pattern.atHost(h)) {
-				out = append(out, HostHeader{Host: h, Name: name})
+			at := pattern.atHost(h)
+			for _, target := range []gitURL{at, at.below(depth)} {
+				for _, name := range effectiveHeaders(entries, target) {
+					if hh := (HostHeader{Host: h, Name: name}); !slices.Contains(out, hh) {
+						out = append(out, hh)
+					}
+				}
 			}
 		}
 	}
 	return out
+}
+
+// deepSegmentLen returns a length that exceeds the normalized path of every
+// pattern in entries: an escaped byte takes three bytes.
+func deepSegmentLen(entries []ConfigEntry) int {
+	longest := 0
+	for _, e := range entries {
+		longest = max(longest, len(e.Key))
+	}
+	return 3*longest + 1
 }
 
 // hostPatternMatches reports whether pattern, a host pattern of

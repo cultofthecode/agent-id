@@ -20,6 +20,12 @@ func (u gitURL) atHost(host string) gitURL {
 	return u
 }
 
+// below returns u with one more path segment of n "~" characters.
+func (u gitURL) below(n int) gitURL {
+	u.path = strings.TrimSuffix(u.path, "/") + "/" + strings.Repeat("~", n)
+	return u
+}
+
 // parseGitURL normalizes raw by the rules of Git's url_normalize: lower-case
 // scheme and host, the password dropped, the default port dropped, percent
 // escapes upper-cased and decoded only for unreserved characters, unsafe bytes

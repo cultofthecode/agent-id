@@ -3,6 +3,7 @@ package activation
 import (
 	"bytes"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -419,5 +420,125 @@ func TestUrlmatchRankAgreesWithGit(t *testing.T) {
 	t.Logf("compared %d rankings with git", compared)
 	if compared < 2000 {
 		t.Errorf("only %d rankings compared", compared)
+	}
+}
+
+// TestResetWithALongerPathDoesNotHideAHeader covers B4 of the review of PR
+// #101: a reset whose path is the header path plus "/" matches the header's
+// own URL but not the URLs below it.
+func TestResetWithALongerPathDoesNotHideAHeader(t *testing.T) {
+	a := providertest.NewFakeActivator()
+	a.Hosts = []string{"github.com", "gist.github.com", "ssh.github.com"}
+	c := &remoteChecker{a: a}
+	baseline := []string{"http.https://github.com/.extraheader", ""}
+	cases := [][2]string{
+		{"https://github.com/org/", "https://github.com/org//"},
+		{"https://*.github.com/", "https://*.github.com//"},
+		{"https://*.github.com/x/", "https://*.github.com/x//"},
+		{"https://u@github.com/org/", "https://u@github.com/org//"},
+		{"https://gist.github.com/x/", "https://gist.github.com/x//"},
+		{"https://@GitHub.com:443/", "https://:p@github.com.//"},
+	}
+	for _, cs := range cases {
+		e := entries(append([]string{"http." + cs[0] + ".extraheader", "X-L: 1", "http." + cs[1] + ".extraheader", ""}, baseline...)...)
+		if err := c.checkHostHeaders(e); err == nil {
+			t.Errorf("header %q with reset %q passes", cs[0], cs[1])
+		}
+	}
+	for _, reset := range []string{"https://github.com/org/", "https://github.com/org", "https://github.com/org/./", "https://github.com/org/x/../"} {
+		e := entries(append([]string{"http.https://github.com/org/.extraheader", "X-L: 1", "http." + reset + ".extraheader", ""}, baseline...)...)
+		if err := c.checkHostHeaders(e); err != nil {
+			t.Errorf("reset %q is refused: %v", reset, err)
+		}
+	}
+}
+
+// TestCheckNeverPassesAHeaderThatGitSends builds random sets of one header
+// and up to two more entries, adds agent-id's reset last, and asks real Git
+// which provider URLs get a header. When Git sends one, checkHostHeaders must
+// refuse.
+func TestCheckNeverPassesAHeaderThatGitSends(t *testing.T) {
+	testenv.Isolate(t)
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not on PATH")
+	}
+	users := []string{"", "@", "u@", ":p@"}
+	hosts := []string{"github.com", "github.com.", "GitHub.com:443", "*.github.com", "gist.github.com", "*.github.com."}
+	paths := []string{"", "/", "/org/", "/org//", "/org", "/org///", "/org/x/", "/org/x//", "/org/x?/../", "/org/x?", "/org/./", "/%6Frg/", "//"}
+	var patterns []string
+	for _, u := range users {
+		for _, h := range hosts {
+			for _, p := range paths {
+				patterns = append(patterns, "https://"+u+h+p)
+			}
+		}
+	}
+	var targets []string
+	for _, h := range []string{"github.com", "gist.github.com", "ssh.github.com"} {
+		for _, p := range []string{"/", "/org/", "/org/r", "/org/x/r", "/org/x?/r"} {
+			targets = append(targets, "https://"+h+p)
+		}
+	}
+	a := providertest.NewFakeActivator()
+	a.Hosts = []string{"github.com", "gist.github.com", "ssh.github.com"}
+	c := &remoteChecker{a: a}
+	rng := rand.New(rand.NewPCG(1, 2))
+	dir := t.TempDir()
+	var (
+		mu      sync.Mutex
+		wg      sync.WaitGroup
+		sem     = make(chan struct{}, 8)
+		checked int
+	)
+	for i := 0; i < 400; i++ {
+		var set []string
+		for j := 0; j < 2+rng.IntN(2); j++ {
+			set = append(set, patterns[rng.IntN(len(patterns))])
+		}
+		values := []string{"X-L: 1"}
+		for range set[1:] {
+			values = append(values, []string{"", "", "X-L: 2"}[rng.IntN(3)])
+		}
+		cfg := filepath.Join(dir, fmt.Sprintf("gitconfig-%d", i))
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer func() { <-sem; wg.Done() }()
+			var es []ConfigEntry
+			_ = os.Remove(cfg)
+			for k, pat := range set {
+				if _, ok := parseGitURL(pat, true); !ok {
+					return
+				}
+				if exec.Command("git", "config", "--file", cfg, "--add", "http."+pat+".extraheader", values[k]).Run() != nil {
+					return
+				}
+				es = append(es, entries("http."+pat+".extraheader", values[k])...)
+			}
+			_ = exec.Command("git", "config", "--file", cfg, "--add", "http.https://github.com/.extraheader", "").Run()
+			es = append(es, entries("http.https://github.com/.extraheader", "")...)
+			sends := ""
+			for _, target := range targets {
+				var buf bytes.Buffer
+				cmd := exec.Command("git", "config", "--file", cfg, "--get-urlmatch", "http.extraheader", target)
+				cmd.Stdout = &buf
+				_ = cmd.Run()
+				if strings.TrimSpace(buf.String()) != "" && sends == "" {
+					sends = target
+				}
+			}
+			refused := c.checkHostHeaders(es) != nil
+			mu.Lock()
+			defer mu.Unlock()
+			checked++
+			if sends != "" && !refused {
+				t.Errorf("entries %q with values %q: git sends a header to %s, the check passes", set, values, sends)
+			}
+		}()
+	}
+	wg.Wait()
+	t.Logf("checked %d random sets", checked)
+	if checked < 150 {
+		t.Errorf("only %d sets checked", checked)
 	}
 }
