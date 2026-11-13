@@ -17,7 +17,7 @@ func TestAppProviderMeetsTheContract(t *testing.T) {
 		app.AddInstallation(installationID, "cultofthecode/widgets")
 		return providertest.Subject{
 			Provider:         app.Provider(installationID),
-			FailTokens:       app.failTokensWith,
+			FailTokens:       app.FailTokensWith,
 			SetTokenLifetime: app.SetTokenLifetime,
 		}
 	})
@@ -60,6 +60,7 @@ func TestAppProviderStatusErrors(t *testing.T) {
 		{http.StatusUnauthorized, provider.ErrUnauthorized},
 		{http.StatusForbidden, provider.ErrForbidden},
 		{http.StatusNotFound, provider.ErrNotFound},
+		{http.StatusTooManyRequests, provider.ErrRateLimited},
 		{http.StatusInternalServerError, provider.ErrUnavailable},
 		{http.StatusBadGateway, provider.ErrUnavailable},
 		{http.StatusServiceUnavailable, provider.ErrUnavailable},

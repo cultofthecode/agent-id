@@ -16,9 +16,10 @@ const Host = "github.com"
 // statusErrors maps the HTTP status of a failed token request to the
 // provider error that the GitHub adapter reports for it.
 var statusErrors = map[int]error{
-	http.StatusUnauthorized: provider.ErrUnauthorized,
-	http.StatusForbidden:    provider.ErrForbidden,
-	http.StatusNotFound:     provider.ErrNotFound,
+	http.StatusUnauthorized:    provider.ErrUnauthorized,
+	http.StatusForbidden:       provider.ErrForbidden,
+	http.StatusNotFound:        provider.ErrNotFound,
+	http.StatusTooManyRequests: provider.ErrRateLimited,
 }
 
 // errorStatuses maps a provider error to the status that FailTokens sets for
@@ -28,6 +29,7 @@ var errorStatuses = map[error]int{
 	provider.ErrForbidden:    http.StatusForbidden,
 	provider.ErrNotFound:     http.StatusNotFound,
 	provider.ErrUnavailable:  http.StatusServiceUnavailable,
+	provider.ErrRateLimited:  http.StatusTooManyRequests,
 }
 
 // Provider returns the fake App, bound to installation id, as a
@@ -100,8 +102,9 @@ func statusError(status int) error {
 	return fmt.Errorf("unexpected status %d", status)
 }
 
-// failTokensWith makes token requests fail with the status of err, or
-// succeed again when err is nil.
-func (a *App) failTokensWith(err error) {
+// FailTokensWith makes token requests fail with the HTTP status that GitHub
+// answers for err, one of the provider errors, or succeed again when err is
+// nil. It is the FailTokens control of providertest.Subject.
+func (a *App) FailTokensWith(err error) {
 	a.FailTokens(errorStatuses[err])
 }
