@@ -134,7 +134,7 @@ flowchart LR
     Root -->|builds, injects LoadKey| Onb["github.Onboarder (new, in internal/provider/github)"]
     Root -->|LoadKey wiring| Cred["internal/credential (exists)"]
     Setup -->|Onboarder port| Port["internal/provider (+ Onboarder)"]
-    Setup -->|Load, Write| Store["internal/profile (exists, + Store.CheckName, Store.Path)"]
+    Setup -->|CheckName, Load, Write, Path| Store["internal/profile (exists, + Store.CheckName, Store.Path)"]
     Onb -.implements.-> Port
     Onb -->|ProfileSettings, ParseKeyRef| Store
     Onb --> API["GitHub API via the adapter (exists)"]
@@ -143,8 +143,8 @@ flowchart LR
 Setup knows the port and the profile store only; the GitHub adapter supplies the flags, the verification, and the block.
 
 - **`internal/provider`** gains `Onboarder`, `SetupField`, `SetupRequest`, `SetupResult`, `SetupDetail`. `providertest` gains `FakeOnboarder` (fields, a scripted result or error, a request recorder) for core tests, and a small contract, `RunOnboarderContract`: fields are non-empty, unique and match `^[a-z][a-z0-9-]*$`; `Onboard` with a missing field fails without calling anything; a successful result has a valid host, an `Account`, a non-empty `Settings` object, and no value that contains a token prefix passed to the contract by the caller (the helper is provider-neutral, so `RunOnboarderContract(t, o, tokenPrefixes)` takes the adapter's prefixes as a parameter), `-----BEGIN`, or a JWT shape; `Check` refuses each of those shapes as a `--private-key`-style value without echoing it.
-- **`internal/profile`** gains two exported methods: `Store.CheckName(name string) error` (the inline-secret scan with the registry's token prefixes, then the existing name rule, so setup can reject a bad name before any I/O; a secret-shaped name is never echoed) and `Store.Path() string` (the configuration path, for the summary line). Nothing else changes.
-- **`internal/setup`** (slice, new): `contract.go` (`Input{Profile, Provider string; Values map[string]string; Dir string}`, `Output{Profile, Provider, Host, Account string; Identity provider.Identity; Details []provider.SetupDetail; Repositories []string; Created bool; ConfigPath string}`, sentinels), `handler.go` (dependencies: the onboarders by name and a narrow store port `Load() (profile.Config, error)`, `Write(func(*profile.Config) error) error`, `Path() string`), `command.go` (one `setup` command with one subcommand per registered onboarder, its flags from `SetupFields`), `handler_test.go`.
+- **`internal/profile`** gains two exported methods: `Store.CheckName(name string) error` (the inline-secret scan with the registry's token prefixes, then the existing name rule, so setup can reject a bad name before any I/O; a secret-shaped name is never echoed) and `Store.Path() string` (the absolute configuration path this store reads and writes, for the summary line; its doc comment distinguishes it from the package-level `Path(getenv)` resolver). Nothing else changes.
+- **`internal/setup`** (slice, new): `contract.go` (`Input{Profile, Provider string; Values map[string]string; Dir string}`, `Output{Profile, Provider, Host, Account string; Identity provider.Identity; Details []provider.SetupDetail; Repositories []string; Created bool; ConfigPath string}`, sentinels), `handler.go` (dependencies: the onboarders by name and a narrow store port `CheckName(string) error`, `Load() (profile.Config, error)`, `Write(func(*profile.Config) error) error`, `Path() string`), `command.go` (one `setup` command with one subcommand per registered onboarder, its flags from `SetupFields`), `handler_test.go`.
 - **`internal/provider/github`** gains `Onboarder` (`onboard.go`): it parses the values, normalizes the key reference, calls `LoadKey`, `New`, `Token`, `Bot`, `Repositories`, and encodes `ProfileSettings` with `identity`. It reuses #58's `ProfileSettings` and `BotIdentity`; if #58 has not added an encoder, this step adds `ProfileSettings.MarshalJSON` there, with a round-trip test against #58's strict decoder.
 - **`cmd/agent-id`** registers the `setup` command with the GitHub onboarder and builds the production `profile.Store` with the registry that #58 wires. `run` keeps exit status 1 for every setup error.
 - **Dependencies on other work.** #58 is required (`Store.Write` validates the `github` block with the registered validator; without it, Write rejects the new profile as an unsupported provider, so setup fails closed). The issue lists #15, #16, #17; this spec adds #58.
@@ -196,6 +196,7 @@ Next: agent-id exec --profile claude -- <command>
 | Sentinel | Cause | Message after `agent-id: setup github: ` |
 |---|---|---|
 | `setup.ErrProfileRequired`, flag errors | input | see the flag table |
+| a `Store.CheckName` error (`ErrInlineSecret` or `ErrConfigInvalid`) | `--profile` | setup maps it to the `--profile` texts of the flag table (the store's own text names no flag); the class is kept with `%w` |
 | `setup.ErrProviderConflict` | the name belongs to another provider's profile | `profile "claude" already exists for provider "gitlab"; choose another name or remove it from <path>` |
 | profile store sentinels (`ErrConfigInvalid`, `ErrInsecurePermissions`, `ErrUnsupportedVersion`, `ErrInlineSecret`, …) | the existing file cannot be read or the result does not validate | the store's message, unchanged |
 | credential sentinels | the key file | the credential source's message, unchanged (it names the path and the fix, never key bytes) |
