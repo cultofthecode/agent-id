@@ -24,6 +24,11 @@ const (
 	FakeCLIVar   = "FAKE_CLI_TOKEN"
 	FakeSubject  = "fake-installation"
 	defaultTTL   = time.Hour
+	// FakeBot is the bot login that VerifyIdentity reports, and
+	// FakeRepository the repository that Repositories lists, until a test
+	// sets others.
+	FakeBot        = "fake-bot[bot]"
+	FakeRepository = "fake-owner/fake-repo"
 )
 
 // Fake is an in-memory provider.Provider that knows no real host. It issues
@@ -35,11 +40,21 @@ type Fake struct {
 	subject  string
 	failure  error
 	tokens   []provider.Token
+
+	repositories    []string
+	repositoriesErr error
+	identity        provider.IdentityCheck
+	identityErr     error
 }
 
 // NewFake returns a Fake whose tokens live one hour.
 func NewFake() *Fake {
-	return &Fake{lifetime: defaultTTL, subject: FakeSubject}
+	return &Fake{
+		lifetime:     defaultTTL,
+		subject:      FakeSubject,
+		repositories: []string{FakeRepository},
+		identity:     provider.IdentityCheck{Bot: FakeBot, Cached: FakeBot, Match: true},
+	}
 }
 
 // Name implements provider.Provider.
@@ -98,6 +113,79 @@ func (f *Fake) GitCredential(token provider.Token) provider.GitCredential {
 // CLIEnvironment implements provider.Provider.
 func (f *Fake) CLIEnvironment(token provider.Token) []string {
 	return []string{FakeCLIVar + "=" + token.Value}
+}
+
+// Describe implements provider.Provider.
+func (f *Fake) Describe() []provider.Field {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return []provider.Field{
+		{Label: "Identity", Value: f.identity.Cached},
+		{Label: "Installation", Value: f.subject},
+		{Label: "Credentials", Value: "fake installation token"},
+	}
+}
+
+// VerifyIdentity implements provider.Provider with the answer that
+// SetIdentityCheck or FailIdentity set.
+func (f *Fake) VerifyIdentity(ctx context.Context) (provider.IdentityCheck, error) {
+	if err := ctx.Err(); err != nil {
+		return provider.IdentityCheck{}, fmt.Errorf("fake provider: verify the identity: %w", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.identityErr != nil {
+		return provider.IdentityCheck{}, fmt.Errorf("fake provider: verify the identity: %w", f.identityErr)
+	}
+	return f.identity, nil
+}
+
+// Repositories implements provider.Provider: it lists the repositories set
+// with SetRepositories for a token that the fake issued.
+func (f *Fake) Repositories(ctx context.Context, token provider.Token) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("fake provider: list the repositories: %w", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.repositoriesErr != nil {
+		return nil, fmt.Errorf("fake provider: list the repositories: %w", f.repositoriesErr)
+	}
+	if !slices.ContainsFunc(f.tokens, func(t provider.Token) bool { return t.Value == token.Value }) {
+		return nil, fmt.Errorf("fake provider: list the repositories: %w", provider.ErrUnauthorized)
+	}
+	return slices.Clone(f.repositories), nil
+}
+
+// SetRepositories sets the "owner/name" list that Repositories returns.
+func (f *Fake) SetRepositories(repositories ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.repositories = slices.Clone(repositories)
+}
+
+// FailRepositories makes Repositories fail with err until it is called with
+// nil.
+func (f *Fake) FailRepositories(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.repositoriesErr = err
+}
+
+// SetIdentityCheck sets the answer of VerifyIdentity and the cached identity
+// that Describe reports.
+func (f *Fake) SetIdentityCheck(check provider.IdentityCheck) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.identity = check
+}
+
+// FailIdentity makes VerifyIdentity fail with err until it is called with
+// nil.
+func (f *Fake) FailIdentity(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.identityErr = err
 }
 
 // FailTokens makes Token fail with err, one of the provider errors, until it
