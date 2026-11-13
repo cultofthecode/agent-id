@@ -34,9 +34,11 @@ func IsFakeToken(token string) bool {
 	return strings.HasPrefix(token, FakeTokenPrefix)
 }
 
-// FakeGitHub is a local stand-in for the GitHub API. Tests register the
-// routes they need; every other request answers 404 like GitHub does.
-type FakeGitHub struct {
+// FakeAPI is a local HTTP stand-in for the API of a code host. It knows no
+// provider: the fakes of a provider (internal/provider/github/githubtest)
+// register their routes on it. Every other request answers 404 with a JSON
+// message.
+type FakeAPI struct {
 	URL string
 
 	mux      *http.ServeMux
@@ -44,11 +46,11 @@ type FakeGitHub struct {
 	requests []*http.Request
 }
 
-// NewFakeGitHub starts a fake GitHub API on 127.0.0.1 with a port in
+// NewFakeAPI starts a fake API on 127.0.0.1 with a port in
 // FirstPort–LastPort and stops it when the test ends.
-func NewFakeGitHub(t testing.TB) *FakeGitHub {
+func NewFakeAPI(t testing.TB) *FakeAPI {
 	t.Helper()
-	fake := &FakeGitHub{mux: http.NewServeMux()}
+	fake := &FakeAPI{mux: http.NewServeMux()}
 	server := httptest.NewUnstartedServer(http.HandlerFunc(fake.serve))
 	_ = server.Listener.Close()
 	server.Listener = Listen(t)
@@ -59,13 +61,13 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 }
 
 // Handle registers handler for pattern, in the syntax of http.ServeMux.
-func (f *FakeGitHub) Handle(pattern string, handler http.HandlerFunc) {
+func (f *FakeAPI) Handle(pattern string, handler http.HandlerFunc) {
 	f.mux.HandleFunc(pattern, handler)
 }
 
 // Requests returns the method and path of every request the fake received,
 // in order.
-func (f *FakeGitHub) Requests() []string {
+func (f *FakeAPI) Requests() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	out := make([]string, 0, len(f.requests))
@@ -75,7 +77,7 @@ func (f *FakeGitHub) Requests() []string {
 	return out
 }
 
-func (f *FakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
+func (f *FakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.requests = append(f.requests, r.Clone(r.Context()))
 	f.mu.Unlock()

@@ -1,8 +1,8 @@
-# agent-id (aidentity)
+# agent-id
 
-aidentity gives AI coding agents their own GitHub App identity for one process and its descendants, without changing how the developer uses Git and `gh`. The developer keeps working as themselves; Claude Code, Codex, or another agent commits, pushes, and opens pull requests as its own bot, with installation tokens refreshed automatically.
+agent-id gives AI coding agents their own GitHub App identity for one process and its descendants, without changing how the developer uses Git and `gh`. The developer keeps working as themselves; Claude Code, Codex, or another agent commits, pushes, and opens pull requests as its own bot, with installation tokens refreshed automatically.
 
-**Status:** pre-alpha skeleton. Nothing works yet beyond `aidentity --version`. `aidentity` is a working name (`PRODUCT_BRIEF.md` §14). Local mode is not a security sandbox.
+**Status:** pre-alpha skeleton. Nothing works yet beyond `agent-id --version`. Local mode is not a security sandbox.
 
 ```sh
 go build ./... && go test ./...
@@ -14,4 +14,6 @@ go build ./... && go test ./...
 - `SDLC.md` — how work moves from an issue to a merged PR
 - Backlog: https://github.com/cultofthecode/agent-id/issues
 
-No license has been chosen yet (`PRODUCT_BRIEF.md` §14).
+## License
+
+agent-id is licensed under the [Apache License, Version 2.0](LICENSE). It is open source; releases will ship through GitHub Releases and a Homebrew tap. It contains no code from GHAPP (`ghapp-cli`): GHAPP-related code is written from scratch, so no GHAPP notice applies (GHAPP audit, PR #31).
