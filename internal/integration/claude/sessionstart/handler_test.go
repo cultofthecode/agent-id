@@ -168,7 +168,7 @@ func TestRefusalsGiveExit3AndStopCommands(t *testing.T) {
 			h.Deps.Providers = source{a}
 		}, "cannot read the bot identity"},
 		{"nested other profile", func(_ *Handler, in *Input) {
-			in.Parent = append(in.Parent, "AGENT_ID_CONTEXT=1", "AGENT_ID_ACTIVE_PROFILE=other", "AGENT_ID_GIT_CONFIG_BASE=0", "AGENT_ID_GIT_CONFIG_END=0")
+			in.Parent = append(in.Parent, "AGENT_ID_CONTEXT=1", "AGENT_ID_ACTIVE_PROFILE=other", "AGENT_ID_GIT_CONFIG_BASE=0", "AGENT_ID_GIT_CONFIG_END=0", "AGENT_ID_PATH_PREPEND=", "AGENT_ID_SET_NAMES=")
 		}, `"other"`},
 	}
 	for _, tt := range tests {

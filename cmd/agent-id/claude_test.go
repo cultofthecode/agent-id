@@ -160,7 +160,7 @@ func TestEnvOutputAndErrors(t *testing.T) {
 		{"unknown profile", []string{"env", "--profile", "nobody", "--shell", "bash"}, nil, `profile "nobody" not found`},
 		{"no identity", []string{"env", "--profile", "reviewer", "--shell", "bash"}, nil, "agent-id setup github --profile reviewer"},
 		{"different profile inside a session", []string{"env", "--profile", "other", "--shell", "zsh"},
-			[]string{"AGENT_ID_CONTEXT=1", "AGENT_ID_ACTIVE_PROFILE=claude", "AGENT_ID_GIT_CONFIG_BASE=0", "AGENT_ID_GIT_CONFIG_END=0"}, `"claude"`},
+			[]string{"AGENT_ID_CONTEXT=1", "AGENT_ID_ACTIVE_PROFILE=claude", "AGENT_ID_GIT_CONFIG_BASE=0", "AGENT_ID_GIT_CONFIG_END=0", "AGENT_ID_PATH_PREPEND=", "AGENT_ID_SET_NAMES="}, `"claude"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -215,8 +215,8 @@ func TestSessionStartSimulatedSession(t *testing.T) {
 			if r.code != 0 || !strings.Contains(r.stdout, bot+"|"+bot) || strings.Contains(r.stdout, "decoy") || !strings.Contains(r.stdout, "other=1 tok=agent-id-no-token mech=env") || !strings.Contains(r.stdout, "gh=1") {
 				t.Fatalf("%+v", r)
 			}
-			if !strings.Contains(r.stderr, "gh is not available in this agent context") {
-				t.Errorf("gh did not reach the refusing stub: %q", r.stderr)
+			if !strings.Contains(r.stderr, "AID-GH-TOKEN") || !strings.Contains(r.stderr, "gh was not started") {
+				t.Errorf("gh did not reach the shim refusal: %q", r.stderr)
 			}
 			nested := f.command(shell, `"$BIN" exec --profile claude -- env`)
 			direct := f.command(shell, `env`)

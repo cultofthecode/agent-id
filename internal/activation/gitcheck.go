@@ -29,7 +29,7 @@ func inheritedCount(env map[string]string) (int, error) {
 	}
 	n, err := atoiStrict(v)
 	if err != nil || n > maxGitConfigCount {
-		return 0, failf(ErrInheritedGitConfig, "inherited GIT_CONFIG_COUNT is not a number from 0 to %d; every git command would fail; fix or unset the GIT_CONFIG_* variables", maxGitConfigCount)
+		return 0, failf(ErrInheritedGitConfig, "inherited GIT_CONFIG_COUNT is not a decimal integer from 0 to %d; every git command would fail; fix or unset the GIT_CONFIG_* variables", maxGitConfigCount)
 	}
 	return n, nil
 }
@@ -46,7 +46,7 @@ func CheckInheritedGit(parent []string) error {
 	for i := 0; i < n; i++ {
 		for _, prefix := range []string{"GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"} {
 			if _, ok := env[prefix+strconv.Itoa(i)]; !ok {
-				return failf(ErrInheritedGitConfig, "inherited GIT_CONFIG_COUNT=%d has no %s%d; every git command would fail; fix or unset the GIT_CONFIG_* variables", n, prefix, i)
+				return failf(ErrInheritedGitConfig, "inherited GIT_CONFIG_COUNT requires %s%d, which is not set; every git command would fail; fix or unset the GIT_CONFIG_* variables", prefix, i)
 			}
 		}
 	}
@@ -66,8 +66,18 @@ func CheckInheritedGit(parent []string) error {
 	return nil
 }
 
-// forbiddenKey reports whether key is refused and returns its section and
-// variable name without the subsection, which can hold a credential.
+// printableVariables are the variable names that an error may print, in
+// lower case. Any other name stays out of the message.
+var printableVariables = map[string]bool{
+	"helper": true, "usehttppath": true, "username": true, "extraheader": true,
+	"insteadof": true, "pushinsteadof": true, "path": true, "program": true,
+	"signingkey": true, "gpgsign": true, "forcesignannotated": true, "askpass": true,
+}
+
+// forbiddenKey reports whether key is refused and returns the text that an
+// error may print: the section, "<…>" for a subsection, and the variable
+// only when it is one of printableVariables. The section is one of the
+// fixed names above, so no inherited text reaches the message.
 func forbiddenKey(key string) (string, bool) {
 	lower := strings.ToLower(key)
 	section, rest, hasDot := strings.Cut(lower, ".")
@@ -77,12 +87,16 @@ func forbiddenKey(key string) (string, bool) {
 	if !forbiddenSections[section] && !forbiddenKeys[lower] {
 		return "", false
 	}
+	name := section
 	variable := rest
 	if i := strings.LastIndex(rest, "."); i >= 0 {
 		variable = rest[i+1:]
-		return clean(section, 32) + ".<subsection>." + clean(variable, 32), true
+		name += ".<…>"
 	}
-	return clean(section+"."+variable, 64), true
+	if printableVariables[variable] {
+		name += "." + variable
+	}
+	return name, true
 }
 
 // ParseGitConfigParameters returns the keys that a GIT_CONFIG_PARAMETERS
