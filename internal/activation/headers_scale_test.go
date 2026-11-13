@@ -143,10 +143,12 @@ func TestIndexedHeadersAgreeWithTheReference(t *testing.T) {
 		depth := deepSegmentLen(es)
 		for _, h := range hosts[:3] {
 			var want []string
-			for _, scheme := range []string{"https", "http"} {
-				root, _ := parseGitURL(scheme+"://"+h+"/", false)
-				want = append(want, referenceEffectiveHeaders(es, root)...)
-				want = append(want, referenceEffectiveHeaders(es, root.below(depth))...)
+			for _, scheme := range []string{"http", "https"} {
+				for _, port := range []string{"", unusedPort(es)} {
+					root := gitURL{scheme: scheme, host: strings.ToLower(h), port: port, path: "/"}
+					want = append(want, referenceEffectiveHeaders(es, root)...)
+					want = append(want, referenceEffectiveHeaders(es, root.below(depth))...)
+				}
 			}
 			if got := HostRootHeaders(es, h); !slices.Equal(want, got) {
 				t.Fatalf("set %d, host %q, entries %q: HostRootHeaders reference %q, indexed %q", i, h, es, want, got)
