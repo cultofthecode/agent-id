@@ -1,12 +1,13 @@
 // Package testenv isolates a test from the developer's machine.
 //
-// Every test that runs aidentity code, git, or gh calls Isolate first. Isolate
+// Every test that runs agent-id code, git, or gh calls Isolate first. Isolate
 // points HOME, the XDG directories, the global Git configuration, the gh
 // configuration directory, and TMPDIR into a fresh directory under
-// $TMPDIR/agent-id/, limits git to local and HTTPS transports, and removes every inherited credential and identity
-// variable, so that a test can never read or write ~/.gitconfig, the keychain,
-// the ghapp or gh configuration, or a real token. Isolate also routes every
-// HTTP request that leaves 127.0.0.1 to a guard that fails the test.
+// $TMPDIR/agent-id/, limits git to local and HTTPS transports, and removes
+// every inherited credential and identity variable, so that a test can never
+// read or write ~/.gitconfig, the keychain, the ghapp or gh configuration, or
+// a real token. Isolate also routes every HTTP request that leaves 127.0.0.1
+// to a guard that fails the test.
 //
 // On top of Isolate, the package provides the fakes and process helpers that
 // end-to-end tests need: NewFakeAPI for a host API, NewGitServer for Git over
@@ -51,7 +52,7 @@ const allowedGitProtocols = "file:https"
 
 // inheritedPrefixes are variable name prefixes removed from the environment
 // of an isolated test.
-var inheritedPrefixes = []string{"AGENT_ID_", "AIDENTITY_", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "GHAPP_"}
+var inheritedPrefixes = []string{"AGENT_ID_", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "GHAPP_"}
 
 // Env describes the isolated environment of one test.
 type Env struct {

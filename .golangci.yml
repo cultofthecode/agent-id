@@ -33,7 +33,7 @@ linters:
           files:
             - "$all"
             - "!**/internal/provider/github/**"
-            - "!**/cmd/aidentity/main.go"
+            - "!**/cmd/agent-id/main.go"
           deny:
             - pkg: github.com/cultofthecode/agent-id/internal/provider/github
               desc: core depends on internal/provider only; GitHub code stays in its adapter, and only the composition root wires it (ADR #35)

@@ -14,7 +14,7 @@ func TestMain(m *testing.M) { testenv.Main(m) }
 
 func TestBinary(t *testing.T) {
 	env := testenv.Isolate(t)
-	binary := testenv.BuildBinary(t, env, "github.com/cultofthecode/agent-id/cmd/aidentity")
+	binary := testenv.BuildBinary(t, env, "github.com/cultofthecode/agent-id/cmd/agent-id")
 	if !strings.HasPrefix(binary, env.Root) {
 		t.Fatalf("binary %s is outside the test root %s", binary, env.Root)
 	}
@@ -25,8 +25,8 @@ func TestBinary(t *testing.T) {
 		wantStdout string
 		wantStderr string
 	}{
-		{"version", []string{"--version"}, exitOK, "aidentity version ", ""},
-		{"unknown command", []string{"no-such-command"}, exitFailure, "", "aidentity: "},
+		{"version", []string{"--version"}, exitOK, "agent-id version ", ""},
+		{"unknown command", []string{"no-such-command"}, exitFailure, "", "agent-id: "},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
