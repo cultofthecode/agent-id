@@ -121,6 +121,25 @@ func TestRefreshFailureFailsClosed(t *testing.T) {
 	}
 }
 
+func TestNoFallbackToAnInheritedPersonalToken(t *testing.T) {
+	c := newClock()
+	m := newManager(t, c)
+	personal := testenv.FakeToken("personal")
+	for _, name := range []string{"GH_TOKEN", "GITHUB_TOKEN", "FAKE_CLI_TOKEN"} {
+		t.Setenv(name, personal)
+	}
+	src := newSource(c)
+	src.failure = provider.ErrUnauthorized
+	token, err := m.Token(context.Background(), src)
+	if !errors.Is(err, provider.ErrUnauthorized) || token != (provider.Token{}) {
+		t.Errorf("denied mint with personal tokens in the environment: %v, %v; want the provider error and the zero token", token, err)
+	}
+	assertNoToken(t, err, personal)
+	if _, err := os.Stat(entryPath(t, m, src)); !errors.Is(err, os.ErrNotExist) {
+		t.Error("a denied mint wrote an entry")
+	}
+}
+
 func TestMintedTokenWithinTheMarginIsRefused(t *testing.T) {
 	c := newClock()
 	m := newManager(t, c)
