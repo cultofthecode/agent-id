@@ -26,8 +26,13 @@ func TestGenericHeaderReachesTheHTTPFormOfAHost(t *testing.T) {
 		}
 	}
 	withHTTPReset := append(append(slices.Clone(generic), baseline...), entries("http.http://github.com/.extraheader", "")...)
-	if got := HostRootHeaders(withHTTPReset, "github.com"); len(got) != 0 {
-		t.Errorf("a reset of the http host root leaves %q", got)
+	for _, u := range []string{"http://github.com/", "http://github.com/org/r", "https://github.com/", "https://github.com/org/r"} {
+		if got := EffectiveHeaders(withHTTPReset, u); len(got) != 0 {
+			t.Errorf("a reset of the http host root leaves %q for %s", got, u)
+		}
+	}
+	if got := HostRootHeaders(withHTTPReset, "github.com"); len(got) != 4 {
+		t.Errorf("the generic header must still reach an unnamed port over both schemes, got %q (#112)", got)
 	}
 	withLongReset := append(append(slices.Clone(generic), baseline...), entries("http.http://github.com//.extraheader", "")...)
 	if got := HostRootHeaders(withLongReset, "github.com"); len(got) == 0 {
@@ -48,8 +53,13 @@ func TestHTTPFormIsClearedOnlyByAHostReset(t *testing.T) {
 		t.Error("generic header still reaches http://gist.github.com/ and passes")
 	}
 	e = append(e, entries("http.http://gist.github.com/.extraheader", "")...)
-	if err := c.checkHostHeaders(e); err != nil {
-		t.Errorf("every host cleared on http and https, but refused: %v", err)
+	if err := c.checkHostHeaders(e); err == nil {
+		t.Error("every host cleared on http and https on the default port, but the generic header still reaches other ports and passes (#112)")
+	}
+	for _, u := range []string{"http://github.com/", "https://github.com/", "http://gist.github.com/org/r", "https://gist.github.com/org/r"} {
+		if got := EffectiveHeaders(e, u); len(got) != 0 {
+			t.Errorf("resets of every host leave %q for %s", got, u)
+		}
 	}
 }
 
@@ -66,7 +76,8 @@ func TestScopedHeaderOfTheHTTPFormIsRefused(t *testing.T) {
 // TestRealGitSendsAGenericHeaderOverHTTP is the process test of #107. Real
 // Git talks to a listener on 127.0.0.1. With the https baseline reset only,
 // Git sends the generic header over http and the check refuses. With an
-// http reset for the host, Git sends nothing and the check passes.
+// http reset for the host, Git sends nothing on that port, but the check
+// still refuses, because the generic header reaches every other port (#112).
 func TestRealGitSendsAGenericHeaderOverHTTP(t *testing.T) {
 	testenv.Isolate(t)
 	if _, err := exec.LookPath("git"); err != nil {
@@ -95,10 +106,11 @@ func TestRealGitSendsAGenericHeaderOverHTTP(t *testing.T) {
 		name    string
 		entries []ConfigEntry
 		sends   bool
+		refuses bool
 	}{
-		{"https reset only", generic, true},
-		{"http reset too", append(slices.Clone(generic), entries("http."+server.URL+"/.extraheader", "")...), false},
-		{"http reset with a longer path", append(slices.Clone(generic), entries("http."+server.URL+"//.extraheader", "")...), true},
+		{"https reset only", generic, true, true},
+		{"http reset too", append(slices.Clone(generic), entries("http."+server.URL+"/.extraheader", "")...), false, true},
+		{"http reset with a longer path", append(slices.Clone(generic), entries("http."+server.URL+"//.extraheader", "")...), true, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -118,8 +130,8 @@ func TestRealGitSendsAGenericHeaderOverHTTP(t *testing.T) {
 					t.Errorf("%s: git sent the header = %v, want %v", path, got, tc.sends)
 				}
 			}
-			if refused := c.checkHostHeaders(tc.entries) != nil; refused != tc.sends {
-				t.Errorf("check refuses = %v, git sends = %v", refused, tc.sends)
+			if refused := c.checkHostHeaders(tc.entries) != nil; refused != tc.refuses {
+				t.Errorf("check refuses = %v, want %v", refused, tc.refuses)
 			}
 		})
 	}

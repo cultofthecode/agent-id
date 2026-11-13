@@ -2,7 +2,7 @@
 
 agent-id gives AI coding agents their own GitHub App identity for one process and its descendants, without changing how the developer uses Git and `gh`. The developer keeps working as themselves; Claude Code, Codex, or another agent commits, pushes, and opens pull requests as its own bot, with installation tokens refreshed automatically.
 
-**Status:** pre-alpha. `agent-id setup github` writes an agent profile; running an agent under it (`agent-id exec`) is not implemented yet. Local mode is not a security sandbox.
+**Status:** pre-alpha. `agent-id setup github` writes an agent profile. `agent-id exec --profile <name> -- <cmd>` runs a command as that bot: Git and `gh` use the bot identity. Local mode is not a security sandbox.
 
 ```sh
 go build ./... && go test ./...
