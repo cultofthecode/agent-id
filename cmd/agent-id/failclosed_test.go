@@ -14,9 +14,10 @@ import (
 // profile's App key in a state that cannot yield a token, plants decoy
 // personal credentials that record every use, and runs git push and
 // gh pr create in an exec session. Every scenario must end in a refusal with
-// zero decoy uses. Until #22 and #23 inject App tokens, exec never reads the
-// key, so the refusal comes from the neutral baseline; the table keeps the
-// property when those stories replace the baseline's entries.
+// zero decoy uses. The gh half is the shim of #23: it reads the key, cannot
+// mint, and refuses with AID-GH-TOKEN before the real gh starts, although a
+// personal gh stands later on PATH. The git half still ends in the neutral
+// baseline until #22 injects the App token.
 
 type decoys struct {
 	helperLog, askLog, ghLog, hosts string
@@ -148,8 +149,8 @@ func assertRefusals(t *testing.T, f *execFixture, d decoys) {
 		t.Errorf("git push succeeded; stderr %q", push.stderr)
 	}
 	pr := f.run("exec", "--profile", "claude", "--", "gh", "pr", "create", "--title", "x", "--body", "y")
-	if pr.code == 0 || !strings.Contains(pr.stderr, "agent-id: gh is not available in this agent context") {
-		t.Errorf("gh pr create: code %d stderr %q, want a refusal with agent-id's message", pr.code, pr.stderr)
+	if pr.code != 125 || !strings.Contains(pr.stderr, "agent-id: AID-GH-TOKEN: could not obtain a token for profile \"claude\"") || !strings.Contains(pr.stderr, "gh was not started") {
+		t.Errorf("gh pr create: code %d stderr %q, want exit 125 and the AID-GH-TOKEN refusal", pr.code, pr.stderr)
 	}
 	for _, out := range []string{push.stdout, push.stderr, pr.stdout, pr.stderr} {
 		for _, bad := range []string{fakePersonal, "password=personal"} {

@@ -23,7 +23,26 @@ type Activator interface {
 	// Ready reports, without a network call, whether the profile can be
 	// activated. Its error carries the adapter's hint.
 	Ready() error
+	// CheckCLI decides, as a pure function of the CLI's arguments and the
+	// parent environment, whether the shim may start the CLI for the agent
+	// (#23). It returns nil to allow and a *CLIRefusal to refuse. It reads
+	// no key and makes no request.
+	CheckCLI(args, parent []string) error
 }
+
+// CLIRefusal is a refusal of an invocation of the provider's CLI. Its text
+// holds no secret: no token, header, key path, or value of the parent's
+// variables.
+type CLIRefusal struct {
+	// Code is the stable identifier that scripts can match, for example
+	// AID-GH-AUTH.
+	Code string
+	// Message says what is refused, why, and what the agent can do instead.
+	Message string
+}
+
+// Error returns the code and the message.
+func (r *CLIRefusal) Error() string { return r.Code + ": " + r.Message }
 
 // NeutralCLI is how a provider's CLI is closed in an agent context: it gets
 // an empty private configuration directory and a fixed, non-secret decoy

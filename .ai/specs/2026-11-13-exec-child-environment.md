@@ -2,6 +2,8 @@
 
 > ⚠️ Superseded by `.ai/specs/2026-11-13-env-claude-session-start.md` (2026-11-13) — sections: Architecture (the `Activate` return type and the new `Plan.Unshadow` field). Partly superseded: everything else in this spec stands.
 
+> 🔧 Amended by #23 (2026-11-13): the `gh` stub in `neutral-bin` is now the launcher of the `gh` shim, see `.ai/specs/2026-11-13-gh-shim.md`. Where this spec says "refusing stub", read "launcher that starts `agent-id cli gh`". Every other rule of the neutral baseline stays.
+>
 > 🔒 Amended by #68 (2026-11-13): `exec` fails closed from its first merge. The child never reaches the developer's credentials through Git or `gh`, independently of #21–#23. See [Neutral credential baseline](#-neutral-credential-baseline-68). The amendment replaces the delivery-order rule "no release may contain `exec` before #21, #22, and #23", and it moves O1 from #22 into #20.
 
 Issue: #20 (E02-S06). Implemented by #20; extended by #21 (Git identity), #22 (Git transport), #23 (`gh` injection); reused by #26 (`agent-id env`) and read by #24 (`whoami`, `doctor`).

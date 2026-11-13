@@ -28,6 +28,8 @@ type FakeActivator struct {
 	Prefixes   []string
 	CLI        provider.NeutralCLI
 	ReadyError error
+	// CLIRule, when set, is the CheckCLI of the fake.
+	CLIRule func(args, parent []string) error
 }
 
 // NewFakeActivator returns a ready activator for the fake host.
@@ -52,6 +54,14 @@ func (f *FakeActivator) CredentialVariables() []string   { return f.Variables }
 func (f *FakeActivator) TokenPrefixes() []string         { return f.Prefixes }
 func (f *FakeActivator) NeutralCLI() provider.NeutralCLI { return f.CLI }
 func (f *FakeActivator) Ready() error                    { return f.ReadyError }
+
+// CheckCLI allows every invocation unless CLIRule is set.
+func (f *FakeActivator) CheckCLI(args, parent []string) error {
+	if f.CLIRule == nil {
+		return nil
+	}
+	return f.CLIRule(args, parent)
+}
 
 var activatorHostPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]*$`)
 

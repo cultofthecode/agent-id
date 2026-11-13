@@ -52,6 +52,26 @@ linters:
             - github.com/cultofthecode/agent-id/internal/provider$
             - github.com/cultofthecode/agent-id/internal/provider/providertest$
             - github.com/cultofthecode/agent-id/internal/testenv$
+        cliint-uses-only-the-ports:
+          list-mode: strict
+          files:
+            - "**/internal/cliint/**"
+            - "!$test"
+          allow:
+            - $gostd
+            - github.com/spf13/cobra$
+            - github.com/cultofthecode/agent-id/internal/provider$
+            - github.com/cultofthecode/agent-id/internal/token$
+        cliint-tests-use-only-the-ports-and-fakes:
+          list-mode: strict
+          files:
+            - "**/internal/cliint/**_test.go"
+          allow:
+            - $gostd
+            - github.com/cultofthecode/agent-id/internal/provider$
+            - github.com/cultofthecode/agent-id/internal/provider/providertest$
+            - github.com/cultofthecode/agent-id/internal/token$
+            - github.com/cultofthecode/agent-id/internal/testenv$
         github-only-in-its-adapter:
           list-mode: lax
           files:
