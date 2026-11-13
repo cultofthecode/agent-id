@@ -194,7 +194,7 @@ JSON (`--json`), one object, schema version 1:
 }
 ```
 
-Outside a context: `{"schema":1,"context":"personal/unmanaged"}`, with every other member absent. In a damaged or incompatible context, `context` is `"agent"`, `context_problem` is the reason string, and the members that could not be determined are `null` (never absent). An unresolved identity is `"identity": null`; a token that was not checked is `"token": {"status": "not checked", "expires_at": null, "class": "<reason class>"}`. Golden tests pin each of these shapes. Members are never removed or retyped within schema 1. A new member is allowed, and consumers must ignore members they do not know.
+Outside a context: `{"schema":1,"context":"personal/unmanaged"}`, with every other member absent. In a damaged or incompatible context, `context` is `"agent"`, `context_problem` is the reason string, and the members that could not be determined are `null` (never absent). An unresolved identity is `"identity": null`; a token that was not checked is `"token": {"status": "not checked", "expires_at": null, "class": null}`, with the reason in `context_problem`. The `class` member is `null` or one of the closed list `unauthorized`, `forbidden`, `not found`, `rate limited`, `unavailable`, `key`, `config`. Golden tests pin each of these shapes. Members are never removed or retyped within schema 1. A new member is allowed, and consumers must ignore members they do not know.
 
 ### `agent-id doctor --profile <name> [--json]`
 
@@ -240,12 +240,13 @@ The order below is the output order. `fail` means `exec` refuses, or agent mode 
 | `provider.token` | a fresh token can be minted | fail, with the class and the provider's hint | brief §7.1 |
 | `provider.identity` | the host's bot equals the cached identity; refresh the cache when it is missing or different | ok / warn "refreshed" / warn when the host rate-limits the unauthenticated user lookup (`ErrRateLimited`) / fail when it cannot be resolved otherwise | profile spec, Identity cache |
 | `provider.repo` | the installation can read each repository of a remote on the provider's host | fail per repository; skip outside a repository | brief §7.1 |
-| `git.version` | `git --version` ≥ 2.43 | fail below, skip when Git is missing | O4 |
+| `git.version` | `git --version` ≥ 2.43 | fail below; when Git is missing, `gather.git` fails | O4 |
+| `gather.<name>` | a gatherer (`git`, `ssh`, `gh`, `provider`, `key`, `config`) errored or timed out | fail, with the reason; the checks that depend on it are `skip` | this spec |
 | `git.remote.ssh` | D1: effective fetch and push URL of each remote, including `ssh -G` for an alias | fail (O1: `exec` refuses) | analysis §6 D1; O1 |
 | `git.remote.userinfo` | D2: user-info in a remote URL or `pushurl` | fail, URL printed with user-info replaced by `[redacted]` | D2 |
 | `git.extraheader` | D3: an `Authorization` header that survives agent-id's reset for a remote URL | fail; only the presence and the source location are printed | D3 |
 | `git.parameters` | D4: an inherited `GIT_CONFIG_PARAMETERS`, through `activation.ParseGitConfigParameters` | fail for a forbidden key (O2: `exec` refuses), warn otherwise; keys only | D4; O2 |
-| `git.helper.effective` | D4 (second part): the helper list that Git computes for `https://<host>/<repo>` (`git credential fill` is not run; `git config --get-urlmatch --get-all credential.helper` in the activated environment) is exactly agent-id's helper, whose command is built from `AGENT_ID_BIN` of that environment, not from `os.Executable` | fail | D4; C19b |
+| `git.helper.effective` | D4 (second part): the helper list for `https://<host>/<repo>` is exactly agent-id's helper, whose command is built from `AGENT_ID_BIN` of the evaluated environment, not from `os.Executable`. The list is computed by a pure function `EffectiveHelpers(entries, url)` over the ordered entries of `git config --list --show-scope --show-origin -z` in that environment: every `credential.helper` and `credential.<url>.helper` whose URL matches (generic, host, or host and path, as the analysis establishes for C2–C16; path-scoped entries match even without `useHttpPath`, C10) is taken in config order, and an empty value resets the list collected so far. `git config --get-urlmatch` is not used: it cannot be combined with `--get-all` (exit 129) and returns only the most specific value. `doctor` never runs `git credential fill`, which would call the developer's real helpers. | fail | D4; C1–C19b |
 | `git.helper.personal` | personal credential helpers that match the provider's host, from every scope | warn (neutralized in agent mode); helper name only (see redaction) | C1–C18 |
 | `git.signing` | personal commit or tag signing is configured | info (turned off in agent mode) | S1–S8 |
 | `git.ssh` | D5: `GIT_SSH_COMMAND` or `core.sshCommand` while a remote on the host is not HTTPS | info | D5; O3 |
@@ -335,7 +336,7 @@ Checks that need a repository run in the working directory. **Which environment 
 | A3 | Redaction design | Three layers: collection, `Redact`, `Guard`. | One missed pattern does not leak. | reversible |
 | A4 | Home path in output | Abbreviated to `~`. | A pasted report does not carry the user's account name into an issue of a public repository. | reversible |
 | A5 | Identity refresh | Only `identity`, through the store's locked write, reported as `warn`. | `ARCHITECTURE.md` and the profile spec assign it to `doctor`. | reversible |
-| A6 | New provider answers | `Describe`, `VerifyIdentity`, and `Repositories` (lifted from the GitHub adapter) as new interface methods with contract tests; token prefixes from the profile registry. | Keeps every GitHub term in the adapter (ADR #35). | settled with the interface owners (#15 merged; the additions are a provider-interface change with contract tests)5 |
+| A6 | New provider answers | `Describe`, `VerifyIdentity`, and `Repositories` (lifted from the GitHub adapter) as new interface methods with contract tests; token prefixes from the profile registry through a new exported accessor. | Keeps every GitHub term in the adapter (ADR #35). | proposed here; implemented as one interface change with contract tests |
 
 ## 📋 Phasing
 
@@ -363,7 +364,7 @@ Every test calls `testenv.Isolate(t)` first. Packages that run Git or `gh` use `
    - `Authorization: Bearer x`, `password=x`, `oauth_token: x`;
    - control characters, and a 10 KiB value.
 
-   `Guard` is tested on text and on JSON, where escaped forms such as `-` in `-----BEGIN` are decoded before scanning.
+   `Guard` is tested on every report string before rendering and on the rendered text; JSON is rendered only from strings that already passed, so no JSON unescaping is needed. A test runs `Guard` over every static catalog string.
 3. **Renderers.** Golden files for the text and JSON examples of this spec, for `personal/unmanaged`, and for every `Context` variant. `AbbreviateHome` covers a path inside `$HOME`, `$HOME` itself, a prefix collision (`/home/devx` vs `/home/dev`), and a relative path.
 4. **Checks.** One table per catalog id over a constructed `Snapshot`, with the matrix rows as cases. D1 uses U2–U8 and U12. D2 uses C21 and U11. D3 uses H7. D4 uses C19b, O2 keys, and `include.path`. D6 uses R8, an appended foreign entry, and a modified agent entry. `env.tokenlike` covers each pattern, and the value never appears in the result. Every check gets a `skip` row for a missing input.
 
@@ -382,8 +383,8 @@ Every test calls `testenv.Isolate(t)` first. Packages that run Git or `gh` use `
 
 ### Phase 3 — `doctor`
 
-7. **Gatherers.** Git (`config --list --show-scope --show-origin -z`, `ls-remote --get-url`, `remote get-url --push`, `config --get-urlmatch`), `ssh -G` for aliases, `gh` lookup on `PATH`, the environment, `credential.Source.PrivateKeyPEM` (bytes cleared at once), and the provider. Each has a timeout, and a failure leads to `skip`. Tests with real `git` in `testenv.Isolate`, with the matrix's hostile global configuration and a local bare repository from `testenv.NewBareRepository`.
-8. **Slice.** `--profile`, `--json`, the exit codes, and the identity refresh through the store (a test proves only `identity` changed, byte for byte elsewhere).
+7. **Gatherers.** Git (`config --list --show-scope --show-origin -z`, `ls-remote --get-url`, `remote get-url --push`, `config --get-urlmatch`), `ssh -G` for aliases, `gh` lookup on `PATH`, the environment, `credential.Source.PrivateKeyPEM` (bytes cleared at once), and the provider. Each has a timeout; an error or timeout gives a `gather.<name>` fail, and the checks that depend on it are `skip`. The `http.extraHeader` value that `git config --get-urlmatch http.extraheader <url>` returns is reduced to "present, is an `Authorization` header" inside the gatherer, before anything enters the `Snapshot` (Layer 1). Tests with real `git` in `testenv.Isolate`, with the matrix's hostile global configuration and a local bare repository from `testenv.NewBareRepository`.
+8. **Slice.** `--profile`, `--json`, the exit codes, and the identity refresh through the store (a test proves only `identity` changed, byte for byte elsewhere). Order: config and key checks, then `provider.token` and `provider.identity` (with the refresh), and only then `Activate` for the Git checks, so that a fresh profile whose identity `doctor` has just resolved is not refused by `Ready`. `EffectiveHelpers` is table-tested on rows C1–C19b and, in tests only, cross-checked against `git credential fill` with fake recording helpers in `testenv.Isolate`.
 9. **Process tests.** The Delta scenarios end to end:
    - a personal helper plus an inherited `GH_TOKEN` gives two `warn` lines with fixes and exit 0;
    - an SSH remote gives `fail` and exit 1;
