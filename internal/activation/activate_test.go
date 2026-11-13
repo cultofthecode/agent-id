@@ -3,6 +3,7 @@ package activation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cultofthecode/agent-id/internal/gitint"
 	"github.com/cultofthecode/agent-id/internal/profile"
 	"github.com/cultofthecode/agent-id/internal/provider"
 	"github.com/cultofthecode/agent-id/internal/provider/providertest"
@@ -356,4 +358,87 @@ func TestNeutralDirsOnDisk(t *testing.T) {
 	if _, err := (FileNeutralDirs{}).Ensure(parent, "fake", provider.NeutralCLI{Binary: "../x"}); !errors.Is(err, ErrNeutralDir) {
 		t.Errorf("bad binary name: %v", err)
 	}
+}
+
+func TestActivateGitIdentity(t *testing.T) {
+	testenv.Isolate(t)
+	parent := []string{"GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=core.abbrev", "GIT_CONFIG_VALUE_0=12", "GIT_CONFIG_KEY_1=commit.gpgSign", "GIT_CONFIG_VALUE_1=true",
+		"GIT_AUTHOR_NAME=Dev", "GIT_COMMITTER_EMAIL=dev@example.com"}
+	t.Run("variables and signing entries are appended after the inherited ones", func(t *testing.T) {
+		d, a, _ := newDeps(t)
+		act, err := Activate(context.Background(), d, request(parent...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		env := parseEnv(act.Env)
+		for _, name := range []string{"GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"} {
+			if env[name] != a.Ident.Name {
+				t.Errorf("%s = %q", name, env[name])
+			}
+		}
+		for _, name := range []string{"GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"} {
+			if env[name] != a.Ident.Email {
+				t.Errorf("%s = %q", name, env[name])
+			}
+		}
+		if env["GIT_CONFIG_KEY_1"] != "commit.gpgSign" || env["GIT_CONFIG_VALUE_1"] != "true" {
+			t.Errorf("inherited entry changed: %v", act.Env)
+		}
+		last := map[string]string{}
+		for i := 2; i < 12; i++ {
+			k := env[fmt.Sprintf("GIT_CONFIG_KEY_%d", i)]
+			if k == "" {
+				break
+			}
+			last[k] = env[fmt.Sprintf("GIT_CONFIG_VALUE_%d", i)]
+		}
+		for _, k := range []string{"commit.gpgSign", "tag.gpgSign", "tag.forceSignAnnotated"} {
+			if last[k] != "false" {
+				t.Errorf("%s = %q, want false (entries %v)", k, last[k], last)
+			}
+		}
+	})
+	t.Run("a provider error stops the start with the provider's text", func(t *testing.T) {
+		d, a, calls := newDeps(t)
+		a.IdentityError = errors.New("cache unreadable")
+		_, err := Activate(context.Background(), d, request())
+		if !errors.Is(err, ErrIdentityUnavailable) || !strings.Contains(err.Error(), "cache unreadable") || slices.Contains(*calls, "neutral") || slices.Contains(*calls, "check") {
+			t.Errorf("error %v calls %v", err, *calls)
+		}
+	})
+	t.Run("a malformed identity stops the start without echoing it", func(t *testing.T) {
+		d, a, _ := newDeps(t)
+		a.Ident.Name = "claude\nmallory"
+		_, err := Activate(context.Background(), d, request())
+		if !errors.Is(err, ErrIdentityUnavailable) || !errors.Is(err, gitint.ErrIdentityInvalid) || strings.Contains(err.Error(), "mallory") || !strings.Contains(err.Error(), "agent-id doctor --profile claude") {
+			t.Errorf("error %v", err)
+		}
+	})
+	t.Run("order: readiness, then identity, then inherited git", func(t *testing.T) {
+		d, a, _ := newDeps(t)
+		a.ReadyError = errors.New("not ready")
+		a.IdentityError = errors.New("boom")
+		if _, err := Activate(context.Background(), d, request("GIT_CONFIG_COUNT=1")); !errors.Is(err, ErrProfileNotReady) {
+			t.Errorf("error %v, want not ready first", err)
+		}
+		a.ReadyError = nil
+		if _, err := Activate(context.Background(), d, request("GIT_CONFIG_COUNT=1")); !errors.Is(err, ErrIdentityUnavailable) {
+			t.Errorf("error %v, want identity before inherited git", err)
+		}
+	})
+	t.Run("re-entry is idempotent", func(t *testing.T) {
+		d, _, _ := newDeps(t)
+		first, err := Activate(context.Background(), d, request(parent...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		second, err := Activate(context.Background(), d, request(first.Env...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		a, b := parseEnv(first.Env), parseEnv(second.Env)
+		if a["GIT_CONFIG_COUNT"] != b["GIT_CONFIG_COUNT"] || a["GIT_AUTHOR_NAME"] != b["GIT_AUTHOR_NAME"] {
+			t.Errorf("re-entry changed the environment: %v vs %v", a["GIT_CONFIG_COUNT"], b["GIT_CONFIG_COUNT"])
+		}
+	})
 }
