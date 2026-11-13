@@ -55,6 +55,11 @@ func ancestors(path string) []string {
 
 const maxSymlinkHops = 40
 
+// symlinkHops follows the symlink chain that starts at path, one hop at a
+// time. The directory of a relative link is resolved through EvalSymlinks
+// before the join, so a symlinked directory on the way does not produce a hop
+// that does not exist. When that directory cannot be resolved, the textual
+// directory stays and the later directory check fails closed on it.
 func symlinkHops(path string) []string {
 	var hops []string
 	for current := path; len(hops) < maxSymlinkHops; {
@@ -63,7 +68,7 @@ func symlinkHops(path string) []string {
 			break
 		}
 		if !filepath.IsAbs(link) {
-			link = filepath.Join(filepath.Dir(current), link)
+			link = filepath.Join(resolvedDir(current), link)
 		}
 		current = filepath.Clean(link)
 		hops = append(hops, current)
@@ -71,23 +76,60 @@ func symlinkHops(path string) []string {
 	return hops
 }
 
-func chainOf(path string) []string {
-	chain := ancestors(path)
-	for _, hop := range symlinkHops(path) {
-		chain = append(chain, ancestors(hop)...)
+func resolvedDir(path string) string {
+	dir := filepath.Dir(path)
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		return resolved
 	}
-	if resolved, err := filepath.EvalSymlinks(path); err == nil && resolved != path {
+	return dir
+}
+
+// chainOf lists every directory whose owner or mode decides who can replace
+// the key file: the directories above the path, above every symlink hop, and
+// above the target of every symlinked directory on the way. The visited set
+// ends a symlink loop.
+func chainOf(path string) []string {
+	var chain []string
+	visited := map[string]bool{}
+	queue := []string{path}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if visited[current] {
+			continue
+		}
+		visited[current] = true
+		chain = append(chain, ancestors(current)...)
+		queue = append(queue, symlinkHopsOfPrefixes(current)...)
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
 		chain = append(chain, ancestors(resolved)...)
 	}
-	seen := make(map[string]bool, len(chain))
-	unique := chain[:0]
-	for _, dir := range chain {
-		if !seen[dir] {
-			seen[dir] = true
-			unique = append(unique, dir)
+	return unique(chain)
+}
+
+func symlinkHopsOfPrefixes(path string) []string {
+	var hops []string
+	for prefix := path; ; prefix = filepath.Dir(prefix) {
+		if info, err := os.Lstat(prefix); err == nil && info.Mode()&fs.ModeSymlink != 0 {
+			hops = append(hops, symlinkHops(prefix)...)
+		}
+		if prefix == filepath.Dir(prefix) {
+			return hops
 		}
 	}
-	return unique
+}
+
+func unique(paths []string) []string {
+	seen := make(map[string]bool, len(paths))
+	out := paths[:0]
+	for _, path := range paths {
+		if !seen[path] {
+			seen[path] = true
+			out = append(out, path)
+		}
+	}
+	return out
 }
 
 func inspectDirs(path, home string) ([]dirState, error) {

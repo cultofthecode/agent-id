@@ -1,0 +1,18 @@
+class AgentId < Formula
+  desc "Give an AI coding agent its own GitHub App identity"
+  homepage "https://github.com/cultofthecode/agent-id"
+  url "@URL@"
+  sha256 "@SHA256@"
+  license "Apache-2.0"
+
+  depends_on "go" => :build
+
+  def install
+    ldflags = "-s -w -X main.version=#{version}"
+    system "go", "build", *std_go_args(ldflags:, output: bin/"agent-id"), "./cmd/agent-id"
+  end
+
+  test do
+    assert_match "agent-id version #{version}", shell_output("#{bin}/agent-id --version")
+  end
+end

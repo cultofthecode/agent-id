@@ -30,8 +30,18 @@ func TestParseRequestReadsTheAttributes(t *testing.T) {
 	}
 }
 
+func TestParseRequestAccepts64Lines(t *testing.T) {
+	lines := strings.Repeat("x[]=1\n", maxRequestLines)
+	for name, input := range map[string]string{"blank": lines + "\n", "EOF": strings.TrimSuffix(lines, "\n")} {
+		if _, err := ParseRequest(strings.NewReader(input)); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
 func TestParseRequestRefusesHostileInput(t *testing.T) {
 	tooMany := strings.Repeat("x[]=1\n", maxRequestLines+1)
+	tooManyNoBlank := strings.TrimSuffix(tooMany, "\n")
 	tests := map[string]string{
 		"NUL byte":           "host=github.com\x00\n",
 		"NUL in the key":     "ho\x00st=github.com\n",
@@ -46,6 +56,8 @@ func TestParseRequestRefusesHostileInput(t *testing.T) {
 		"CR in the protocol": "protocol=https\r\nhost=github.com\n",
 		"CR in the middle":   "host=evil.example\rhost=github.com\n",
 		"too many lines":     tooMany,
+		"65 lines, no blank": tooManyNoBlank,
+		"65 lines, blank":    tooMany + "\n",
 		"too long":           "host=" + strings.Repeat("a", maxRequestBytes) + "\n",
 	}
 	for name, input := range tests {
@@ -179,7 +191,11 @@ func TestTransportEntries(t *testing.T) {
 		{"credential.https://github.com.helper", "!'/opt/agent id/agent-id' git-credential --profile claude"},
 		{"credential.https://github.com.useHttpPath", "true"},
 		{"url.https://github.com/.insteadOf", "ssh://git@github.com/"},
+		{"url.https://github.com/.insteadOf", "ssh://github.com/"},
+		{"url.https://github.com/.insteadOf", "git+ssh://git@github.com/"},
+		{"url.https://github.com/.insteadOf", "ssh+git://git@github.com/"},
 		{"url.https://github.com/.insteadOf", "git@github.com:"},
+		{"url.https://github.com/.insteadOf", "github.com:"},
 	}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("entries = %v\nwant     %v", got, want)
@@ -191,7 +207,7 @@ func TestTransportEntriesForAHostWithAPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 3 || got[2].Value != "ssh://git@127.0.0.1:18001/" {
+	if len(got) != 6 || got[2].Value != "ssh://git@127.0.0.1:18001/" {
 		t.Errorf("entries = %v", got)
 	}
 }
