@@ -16,8 +16,9 @@ const maxValue = 200
 var (
 	pemPattern      = regexp.MustCompile(`(?s)-----BEGIN.*?(?:-----END[^\n]*?-----|\z)`)
 	jwtPattern      = regexp.MustCompile(`eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`)
-	userinfoPattern = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*)://([^/\s@]*)@`)
-	labelPattern    = regexp.MustCompile(`(?i)(authorization\s*:|password\s*=|oauth_token\s*:)([^\r\n]*)`)
+	userinfoPattern = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*)://([^/\s?#]*)@`)
+	labelPattern    = regexp.MustCompile(`(?i)((?:authorization|password|oauth_token|access_token)["']?\s*[:=]|token(?:["']\s*:\s*["']|\s*=))([^\r\n]*)`)
+	bearerPattern   = regexp.MustCompile(`(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]{8,}`)
 )
 
 // Patterns is what Redact and Guard look for: the fixed shapes of a PEM
@@ -47,8 +48,9 @@ func NewPatterns(prefixes []string) Patterns {
 
 // Redact removes every secret shape from s, in this order: PEM blocks, JWTs,
 // registered token prefixes, URL user-info (the user of an ssh:// URL
-// without a password stays), the values of Authorization, password and
-// oauth_token labels; then control characters become "?" and the result is
+// without a password stays; the user-info runs to the last "@" of the
+// authority), the values of Authorization, password, oauth_token,
+// access_token labels, "token=" and quoted "token": "..." labels (prose such as "token: expired" stays), and bare Bearer tokens; then control characters become "?" and the result is
 // cut to 200 characters.
 func (p Patterns) Redact(s string) string {
 	s = pemPattern.ReplaceAllString(s, redacted)
@@ -58,6 +60,7 @@ func (p Patterns) Redact(s string) string {
 	}
 	s = userinfoPattern.ReplaceAllStringFunc(s, redactUserinfo)
 	s = labelPattern.ReplaceAllString(s, "${1} "+redacted)
+	s = bearerPattern.ReplaceAllString(s, "${1} "+redacted)
 	return cut(replaceControl(s))
 }
 
@@ -110,7 +113,7 @@ func (p Patterns) Guard(out []byte) error {
 		return ErrWithheld
 	case p.prefixRE != nil && p.prefixRE.MatchString(s):
 		return ErrWithheld
-	case guardUserinfo(s), guardLabels(s):
+	case guardUserinfo(s), guardLabels(s), bearerPattern.MatchString(s):
 		return ErrWithheld
 	}
 	return nil
@@ -127,14 +130,30 @@ func guardUserinfo(s string) bool {
 }
 
 // guardLabels reports whether s holds a credential label with a value other
-// than the redaction marker.
+// than the redaction marker. Text that a renderer put after the marker (a
+// closing quote, a comma, a source in parentheses) is not the value.
 func guardLabels(s string) bool {
 	for _, m := range labelPattern.FindAllStringSubmatch(s, -1) {
-		if v := strings.TrimSpace(m[2]); v != "" && v != redacted {
+		if !isRedactedValue(strings.TrimSpace(m[2])) {
 			return true
 		}
 	}
 	return false
+}
+
+// isRedactedValue reports whether v is the redaction marker, alone or
+// followed by a delimiter (Redact shows a line break as "?") or a
+// parenthesized note, or empty.
+func isRedactedValue(v string) bool {
+	if v == "" || v == redacted {
+		return true
+	}
+	rest, ok := strings.CutPrefix(v, redacted)
+	if !ok {
+		return false
+	}
+	rest = strings.TrimLeft(rest, " ")
+	return rest == "" || strings.ContainsRune("\"',;)]}(?", rune(rest[0]))
 }
 
 // AbbreviateHome replaces the home directory in text by "~", so that a pasted

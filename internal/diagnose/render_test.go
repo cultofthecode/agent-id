@@ -210,3 +210,24 @@ func TestNoReportFieldCanHoldASecret(t *testing.T) {
 		walk(reflect.TypeOf(v).Name(), reflect.TypeOf(v))
 	}
 }
+
+func TestRedactedLabelFollowedByTextIsNotWithheld(t *testing.T) {
+	r := sampleDoctor()
+	r.Results[0].Detail = "header Authorization: Bearer abc.def"
+	r.Results[0].Source = "git config"
+	for _, asJSON := range []bool{false, true} {
+		got, err := testOutput().Doctor(r, asJSON)
+		if err != nil || strings.Contains(string(got), "abc.def") || !strings.Contains(string(got), "Authorization: [redacted]") {
+			t.Errorf("json=%v: %q, %v; want the label kept, its value redacted, and no withholding", asJSON, got, err)
+		}
+	}
+}
+
+func TestDoctorTextShowsTheTitleAndTheDetail(t *testing.T) {
+	r := sampleDoctor()
+	r.Results[0].Detail = "the file is unreadable"
+	got, err := testOutput().Doctor(r, false)
+	if err != nil || !strings.Contains(string(got), "loaded: the file is unreadable") {
+		t.Errorf("%q, %v; want the title followed by the detail", got, err)
+	}
+}

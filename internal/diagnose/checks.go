@@ -317,7 +317,7 @@ func checkTokenLike(s Snapshot) []Result {
 	}
 	var results []Result
 	for _, name := range s.Env.TokenLike {
-		results = append(results, Result{ID: "env.tokenlike", Status: StatusWarn, Title: name + " holds a token-shaped value", Source: "environment", Fix: "agent-id exec does not remove it from the agent; unset it in the shell that starts the agent if the agent must not see it"})
+		results = append(results, Result{ID: "env.tokenlike", Status: StatusWarn, Title: name + " holds a token-shaped value", Source: "environment", Fix: "the agent inherits it unless agent-id exec drops it, and exec drops only the provider's credential variables (#20); unset it in the shell that starts the agent if the agent must not see it"})
 	}
 	return results
 }
