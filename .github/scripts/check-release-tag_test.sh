@@ -7,6 +7,7 @@
 set -eu
 
 script=$(cd "$(dirname "$0")" && pwd)/check-release-tag.sh
+mkdir -p "${TMPDIR:-/tmp}/agent-id"
 root=$(mktemp -d "${TMPDIR:-/tmp}/agent-id/release-tag-test.XXXXXX")
 trap 'rm -rf "$root"' EXIT
 
@@ -25,6 +26,8 @@ git tag -a v0.1.0-rc.1 -m rc
 git tag v0.0.2
 git tag -a 0.0.3 -m no-v
 git tag -a v01.0.0 -m leading-zero
+git tag -a v1.0.0-01 -m pre-leading-zero
+git tag -a v1.0.0-0.alpha-1 -m pre-ok
 git checkout -q -b side
 git commit -q --allow-empty -m side
 git tag -a v0.0.4 -m off-main
@@ -50,6 +53,8 @@ expect pass v0.1.0-rc.1
 expect fail v0.0.2
 expect fail 0.0.3
 expect fail v01.0.0
+expect fail v1.0.0-01
+expect pass v1.0.0-0.alpha-1
 expect fail v0.0.4
 expect fail v9.9.9
 expect fail 'v0.0.1;true'

@@ -71,4 +71,4 @@ jobs:
           test "$(ls dist/*.tar.gz | wc -l)" -eq 4
           cat dist/checksums.txt
           tar tzf dist/agent-id_*_linux_amd64.tar.gz
-          dist/agent-id_linux_amd64_v1/agent-id --version
+          dist/agent-id_linux_amd64_v1/agent-id --version | grep -Eq '^agent-id version [0-9]+\.[0-9]+\.[0-9]+-snapshot \(commit [0-9a-f]+\)$'

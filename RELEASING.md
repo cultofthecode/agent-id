@@ -27,7 +27,9 @@ The workflow refuses to publish, before anything is built, unless `.github/scrip
 - the tag is annotated (`git tag -a`; a signed tag `git tag -s` is annotated too);
 - the tagged commit is on `main`.
 
-It then runs `go vet` and `go test`, builds the binary for the runner and checks that `--version` reports the tag, and only then runs GoReleaser. The only credential is the default `GITHUB_TOKEN` (`contents: write`, plus `id-token: write` and `attestations: write` for the attestation). Never move, delete, or force-push a published tag; fix a broken release with the next patch version.
+It then runs `go vet` and `go test`, builds the binary for the runner and checks that `--version` reports the tag, and only then runs GoReleaser, pinned to the pushed tag (`GORELEASER_CURRENT_TAG`). GoReleaser creates a draft release; the workflow publishes it only after the provenance attestation succeeds. If the attestation fails, the draft stays unpublished: re-run the job, or delete the draft.
+
+A tag push runs `release.yml` as it is **at the tagged commit**, so these checks hold only for tags of commits whose workflow is unmodified. Anyone who can push a `v*` tag can therefore publish; restrict tag creation for `v*` to Maintainers with a tag ruleset (owner decision, see PR #47). The workflow fetches the tag without credentials, so it assumes the repository is public. GoReleaser is downloaded by `goreleaser-action` at the pinned version. The only credential is the default `GITHUB_TOKEN` (`contents: write`, plus `id-token: write` and `attestations: write` for the attestation). Never move, delete, or force-push a published tag; fix a broken release with the next patch version.
 
 ## Cutting a release (Maintainer)
 

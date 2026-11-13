@@ -55,7 +55,7 @@ release:
     owner: cultofthecode
     name: agent-id
   prerelease: auto
-  draft: false
+  draft: true
   footer: |
     The archives are not signed or notarized. Verify an archive with
     `sha256sum -c checksums.txt --ignore-missing` and its build provenance with
