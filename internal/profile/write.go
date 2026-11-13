@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -15,8 +16,11 @@ import (
 // atomically with a mode 0600 file in a mode 0700 directory. A crash leaves
 // either the old or the new file. Profiles that change leaves alone, those
 // of unregistered providers included, keep their members and values. When
-// the path is a symlink, the file it points to is replaced. Write never
-// writes a configuration that Load would refuse.
+// the path is a symlink, the file it points to is replaced, and the lock sits
+// next to that file, so every store that reaches the same file takes the same
+// lock. Write never writes a configuration that Load would refuse. When the
+// new file is in place but its directory cannot be synced, the error says
+// that the change was applied.
 func (s *Store) Write(change func(*Config) error) error {
 	if !filepath.IsAbs(s.path) {
 		return Errorf(ErrConfigNotFound, "the configuration path %s is not absolute", Quote(s.path))
@@ -28,16 +32,24 @@ func (s *Store) Write(change func(*Config) error) error {
 	if err := s.checkDir(dir); err != nil {
 		return err
 	}
-	unlock, err := lock(filepath.Join(dir, filepath.Base(s.path)+".lock"))
+	target, err := s.target()
+	if err != nil {
+		return err
+	}
+	if err := s.checkDir(filepath.Dir(target)); err != nil {
+		return err
+	}
+	unlock, err := lock(target + ".lock")
 	if err != nil {
 		return s.wrap(Errorf(ErrConfigInvalid, "cannot lock: %v", err))
 	}
 	defer unlock()
-	return s.writeLocked(change)
+	return s.writeLocked(target, change)
 }
 
-// writeLocked is Write while the lock is held.
-func (s *Store) writeLocked(change func(*Config) error) error {
+// writeLocked is Write while the lock next to locked is held. It refuses to
+// write when the path no longer leads to locked.
+func (s *Store) writeLocked(locked string, change func(*Config) error) error {
 	config, err := s.Load()
 	if errors.Is(err, errMissing) {
 		config, err = Config{Version: Version, Profiles: map[string]Profile{}}, nil
@@ -59,13 +71,26 @@ func (s *Store) writeLocked(change func(*Config) error) error {
 	if err != nil {
 		return err
 	}
+	if target != locked {
+		return s.wrap(Errorf(ErrConfigInvalid, "the symlink changed during the write; nothing was written, try again"))
+	}
 	if err := os.Chmod(filepath.Dir(s.path), 0o700); err != nil {
 		return s.wrap(Errorf(ErrConfigInvalid, "cannot restrict the directory: %v", err))
 	}
-	if err := replaceFile(target, data); err != nil {
-		return s.wrap(Errorf(ErrConfigInvalid, "cannot write: %v", err))
+	return s.wrapErr(writeError(replaceFile(target, data)))
+}
+
+// writeError is the error that Write reports for err from replaceFile: a
+// failed directory sync says that the change was applied, any other failure
+// that nothing was written.
+func writeError(err error) error {
+	if err == nil {
+		return nil
 	}
-	return nil
+	if errors.Is(err, errNotDurable) {
+		return Errorf(ErrConfigInvalid, "the change was written, but it may not survive a crash: %v", err)
+	}
+	return Errorf(ErrConfigInvalid, "cannot write: %v", err)
 }
 
 // target returns the file that a write replaces: the configuration path, or
@@ -131,8 +156,24 @@ func jsonInt(n int) string {
 	return string(b)
 }
 
+// errNotDurable marks a replaceFile whose rename succeeded but whose
+// directory sync failed: the new file is in place, but a crash may undo it.
+var errNotDurable = errors.New("cannot sync the directory")
+
+// syncDir flushes the directory entry of a rename to disk. It is a variable
+// so that a test can make it fail.
+var syncDir = func(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = d.Close() }()
+	return d.Sync()
+}
+
 // replaceFile writes data to a new mode 0600 file next to path, syncs it,
 // and renames it over path. The temporary file never outlives a failure.
+// When only the final directory sync fails, the error wraps errNotDurable.
 func replaceFile(path string, data []byte) (err error) {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
@@ -160,17 +201,10 @@ func replaceFile(path string, data []byte) (err error) {
 	if err = os.Rename(tmp.Name(), path); err != nil {
 		return err
 	}
-	return syncDir(dir)
-}
-
-// syncDir flushes the directory entry of a rename to disk.
-func syncDir(dir string) error {
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
+	if syncErr := syncDir(dir); syncErr != nil {
+		return fmt.Errorf("%w: %w", errNotDurable, syncErr)
 	}
-	defer func() { _ = d.Close() }()
-	return d.Sync()
+	return nil
 }
 
 // lock takes an exclusive flock on the file at path, creating it with mode

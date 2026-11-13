@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cultofthecode/agent-id/internal/testenv"
 )
@@ -252,7 +254,113 @@ func TestWriteReplacesTheTargetOfASymlink(t *testing.T) {
 		t.Errorf("Resolve in the target: %v", err)
 	}
 	checkMode(t, target, 0o600)
+	checkEntries(t, filepath.Dir(target), "config.json", "config.json.lock")
+	checkEntries(t, filepath.Dir(path), FileName)
+}
+
+func TestWriteThroughASymlinkTakesTheLockOfTheTarget(t *testing.T) {
+	env := testenv.Isolate(t)
+	path := writeFile(t, env, exampleConfig, 0o600)
+	target := filepath.Join(env.Home, "dotfiles", "config.json")
+	moveAndLink(t, path, target)
+	unlock, err := lock(target + ".lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- NewStore(path, acmeRegistry(t)).Write(addAcme("writer", 7)) }()
+	select {
+	case err := <-done:
+		unlock()
+		t.Fatalf("Write through the symlink returned (%v) while the target's lock was held", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	unlock()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Write did not finish after the lock was released")
+	}
+	if _, err := NewStore(target, acmeRegistry(t)).Resolve("writer"); err != nil {
+		t.Errorf("Resolve in the target: %v", err)
+	}
+}
+
+func TestWriteRefusesASymlinkThatChangesUnderTheLock(t *testing.T) {
+	env := testenv.Isolate(t)
+	path := writeFile(t, env, exampleConfig, 0o600)
+	first := filepath.Join(env.Home, "dotfiles", "config.json")
+	moveAndLink(t, path, first)
+	second := filepath.Join(env.Home, "other", "config.json")
+	if err := os.MkdirAll(filepath.Dir(second), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte(exampleConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repoint := func(c *Config) error {
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+		if err := os.Symlink(second, path); err != nil {
+			return err
+		}
+		return addAcme("writer", 7)(c)
+	}
+	err := NewStore(path, acmeRegistry(t)).Write(repoint)
+	checkError(t, err, ErrConfigInvalid, "the symlink changed during the write", "nothing was written")
+	for _, file := range []string{first, second} {
+		if data, err := os.ReadFile(file); err != nil || string(data) != exampleConfig {
+			t.Errorf("%s changed: %q, %v", file, data, err)
+		}
+	}
+	checkEntries(t, filepath.Dir(second), "config.json")
+}
+
+func TestWriteRefusesAnInsecureTargetDirectory(t *testing.T) {
+	env := testenv.Isolate(t)
+	path := writeFile(t, env, exampleConfig, 0o600)
+	target := filepath.Join(env.Home, "dotfiles", "config.json")
+	moveAndLink(t, path, target)
+	chmod(t, filepath.Dir(target), 0o770)
+	err := NewStore(path, acmeRegistry(t)).Write(addAcme("writer", 7))
+	checkError(t, err, ErrInsecurePermissions, "chmod 700")
 	checkEntries(t, filepath.Dir(target), "config.json")
+	if data, err := os.ReadFile(target); err != nil || string(data) != exampleConfig {
+		t.Errorf("the target changed: %q, %v", data, err)
+	}
+}
+
+func TestWriteReportsAFailedDirectorySyncAsApplied(t *testing.T) {
+	env := testenv.Isolate(t)
+	path := writeFile(t, env, exampleConfig, 0o600)
+	original := syncDir
+	t.Cleanup(func() { syncDir = original })
+	syncDir = func(string) error { return errors.New("injected sync failure") }
+	err := NewStore(path, acmeRegistry(t)).Write(addAcme("writer", 7))
+	checkError(t, err, ErrConfigInvalid, "the change was written, but it may not survive a crash", "injected sync failure")
+	if strings.Contains(err.Error(), "cannot write:") {
+		t.Errorf("error %q says the write failed", err)
+	}
+	if _, err := NewStore(path, acmeRegistry(t)).Resolve("writer"); err != nil {
+		t.Errorf("Resolve after a write with a failed directory sync: %v", err)
+	}
+	checkEntries(t, filepath.Dir(path), FileName, FileName+".lock")
+}
+
+func TestWriteErrorOfAFailedRename(t *testing.T) {
+	testenv.Isolate(t)
+	err := writeError(errors.New("rename failed"))
+	checkError(t, err, ErrConfigInvalid, "cannot write: rename failed")
+	if strings.Contains(err.Error(), "the change was written") {
+		t.Errorf("error %q says the change was applied", err)
+	}
+	if writeError(nil) != nil {
+		t.Error("writeError(nil) != nil")
+	}
 }
 
 // checkMode fails the test unless path has permission bits mode.

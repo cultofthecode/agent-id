@@ -171,7 +171,7 @@ The scan runs in core over every string value and every member name in the docum
 
 - a token prefix of a registered provider. Each adapter registers its prefixes together with its validator (ADR #35, "Authentication and tokens"). The GitHub adapter registers `ghs_`, `ghp_`, `gho_`, `ghu_`, `ghr_`, `github_pat_`, and the composition root always registers it, so the production scan always includes them;
 - a PEM block marker: `-----BEGIN`;
-- a JWT shape: three base64url segments separated by dots, the first starting with `eyJ`;
+- a JWT shape: three base64url segments separated by dots, the first starting with `eyJ` at a token boundary (the start of the string, a character that is not a letter or digit, or a percent-escape such as `%20`), with at least 15 characters in the first segment and 2 in the second; the third may be empty (an unsecured JWT). A word that merely contains `eyJ`, such as `MoneyJar.prod.pem`, is not a JWT (#63);
 - a newline or a NUL byte (no v1 field holds multi-line text).
 
 The scan itself is a core concern because the rule protects the file, not one provider. The token prefixes come from the adapters, because they are installation-token details and dependency rule 7 keeps those in the adapter. A new adapter brings its own prefixes (for example GitLab's `glpat-`); core keeps only the generic patterns. A false positive on an identifier is acceptable, because no v1 field legitimately holds these patterns. The error names the field path and never the value, and the loader never logs the raw document.
@@ -192,7 +192,7 @@ A profile without `identity` is valid in the file. The proposed consumer rule fo
 - The directory is created with mode `0700` and the file with `0600`. The file holds no secret, but it decides which key file signs tokens and which identity commits carry, so it is treated like credentials configuration.
 - Load refuses a file (after following symlinks) or directory that another user can write, or that the current user does not own: `ErrInsecurePermissions` → `config <path>: writable by group or others (mode 0664); run chmod 600 <path>`. A readable-by-others file is accepted.
 - A missing file: `ErrConfigNotFound` → `no agent-id configuration at <path>; run agent-id setup github --profile <name>`.
-- Writes take an exclusive `flock` on `config.json.lock` in the same directory (standard library `syscall.Flock`, macOS and Linux), read the current file, apply the change, write a temporary file in the same directory with mode `0600`, `fsync` it, and `rename` it over `config.json`. A crash leaves either the old or the new file, never a partial one.
+- Writes take an exclusive `flock` on `config.json.lock` in the same directory (when `config.json` is a symlink, next to its target, so that every path to one file takes one lock; #63) (standard library `syscall.Flock`, macOS and Linux), read the current file, apply the change, write a temporary file in the same directory with mode `0600`, `fsync` it, and `rename` it over `config.json`. A crash leaves either the old or the new file, never a partial one.
 - A write keeps the profiles of unregistered providers exactly as read (same members and values), so an older agent-id never drops a profile that a newer one created.
 - agent-id never writes the file during a read, a migration, `exec`, or `env`.
 
