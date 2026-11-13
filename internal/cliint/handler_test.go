@@ -202,6 +202,49 @@ func TestHandleRefusals(t *testing.T) {
 	}
 }
 
+func TestHandleChecksTheNeutralDirectoriesAgainBeforeTheExec(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		dirs func(call int) (string, string, error)
+	}{
+		{"second check fails", func(call int) (string, string, error) {
+			if call == 2 {
+				return "", "", errors.New("contains config.yml")
+			}
+			return "", "", nil
+		}},
+		{"second check names another directory", func(call int) (string, string, error) {
+			if call == 2 {
+				return "other", "", nil
+			}
+			return "", "", nil
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			calls := 0
+			f.handler.NeutralDirs = func([]string, provider.Activator) (string, string, error) {
+				calls++
+				c, _, err := tt.dirs(calls)
+				if err != nil {
+					return "", "", err
+				}
+				if c == "" {
+					c = f.configD
+				}
+				return c, f.binDir, nil
+			}
+			r := mustRefusal(t, f.run(nil, f.parent()))
+			if r.Code != "AID-FAKECLI-CONTEXT" || calls != 2 {
+				t.Errorf("code = %q after %d checks, want AID-FAKECLI-CONTEXT after 2", r.Code, calls)
+			}
+			if len(f.execer.calls) != 0 {
+				t.Error("the CLI started")
+			}
+		})
+	}
+}
+
 func TestHandleRulesRunBeforeTheKeyIsLoaded(t *testing.T) {
 	f := newFixture(t)
 	f.act.CLIRule = func(_, _ []string) error { return &provider.CLIRefusal{Code: "AID-FAKECLI-USER", Message: "no"} }

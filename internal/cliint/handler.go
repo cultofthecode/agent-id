@@ -73,8 +73,26 @@ func (h *Handler) Handle(ctx context.Context, in Input) error {
 	if err != nil {
 		return err
 	}
+	if err := h.recheckDirs(in, a, configDir, binDir); err != nil {
+		return err
+	}
 	if err := h.Execer.Exec(path, append([]string{in.Binary}, in.Args...), env); err != nil {
 		return refuse(in.Binary, kindNoCLI, "cannot start %s (%s)", in.Binary, Scrub(err.Error(), a.TokenPrefixes()))
+	}
+	return nil
+}
+
+// recheckDirs runs the neutral directory checks again just before the exec,
+// so that a file that a background process of the agent wrote while the token
+// was minted stops the call. The directories must also be the same ones.
+func (h *Handler) recheckDirs(in Input, a provider.Activator, configDir, binDir string) error {
+	again, bin, err := h.NeutralDirs(in.Parent, a)
+	if err != nil || again != configDir || bin != binDir {
+		reason := "the directories changed"
+		if err != nil {
+			reason = Scrub(err.Error(), a.TokenPrefixes())
+		}
+		return refuse(in.Binary, kindContext, "cannot prepare the agent-id directories (%s); %s was not started", reason, in.Binary)
 	}
 	return nil
 }
