@@ -126,8 +126,8 @@ func isPositiveInteger(literal string) bool {
 // checkProfile checks the profile name and value of one member of profiles
 // and returns the profile.
 func checkProfile(name string, value *node, registry *Registry) (Profile, error) {
-	if !validName(name) {
-		return Profile{}, Errorf(ErrConfigInvalid, `profiles: invalid profile name %s: use 1–32 lowercase letters, digits or "-", starting with a letter`, Quote(name))
+	if !validProfileName(name) {
+		return Profile{}, Errorf(ErrConfigInvalid, `profiles: invalid profile name %s: use 1–32 lowercase letters, digits or "-", starting with a letter and not ending with "-"`, Quote(name))
 	}
 	path := memberProfiles + "." + name
 	if value.kind != kindObject {
@@ -208,8 +208,15 @@ func providerError(path string, err error) error {
 	return &configError{sentinel: sentinel, message: path + "." + err.Error(), cause: err}
 }
 
-// validName reports whether s is a valid profile or provider name: a
-// lowercase letter, then up to 31 lowercase letters, digits, or "-".
+// validProfileName reports whether s is a valid profile name: a valid name
+// that does not end with "-" (#44).
+func validProfileName(s string) bool {
+	return validName(s) && !strings.HasSuffix(s, "-")
+}
+
+// validName reports whether s is a valid provider name, and the base rule of
+// a profile name: a lowercase letter, then up to 31 lowercase letters,
+// digits, or "-".
 func validName(s string) bool {
 	if s == "" || len(s) > maxNameLength || s[0] < 'a' || s[0] > 'z' {
 		return false

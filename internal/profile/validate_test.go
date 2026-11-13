@@ -33,6 +33,19 @@ func TestParseExample(t *testing.T) {
 	}
 }
 
+func TestParseProfileNames(t *testing.T) {
+	testenv.Isolate(t)
+	for _, name := range []string{"a", "a--b", "claude-2", "x" + strings.Repeat("9", 31)} {
+		if _, err := Parse([]byte(profileDoc(acmeProfile(name))), acmeRegistry(t)); err != nil {
+			t.Errorf("profile name %q: %v", name, err)
+		}
+	}
+	doc := profileDoc(`"claude": {"provider": "acme-", "host": "git.acme.test", "acme-": {}}`)
+	if _, err := Parse([]byte(doc), acmeRegistry(t)); err != nil {
+		t.Errorf("provider name ending with -: %v, want the provider rule unchanged", err)
+	}
+}
+
 func TestParseEmptyProfiles(t *testing.T) {
 	testenv.Isolate(t)
 	config, err := Parse([]byte(profileDoc("")), acmeRegistry(t))
@@ -85,6 +98,8 @@ func TestParseRejects(t *testing.T) {
 		{"underscore profile name", profileDoc(acmeProfile("my_bot")), ErrConfigInvalid, `invalid profile name "my_bot"`},
 		{"empty profile name", profileDoc(acmeProfile("")), ErrConfigInvalid, `invalid profile name ""`},
 		{"digit first profile name", profileDoc(acmeProfile("1bot")), ErrConfigInvalid, `invalid profile name "1bot"`},
+		{"profile name ending with -", profileDoc(acmeProfile("claude-")), ErrConfigInvalid, `invalid profile name "claude-": use 1–32 lowercase letters, digits or "-", starting with a letter and not ending with "-"`},
+		{"profile name starting with -", profileDoc(acmeProfile("-a")), ErrConfigInvalid, `invalid profile name "-a"`},
 		{"profile name of 33 characters", profileDoc(acmeProfile("a" + strings.Repeat("b", 32))), ErrConfigInvalid, "invalid profile name"},
 		{"profile name with escape", profileDoc(acmeProfile(`a\u001b[31m`)), ErrConfigInvalid, `invalid profile name "a?[31m"`},
 		{"profile not an object", profileDoc(`"claude": "acme"`), ErrConfigInvalid, "profiles.claude must be an object"},
