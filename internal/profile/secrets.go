@@ -53,6 +53,14 @@ func scanNode(n *node, path string, prefixes []string) error {
 	return nil
 }
 
+// LooksSecret reports whether s contains token or key material: one of
+// prefixes, a PEM marker, a JWT shape, a line break, or a NUL byte. It is the
+// rule of the inline-secret scan, for callers that must refuse a secret
+// before it reaches the configuration, such as a setup flag.
+func LooksSecret(s string, prefixes []string) bool {
+	return looksSecret(s, prefixes)
+}
+
 // looksSecret reports whether s contains token or key material.
 func looksSecret(s string, prefixes []string) bool {
 	if strings.ContainsAny(s, "\n\r\x00") || strings.Contains(s, pemMarker) || jwtShape.MatchString(s) {
