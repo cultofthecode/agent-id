@@ -24,8 +24,12 @@ func ParseConfigList(out []byte) []ConfigEntry {
 }
 
 // source describes where an entry came from, for a message: the scope and
-// the file, never the value.
+// the file, never the value. Git names the origin of a command-line entry
+// "command line:", so the scope would only repeat it.
 func (e ConfigEntry) source() string {
+	if e.Scope == "command" && strings.HasPrefix(e.Origin, "command line") {
+		return clean(e.Origin, 120)
+	}
 	return clean(e.Scope, 16) + " " + clean(e.Origin, 120)
 }
 
