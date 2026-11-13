@@ -30,7 +30,6 @@ type Repository struct {
 // repositoriesAnswer is the part of GET /installation/repositories that the
 // adapter reads.
 type repositoriesAnswer struct {
-	TotalCount   int `json:"total_count"`
 	Repositories []struct {
 		Name  string `json:"name"`
 		Owner struct {
@@ -40,8 +39,8 @@ type repositoriesAnswer struct {
 }
 
 // Repositories lists the repositories that token, an installation token, can
-// access. It reads the pages of the fixed base URL in order and never
-// follows a Link header to another URL.
+// access. It reads the pages of the fixed base URL in order until a page is
+// not full, and never follows a Link header to another URL.
 func (p *Provider) Repositories(ctx context.Context, token provider.Token) ([]Repository, error) {
 	const op = "list the installation repositories"
 	if !validToken(token.Value) {
@@ -60,7 +59,7 @@ func (p *Provider) Repositories(ctx context.Context, token provider.Token) ([]Re
 			}
 			repositories = append(repositories, Repository{Owner: r.Owner.Login, Name: r.Name})
 		}
-		if len(answer.Repositories) < repositoriesPerPage || len(repositories) >= answer.TotalCount {
+		if len(answer.Repositories) < repositoriesPerPage {
 			return repositories, nil
 		}
 	}

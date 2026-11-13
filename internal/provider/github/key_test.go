@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -54,6 +55,7 @@ func TestParsePrivateKey(t *testing.T) {
 		{"two PEM blocks", append(append([]byte{}, pkcs1...), pkcs1...), false},
 		{"trailing bytes", append(append([]byte{}, pkcs1...), "trailing"...), false},
 		{"leading bytes", append([]byte("leading\n"), pkcs1...), false},
+		{"unterminated leading block", append([]byte("-----BEGIN X-----\n"), pkcs1...), false},
 		{"encrypted PEM", encrypted, false},
 		{"EC key", encodePKCS8(t, ecKey), false},
 		{"Ed25519 key", encodePKCS8(t, edKey), false},
@@ -161,6 +163,17 @@ func TestFormattingRedactsTheKey(t *testing.T) {
 				t.Errorf("formatting %T with %s gives %q, want the App ID", value, verb, text)
 			}
 		}
+	}
+}
+
+func TestJSONOmitsTheKey(t *testing.T) {
+	app := newFakeApp(t)
+	data, err := json.Marshal(Config{AppID: githubtest.AppID, InstallationID: installationID, PrivateKeyPEM: app.PrivateKeyPEM})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "PrivateKeyPEM") || strings.Contains(string(data), "LS0t") {
+		t.Errorf("json.Marshal(Config) = %s, want no key", data)
 	}
 }
 

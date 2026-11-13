@@ -42,10 +42,13 @@ type Provider interface {
 	// Identity returns the commit author and committer of the agent.
 	Identity(ctx context.Context) (Identity, error)
 	// GitCredential returns the answer of a Git credential helper for Host
-	// over HTTPS with token.
+	// over HTTPS with token. It does not check token: the caller passes a
+	// token that Token returned, and a token read back from a cache is
+	// checked again by its reader.
 	GitCredential(token Token) GitCredential
 	// CLIEnvironment returns the variables, as NAME=value, that give the
-	// host's CLI (gh, later glab) token. The result holds a secret.
+	// host's CLI (gh, later glab) token, with the same precondition as
+	// GitCredential. The result holds a secret.
 	CLIEnvironment(token Token) []string
 }
 

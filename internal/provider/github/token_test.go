@@ -149,6 +149,27 @@ func TestTokenStopsWhenTheContextEnds(t *testing.T) {
 	}
 }
 
+func TestTokenStopsWhenTheContextEndsDuringTheBody(t *testing.T) {
+	fake, p := newHostileAPI(t)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	fake.Handle("POST /app/installations/{id}/access_tokens", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"token":`))
+		w.(http.Flusher).Flush()
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if _, err := p.Token(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("Token() past the deadline during the body: %v, want context.DeadlineExceeded", err)
+	}
+}
+
 func TestTokenWithoutAnAnswer(t *testing.T) {
 	app := newFakeApp(t)
 	listener := testenv.Listen(t)

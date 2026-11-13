@@ -22,8 +22,7 @@ func parsePrivateKey(data []byte) (*rsa.PrivateKey, error) {
 	if block == nil {
 		return nil, fmt.Errorf("%w: not a PEM private key", ErrInvalidKey)
 	}
-	leading := data[:bytes.Index(data, []byte("-----BEGIN"))]
-	if len(bytes.TrimSpace(leading)) != 0 || len(bytes.TrimSpace(rest)) != 0 {
+	if !bytes.HasPrefix(bytes.TrimSpace(data), []byte("-----BEGIN "+block.Type+"-----")) || len(bytes.TrimSpace(rest)) != 0 {
 		return nil, fmt.Errorf("%w: unexpected data around the PEM block", ErrInvalidKey)
 	}
 	if len(block.Headers) != 0 {

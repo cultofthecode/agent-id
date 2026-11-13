@@ -99,3 +99,15 @@ func repositoryPage(total, first, count int) map[string]any {
 	}
 	return map[string]any{"total_count": total, "repositories": repositories}
 }
+
+func TestRepositoriesIgnoreAWrongTotalCount(t *testing.T) {
+	fake, p := newHostileAPI(t)
+	fake.Handle("GET /installation/repositories", func(w http.ResponseWriter, r *http.Request) {
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		answer(http.StatusOK, repositoryPage(0, (page-1)*100, min(100, 130-(page-1)*100)))(w, r)
+	})
+	got, err := p.Repositories(context.Background(), provider.Token{Value: testenv.FakeToken("count")})
+	if err != nil || len(got) != 130 {
+		t.Errorf("Repositories() with total_count 0 = %d repositories, %v; want all 130", len(got), err)
+	}
+}

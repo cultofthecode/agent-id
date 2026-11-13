@@ -49,7 +49,7 @@ func (p *Provider) call(ctx context.Context, op, method, path, authorization str
 		return fmt.Errorf("github: %s: HTTP %d: %w", op, response.StatusCode, classify(response.StatusCode, response.Header))
 	}
 	if err := decodeBody(response.Body, out); err != nil {
-		return fmt.Errorf("github: %s: %w: %w", op, provider.ErrUnavailable, err)
+		return answerError(ctx, op, err)
 	}
 	return nil
 }
@@ -67,6 +67,15 @@ func transportError(ctx context.Context, op string, err error) error {
 		reason = "timed out"
 	}
 	return fmt.Errorf("github: %s: %w: %s", op, provider.ErrUnavailable, reason)
+}
+
+// answerError reports an answer that could not be read: the context's error
+// when ctx ended during the read, provider.ErrUnavailable otherwise.
+func answerError(ctx context.Context, op string, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("github: %s: %w", op, ctxErr)
+	}
+	return fmt.Errorf("github: %s: %w: %w", op, provider.ErrUnavailable, err)
 }
 
 // decodeBody decodes at most maxResponseBytes of body as JSON into out.

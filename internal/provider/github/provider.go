@@ -43,8 +43,8 @@ type Config struct {
 	InstallationID int64
 	// PrivateKeyPEM is the App's private key, PKCS#1 or PKCS#8 RSA of at
 	// least 2048 bits, as loaded by the credential source. New keeps only
-	// the parsed key. Formatting a Config never prints it.
-	PrivateKeyPEM []byte
+	// the parsed key. Neither fmt nor encoding/json prints it.
+	PrivateKeyPEM []byte `json:"-"`
 }
 
 // Format implements fmt.Formatter: it prints the IDs and redacts the key.
