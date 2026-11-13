@@ -3,7 +3,7 @@
 // Every test that runs aidentity code, git, or gh calls Isolate first. Isolate
 // points HOME, the XDG directories, the global Git configuration, the gh
 // configuration directory, and TMPDIR into a fresh directory under
-// $TMPDIR/agent-id/, and removes every inherited credential and identity
+// $TMPDIR/agent-id/, limits git to local and HTTPS transports, and removes every inherited credential and identity
 // variable, so that a test can never read or write ~/.gitconfig, the keychain,
 // the ghapp or gh configuration, or a real token. Isolate also routes every
 // HTTP request that leaves 127.0.0.1 to a guard that fails the test.
@@ -42,6 +42,12 @@ var inheritedVariables = []string{
 	"GHAPP_APP_ID", "GHAPP_INSTALLATION_ID", "GHAPP_PRIVATE_KEY_PATH",
 	"CLAUDE_ENV_FILE",
 }
+
+// allowedGitProtocols are the only transports git may use in an isolated
+// test: local paths and HTTPS through the proxy guard. ssh reads the real
+// ~/.ssh and the SSH agent no matter what HOME says, and git:// bypasses the
+// proxy, so neither may run.
+const allowedGitProtocols = "file:https"
 
 // inheritedPrefixes are variable name prefixes removed from the environment
 // of an isolated test.
@@ -148,6 +154,7 @@ func setVariables(t testing.TB, env Env) {
 		"XDG_DATA_HOME":         env.DataHome,
 		"GIT_CONFIG_GLOBAL":     env.GitConfig,
 		"GIT_CONFIG_NOSYSTEM":   "1",
+		"GIT_ALLOW_PROTOCOL":    allowedGitProtocols,
 		"GIT_TERMINAL_PROMPT":   "0",
 		"GCM_INTERACTIVE":       "never",
 		"GH_CONFIG_DIR":         env.GHConfigDir,

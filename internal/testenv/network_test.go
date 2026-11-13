@@ -105,6 +105,21 @@ func TestIsolateBlocksGitFromReachingTheNetwork(t *testing.T) {
 	}
 }
 
+func TestIsolateAllowsOnlyLocalAndHTTPSGitTransports(t *testing.T) {
+	git := lookPath(t, "git")
+	Isolate(t)
+	for _, remote := range []string{
+		"ssh://git@github.com/cultofthecode/agent-id.git",
+		"git@github.com:cultofthecode/agent-id.git",
+		"git://github.com/cultofthecode/agent-id.git",
+	} {
+		out, err := exec.Command(git, "ls-remote", remote).CombinedOutput()
+		if err == nil || !strings.Contains(string(out), "not allowed") {
+			t.Errorf("git ls-remote %s: error %v, output %q; want the transport refused", remote, err, out)
+		}
+	}
+}
+
 func TestIsolateBlocksGHFromReachingTheNetwork(t *testing.T) {
 	lookPath(t, "gh")
 	rec := NewRecorder(t)
