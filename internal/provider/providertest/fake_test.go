@@ -1,6 +1,7 @@
 package providertest
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/cultofthecode/agent-id/internal/provider"
@@ -22,4 +23,14 @@ func TestFakeRecordsItsTokens(t *testing.T) {
 	if tokens := fake.Tokens(); len(tokens) != 1 || tokens[0] != token {
 		t.Errorf("Tokens() does not hold the one issued token")
 	}
+}
+
+func TestFakeActivatorMeetsTheContract(t *testing.T) {
+	RunActivatorContract(t,
+		func(*testing.T) provider.Activator { return NewFakeActivator() },
+		func(*testing.T) provider.Activator {
+			a := NewFakeActivator()
+			a.ReadyError = errors.New("bot identity is not resolved; run agent-id setup fake --profile x")
+			return a
+		})
 }
