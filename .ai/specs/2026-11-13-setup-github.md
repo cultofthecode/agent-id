@@ -56,7 +56,7 @@ type SetupResult struct {
 type SetupDetail struct{ Label, Value string }
 ```
 
-The GitHub adapter implements it as `github.Onboarder`, built by `cmd/agent-id` with one injected function: `LoadKey func(profile.KeyRef) ([]byte, error)`. The composition root wires it to `internal/credential` (`KeyRef.Path(home)`, then `credential.File{Path}.PrivateKeyPEM()`). The adapter therefore does not import `internal/credential`, and the credential source still does not know the provider. Everything that names GitHub stays in the adapter: the flag names, the `github.com` host, the help text, the error messages that tell the user where to find an App ID, the block encoding (the `ProfileSettings` of #58), and the repository listing (an adapter-only method, A6 of the adapter spec).
+The GitHub adapter implements it as `github.Onboarder`, built by `cmd/agent-id` with one injected function: `LoadKey func(profile.KeyRef) ([]byte, error)`. The composition root wires it to `internal/credential` (`KeyRef.Path(home)`, then `credential.File{Path}.PrivateKeyPEM()`). The adapter therefore does not import `internal/credential`, and the credential source still does not know the provider. Everything that names GitHub stays in the adapter: the flag names, the `github.com` host, the help text, the error messages that tell the user where to find an App ID, the block encoding (the `ProfileSettings` of #58), and the repository listing (an adapter-only method, A6 of the adapter spec; if the doctor spec (#24, `.ai/specs/2026-11-13-whoami-doctor-output.md`, A6) lifts `Repositories` onto `provider.Provider` first, the onboarder calls the same method unchanged).
 
 ### Alternatives considered
 
