@@ -14,9 +14,9 @@ import (
 // profile's App key in a state that cannot yield a token, plants decoy
 // personal credentials that record every use, and runs git push and
 // gh pr create in an exec session. Every scenario must end in a refusal with
-// zero decoy uses. Until #22 and #23 inject App tokens, exec never reads the
-// key, so the refusal comes from the neutral baseline; the table keeps the
-// property when those stories replace the baseline's entries.
+// zero decoy uses. #22 adds the Git half: Git asks agent-id's own helper, the
+// mint fails, and Git gets no credential. Until #23 injects the gh token, the
+// refusal for gh comes from the neutral baseline.
 
 type decoys struct {
 	helperLog, askLog, ghLog, hosts string
@@ -111,12 +111,13 @@ func TestFailClosedSuiteInExec(t *testing.T) {
 			}
 			d := plantDecoys(t, f)
 			assertRefusals(t, f, d)
+			assertHelperRefuses(t, f, d)
 		})
 	}
 	t.Run("SSH remote", func(t *testing.T) {
 		f := newExecFixture(t)
 		d := plantDecoys(t, f)
-		gitIn(t, d.repo, "remote", "set-url", "origin", "git@github.com:o/r.git")
+		gitIn(t, d.repo, "remote", "set-url", "origin", "ssh://git@github.com:22/o/r.git")
 		r := f.run("exec", "--profile", "claude", "--", "git", "push", "origin", "HEAD:refs/heads/x")
 		if r.code != 125 || !strings.Contains(r.stderr, "over SSH") {
 			t.Errorf("code %d stderr %q, want 125 and the SSH refusal", r.code, r.stderr)
@@ -182,4 +183,27 @@ func execCommand(f *execFixture, name string, args ...string) *exec.Cmd {
 	cmd.Dir = f.workdir
 	cmd.Env = append(os.Environ(), f.extra...)
 	return cmd
+}
+
+// assertHelperRefuses is the Git half of the mint-failure scenarios of #25:
+// Git asks agent-id's own helper for github.com, the token cannot be minted,
+// and Git gets no credential and agent-id's message. The decoy helper and
+// askpass stay unused. A request for another host never reaches the helper.
+func assertHelperRefuses(t *testing.T, f *execFixture, d decoys) {
+	t.Helper()
+	f.stdin = "protocol=https\nhost=github.com\npath=o/r.git\n\n"
+	fill := f.run("exec", "--profile", "claude", "--", "git", "credential", "fill")
+	if fill.code == 0 || strings.Contains(fill.stdout, "password=") || strings.Contains(fill.stdout, "username=") {
+		t.Errorf("git credential fill for the profile host: code %d stdout %q", fill.code, fill.stdout)
+	}
+	if !strings.Contains(fill.stderr, `agent-id: git-credential: cannot get a token for profile "claude"`) {
+		t.Errorf("git did not show agent-id's message: %q", fill.stderr)
+	}
+	f.stdin = "protocol=https\nhost=example.com\npath=o/r.git\n\n"
+	other := f.run("exec", "--profile", "claude", "--", "git", "credential", "fill")
+	if other.code == 0 || strings.Contains(other.stdout, "password=") || strings.Contains(other.stderr, "agent-id: git-credential") {
+		t.Errorf("git credential fill for another host: code %d stdout %q stderr %q", other.code, other.stdout, other.stderr)
+	}
+	f.stdin = ""
+	d.assertUnused(t)
 }

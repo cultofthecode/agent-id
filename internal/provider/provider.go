@@ -85,7 +85,9 @@ type IdentityCheck struct {
 	Match bool
 	// Refresh, when Match is false, rewrites the provider block of the
 	// profile so that its cached identity is the reported bot. It leaves
-	// every other member alone, and is nil when Match is true.
+	// every other member alone, and is nil when Match is true. It returns an
+	// error, and writes nothing, when the block now names another App or
+	// installation than the one that was checked.
 	Refresh func(settings json.RawMessage) (json.RawMessage, error)
 }
 

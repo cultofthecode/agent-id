@@ -53,8 +53,29 @@ func ancestors(path string) []string {
 	}
 }
 
+const maxSymlinkHops = 40
+
+func symlinkHops(path string) []string {
+	var hops []string
+	for current := path; len(hops) < maxSymlinkHops; {
+		link, err := os.Readlink(current)
+		if err != nil {
+			break
+		}
+		if !filepath.IsAbs(link) {
+			link = filepath.Join(filepath.Dir(current), link)
+		}
+		current = filepath.Clean(link)
+		hops = append(hops, current)
+	}
+	return hops
+}
+
 func chainOf(path string) []string {
 	chain := ancestors(path)
+	for _, hop := range symlinkHops(path) {
+		chain = append(chain, ancestors(hop)...)
+	}
 	if resolved, err := filepath.EvalSymlinks(path); err == nil && resolved != path {
 		chain = append(chain, ancestors(resolved)...)
 	}
@@ -91,12 +112,23 @@ func displayPath(path, home string) string {
 	if path == "" || !filepath.IsAbs(home) {
 		return path
 	}
-	home = filepath.Clean(home)
-	if path == home {
-		return "~"
+	if shown, ok := underHome(path, filepath.Clean(home)); ok {
+		return shown
 	}
-	if rest, ok := strings.CutPrefix(path, home+string(filepath.Separator)); ok {
-		return "~/" + rest
+	if resolved, err := filepath.EvalSymlinks(home); err == nil {
+		if shown, ok := underHome(path, resolved); ok {
+			return shown
+		}
 	}
 	return path
+}
+
+func underHome(path, home string) (string, bool) {
+	if path == home {
+		return "~", true
+	}
+	if rest, ok := strings.CutPrefix(path, home+string(filepath.Separator)); ok {
+		return "~/" + rest, true
+	}
+	return "", false
 }

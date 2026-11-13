@@ -1,15 +1,16 @@
 package activation
 
 import (
-	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 )
 
 // specificity ranks how closely an http.<url>.* pattern matches a URL, in the
 // order of Git's urlmatch: the length of the host pattern first, so a
 // pattern with a wildcard label ranks below the exact host. The path length
-// comes next and the user length last.
+// comes next. A pattern with a user part (even an empty one) ranks above one
+// without; Git compares only whether the user matched.
 type specificity struct{ host, user, path int }
 
 func (a specificity) less(b specificity) bool {
@@ -31,10 +32,14 @@ func (a specificity) less(b specificity) bool {
 // specific pattern after a more specific one is still counted (Git ignores
 // it), which can only refuse too much.
 func EffectiveHeaders(entries []ConfigEntry, rawURL string) []string {
-	target, err := url.Parse(rawURL)
-	if err != nil {
+	target, ok := parseGitURL(rawURL, false)
+	if !ok {
 		return nil
 	}
+	return effectiveHeaders(entries, target)
+}
+
+func effectiveHeaders(entries []ConfigEntry, target gitURL) []string {
 	var headers []string
 	var best specificity
 	seen := false
@@ -62,8 +67,9 @@ func EffectiveHeaders(entries []ConfigEntry, rawURL string) []string {
 }
 
 // headerScope reports whether key is an http extraheader key that applies to
-// target. The specificity is nil for the generic http.extraheader.
-func headerScope(key string, target *url.URL) (*specificity, bool) {
+// target. The specificity is nil for the generic http.extraheader. A pattern
+// that does not parse never applies; UnparsableHeaderScope reports it separately.
+func headerScope(key string, target gitURL) (*specificity, bool) {
 	section, sub, variable, ok := splitKey(key)
 	if !ok || !strings.EqualFold(section, "http") || !strings.EqualFold(variable, "extraheader") {
 		return nil, false
@@ -71,36 +77,44 @@ func headerScope(key string, target *url.URL) (*specificity, bool) {
 	if sub == "" {
 		return nil, true
 	}
-	pattern, err := url.Parse(sub)
-	if err != nil || pattern.Host == "" || !strings.EqualFold(pattern.Scheme, target.Scheme) {
+	pattern, ok := parseGitURL(sub, true)
+	if !ok || pattern.scheme != target.scheme {
 		return nil, false
 	}
-	if !hostPatternMatches(pattern.Hostname(), target.Hostname()) || port(pattern) != port(target) {
+	if !hostPatternMatches(pattern.host, target.host) || pattern.port != target.port {
 		return nil, false
 	}
 	user := 0
-	if pattern.User != nil {
-		if target.User == nil || pattern.User.String() != target.User.String() {
+	if pattern.hasUser {
+		if !target.hasUser || pattern.user != target.user {
 			return nil, false
 		}
-		user = len(pattern.User.String())
+		user = 1
 	}
-	pp := strings.TrimSuffix(pattern.Path, "/")
-	tp := target.Path
+	pp := strings.TrimSuffix(pattern.path, "/")
+	tp := target.path
 	if pp != "" && tp != pp && !strings.HasPrefix(tp, pp+"/") {
 		return nil, false
 	}
-	return &specificity{host: len(pattern.Hostname()), user: user, path: len(pp)}, true
+	return &specificity{host: len(pattern.host), user: user, path: len(pp)}, true
 }
 
-func port(u *url.URL) string {
-	if p := u.Port(); p != "" {
-		return p
+// UnparsableHeaderScope returns the first http.<url>.extraheader entry that
+// has a header and a URL pattern that agent-id cannot normalize as Git does.
+// Git may still apply such a pattern, so the caller must refuse it. An entry
+// with an empty value only resets headers; skipping it never weakens the
+// check, because a reset counts only when its pattern parses.
+func UnparsableHeaderScope(entries []ConfigEntry) (ConfigEntry, bool) {
+	for _, e := range entries {
+		section, sub, variable, ok := splitKey(e.Key)
+		if !ok || sub == "" || e.Value == "" || !strings.EqualFold(section, "http") || !strings.EqualFold(variable, "extraheader") {
+			continue
+		}
+		if _, ok := parseGitURL(sub, true); !ok {
+			return e, true
+		}
 	}
-	if strings.EqualFold(u.Scheme, "http") {
-		return "80"
-	}
-	return "443"
+	return ConfigEntry{}, false
 }
 
 // headerName returns the name of an extra header for a message, never its
@@ -127,39 +141,64 @@ type HostHeader struct{ Host, Name string }
 // for that host, such as *.com, reports nothing. agent-id's reset covers the
 // host only, and Git ignores a less specific reset for a more specific
 // entry, so a header of a path- or user-scoped entry survives.
+//
+// Each entry is evaluated at its own URL and at a URL below its path. A reset
+// with a longer path, such as /org// against /org/, matches the entry's own
+// URL but not the URLs below it, and Git still sends the header there. The
+// deep URL ends in a segment longer than any pattern, so only a pattern whose
+// path is the entry's path or one of its ancestors can match it.
 func ScopedHeaders(entries []ConfigEntry, hosts []string) []HostHeader {
 	var out []HostHeader
 	seen := map[string]bool{}
+	depth := deepSegmentLen(entries)
 	for _, e := range entries {
 		section, sub, variable, ok := splitKey(e.Key)
 		if !ok || sub == "" || !strings.EqualFold(section, "http") || !strings.EqualFold(variable, "extraheader") || seen[sub] {
 			continue
 		}
-		pattern, err := url.Parse(sub)
-		if err != nil || pattern.Host == "" {
+		pattern, ok := parseGitURL(sub, true)
+		if !ok {
 			continue
 		}
 		seen[sub] = true
 		for _, h := range hosts {
-			if !hostPatternMatches(pattern.Hostname(), h) {
+			if !hostPatternMatches(pattern.host, h) {
 				continue
 			}
-			for _, name := range EffectiveHeaders(entries, atHost(pattern, h)) {
-				out = append(out, HostHeader{Host: h, Name: name})
+			at := pattern.atHost(h)
+			for _, target := range []gitURL{at, at.below(depth)} {
+				for _, name := range effectiveHeaders(entries, target) {
+					if hh := (HostHeader{Host: h, Name: name}); !slices.Contains(out, hh) {
+						out = append(out, hh)
+					}
+				}
 			}
 		}
 	}
 	return out
 }
 
-// atHost returns the URL of pattern with its host replaced by host.
-func atHost(pattern *url.URL, host string) string {
-	at := *pattern
-	at.Host = host
-	if p := pattern.Port(); p != "" {
-		at.Host = host + ":" + p
+// HostRootHeaders returns the names of the extra headers that Git sends to
+// https://host/ and to a URL below the root. A reset whose path is "//"
+// matches the root but not the URLs below it, so a generic header must be
+// evaluated at both, as ScopedHeaders does for a scoped one.
+func HostRootHeaders(entries []ConfigEntry, host string) []string {
+	root, ok := parseGitURL("https://"+host+"/", false)
+	if !ok {
+		return nil
 	}
-	return at.String()
+	names := effectiveHeaders(entries, root)
+	return append(names, effectiveHeaders(entries, root.below(deepSegmentLen(entries)))...)
+}
+
+// deepSegmentLen returns a length that exceeds the normalized path of every
+// pattern in entries: an escaped byte takes three bytes.
+func deepSegmentLen(entries []ConfigEntry) int {
+	longest := 0
+	for _, e := range entries {
+		longest = max(longest, len(e.Key))
+	}
+	return 3*longest + 1
 }
 
 // hostPatternMatches reports whether pattern, a host pattern of

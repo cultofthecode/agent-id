@@ -73,6 +73,10 @@ type Plan struct {
 	GitConfig []GitConfigEntry
 	// PathPrepend lists directories put first on PATH.
 	PathPrepend []string
+	// Unshadow lists command names whose functions and aliases a shell must
+	// drop (the env rendering). It affects only rendering: exec starts a
+	// program, not a shell.
+	Unshadow []string
 	// TokenPrefixes are the provider's token prefixes, for the secret guard.
 	TokenPrefixes []string
 }

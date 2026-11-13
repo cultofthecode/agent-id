@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -44,16 +45,22 @@ func (p *Provider) VerifyIdentity(ctx context.Context) (provider.IdentityCheck, 
 	}
 	resolved := BotIdentity{Login: bot.Login, UserID: bot.UserID, ResolvedAt: p.now().UTC().Truncate(time.Second)}
 	check.Refresh = func(settings json.RawMessage) (json.RawMessage, error) {
-		return refreshIdentity(settings, resolved)
+		return refreshIdentity(settings, resolved, p.appID, p.installationID)
 	}
 	return check, nil
 }
 
-// refreshIdentity returns settings with identity as the cached bot.
-func refreshIdentity(settings json.RawMessage, identity BotIdentity) (json.RawMessage, error) {
+// refreshIdentity returns settings with identity as the cached bot. The bot
+// was resolved for appID and installationID; when settings now name another
+// App or installation, the profile changed since the check and the identity
+// would belong to the wrong App, so it refuses.
+func refreshIdentity(settings json.RawMessage, identity BotIdentity, appID, installationID int64) (json.RawMessage, error) {
 	decoded, err := DecodeProfileSettings(host, settings)
 	if err != nil {
 		return nil, fmt.Errorf("github: refresh the cached identity: %w", err)
+	}
+	if decoded.AppID != appID || decoded.InstallationID != installationID {
+		return nil, errors.New("github: the profile's App or installation changed since the identity was checked; run the command again")
 	}
 	decoded.Identity = &identity
 	return json.Marshal(decoded)
