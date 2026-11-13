@@ -34,7 +34,7 @@ It then runs `go vet` and `go test`, builds the binary for the runner and checks
 A tag push runs `release.yml` as it is **at the tagged commit**, so the checks in the workflow cannot, by themselves, stop a tag of a commit whose workflow was modified. The trust model therefore rests on repository settings, which the owner manages and this repository does not change:
 
 - **Who may tag.** Only a repository admin can create, update, or delete a `v*` tag (tag ruleset 27182241; the only bypass is the admin role). A Maintainer who is not an admin asks an admin to push the tag.
-- **Approval.** The publishing job runs in the environment `release`. A deployment to it needs approval from the owner (required reviewer `jakubtobiasz`; self-review is prevented; the environment setting that lets admins bypass protection rules is a residual gap for the owner to keep or close), and the environment accepts deployments from `v*` tags only. The approver checks that the tag is the intended one and that the tagged commit is on `main` before approving.
+- **Approval.** The publishing job runs in the environment `release`. A deployment to it needs approval from the owner (required reviewer `jakubtobiasz`; the owner, who is the only admin and tags the release, also approves the deployment himself, since self-review is allowed by the owner's decision of 2026-11-13), and the environment accepts deployments from `v*` tags only. The approver checks that the tag is the intended one and that the tagged commit is on `main` before approving. The normal path is that approval; the environment setting that lets admins bypass protection rules is a residual gap for the owner to keep or close, and bypassing approval is not the normal path.
 - **Immutable releases.** Releases are immutable: once published, a release's assets and tag cannot be changed.
 - **Secrets.** Any future release secret (for example the Homebrew tap token of #46) is stored only as a secret of the environment `release`, never as a repository or organization secret, so that only an approved release job can read it. Today the only credential is the default `GITHUB_TOKEN` (`contents: write`, plus `id-token: write` and `attestations: write` for the attestation).
 
@@ -44,7 +44,7 @@ The workflow fetches the tag without credentials, so it assumes the repository i
 
 1. Make sure `main` is green, and run the end-to-end tests of `SDLC.md` (Validation gate) on the commit to tag.
 2. An admin tags it: `git tag -s vX.Y.Z -m vX.Y.Z <commit>` (or `-a`), then `git push origin vX.Y.Z`.
-3. The `release` workflow waits for approval of the deployment to the environment `release`. The owner reviews the tag and its commit and approves.
+3. The `release` workflow waits for approval of the deployment to the environment `release`. The same owner, who pushed the tag as the admin, approves it after checking that the tag is the intended one and that its commit is on `main`. Approval is the normal path; an admin bypass is not.
 4. Watch the workflow; check the release page and verify one archive as below.
 
 ## Verifying a release (user)
