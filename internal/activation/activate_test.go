@@ -388,7 +388,7 @@ func TestNeutralDirsOnDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 	stub, err := os.ReadFile(filepath.Join(paths.BinDir, cli.Binary))
-	if err != nil || string(stub) != StubScript(cli.Binary) {
+	if err != nil || string(stub) != LauncherScript(cli.Binary) {
 		t.Errorf("stub %q %v", stub, err)
 	}
 	info, _ := os.Stat(filepath.Join(env.CacheHome, "agent-id"))
