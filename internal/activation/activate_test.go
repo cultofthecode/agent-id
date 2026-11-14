@@ -50,6 +50,20 @@ func (n fakeNeutral) Ensure([]string, string, provider.NeutralCLI) (NeutralPaths
 	return NeutralPaths{ConfigDir: filepath.Join(n.dir, "cfg"), BinDir: filepath.Join(n.dir, "bin")}, nil
 }
 
+func (n fakeNeutral) EnsureSession([]string, NeutralPaths, provider.NeutralCLI) (string, error) {
+	return filepath.Join(n.dir, "sessions", "1.fake", "claude-env.sh"), nil
+}
+
+func TestActivateExecRefusesNeutralDirsWithoutSessions(t *testing.T) {
+	d, _, _ := newDeps(t)
+	f := d.Neutral.(fakeNeutral)
+	d.Neutral = struct{ NeutralDirs }{f}
+	_, err := Activate(context.Background(), d, Request{Profile: "claude", Mechanism: MechanismExec, Binary: "/bin/agent-id", Parent: []string{"PATH=/bin"}})
+	if !errors.Is(err, ErrNeutralDir) {
+		t.Errorf("err = %v, want ErrNeutralDir", err)
+	}
+}
+
 func newDeps(t *testing.T) (Deps, *providertest.FakeActivator, *[]string) {
 	t.Helper()
 	calls := &[]string{}

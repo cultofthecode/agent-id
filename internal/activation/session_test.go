@@ -221,6 +221,28 @@ func TestSessionRefusesPlantedLinksAndFiles(t *testing.T) {
 			t.Error("the target changed")
 		}
 	})
+	t.Run("fifo and existing file at the session file", func(t *testing.T) {
+		dir := filepath.Join(f.env.TempDir, "sess2")
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		fifo := filepath.Join(dir, "fifo")
+		if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		existing := filepath.Join(dir, "existing")
+		if err := os.WriteFile(existing, []byte("keep"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range []string{fifo, existing} {
+			if err := createFile(p, "x"); err == nil {
+				t.Errorf("createFile accepted %s", p)
+			}
+		}
+		if read(t, existing) != "keep" {
+			t.Error("an existing file changed")
+		}
+	})
 	t.Run("symlink as the sessions directory", func(t *testing.T) {
 		dir := filepath.Join(f.env.TempDir, "elsewhere")
 		if err := os.Mkdir(dir, 0o700); err != nil {

@@ -33,6 +33,8 @@ type NeutralPaths struct {
 	ClaudeEnvFile string
 }
 
+var _ SessionNeutral = FileNeutralDirs{}
+
 // SessionNeutral is the part of NeutralDirs that makes the per-exec files.
 type SessionNeutral interface {
 	EnsureSession(parent []string, paths NeutralPaths, cli provider.NeutralCLI) (string, error)

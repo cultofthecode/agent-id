@@ -1,6 +1,9 @@
 package main
 
 import (
+	"time"
+
+	"github.com/cultofthecode/agent-id/internal/integration/claude"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -257,32 +260,50 @@ func TestSessionStartHookWithTwoProfilesInTwoExecSessions(t *testing.T) {
 	needShell(t, "bash")
 	f := newHookFixture(t)
 	f.workdir = f.repo
-	hook := func(profile, source string) (string, execRun) {
-		f.stdin = hookJSON(f, source)
-		r := f.run("exec", "--profile", profile, "--", "sh", "-c",
-			`printf 'PATH=%s\n' "$CLAUDE_ENV_FILE" >&2; "$0" claude-code session-start --profile "$1"`, f.binary, profile)
-		path := ""
-		for _, line := range strings.Split(r.stderr, "\n") {
-			if p, ok := strings.CutPrefix(line, "PATH="); ok {
-				path = p
-			}
+	sync := t.TempDir()
+	const hookCmd = `printf '%s' "$2" | "$0" claude-code session-start --profile "$1"`
+	const show = `printf 'FILE=%s\n' "$CLAUDE_ENV_FILE"; cat "$CLAUDE_ENV_FILE"`
+	scriptA := hookCmd + ` || exit 11; touch "$3/readyA"; i=0; while [ ! -e "$3/doneB" ] && [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; ` +
+		`printf '%s' "$4" | "$0" claude-code session-start --profile "$1" || exit 12; ` + show
+	scriptB := hookCmd + ` || exit 21; ` + show
+	resA := make(chan execRun, 1)
+	go func() {
+		resA <- f.run("exec", "--profile", "claude", "--", "sh", "-c", scriptA, f.binary, "claude", hookJSON(f, "startup"), sync, hookJSON(f, "resume"))
+	}()
+	waitForFile(t, filepath.Join(sync, "readyA"))
+	b := f.run("exec", "--profile", "other", "--", "sh", "-c", scriptB, f.binary, "other", hookJSON(f, "startup"))
+	if err := os.WriteFile(filepath.Join(sync, "doneB"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := <-resA
+	if a.code != 0 || b.code != 0 {
+		t.Fatalf("A %+v, B %+v", a, b)
+	}
+	pathA, dataA, _ := strings.Cut(strings.TrimPrefix(a.stdout, "FILE="), "\n")
+	pathB, dataB, _ := strings.Cut(strings.TrimPrefix(b.stdout, "FILE="), "\n")
+	if pathA == "" || pathA == pathB {
+		t.Fatalf("paths %q %q", pathA, pathB)
+	}
+	for name, data := range map[string]string{"A": dataA, "B": dataB} {
+		if strings.Count(data, claude.BlockStart) != 1 {
+			t.Errorf("session %s file has no single hook block:\n%s", name, data)
 		}
-		return path, r
+		if strings.Contains(data, "agent-id: session-start refused") || strings.Contains(data, "refus") {
+			t.Errorf("a refusal reached session %s:\n%s", name, data)
+		}
 	}
-	pa, ra := hook("claude", "startup")
-	pb, rb := hook("other", "startup")
-	if ra.code != 0 || rb.code != 0 || pa == "" || pa == pb {
-		t.Fatalf("A %q %+v, B %q %+v", pa, ra, pb, rb)
+	if strings.Contains(dataA, "profile=other") || strings.Contains(dataB, "profile=claude") {
+		t.Errorf("a profile crossed sessions:\nA:\n%s\nB:\n%s", dataA, dataB)
 	}
-	if _, r := hook("claude", "resume"); r.code != 0 {
-		t.Fatalf("resume in session A: %+v", r)
+}
+
+func waitForFile(t *testing.T, path string) {
+	t.Helper()
+	for range 600 {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	dataA, _ := os.ReadFile(pa)
-	dataB, _ := os.ReadFile(pb)
-	if strings.Contains(string(dataA), "exit 125") || strings.Contains(string(dataB), "exit 125") {
-		t.Errorf("a refusal line reached a session:\nA:\n%s\nB:\n%s", dataA, dataB)
-	}
-	if strings.Contains(string(dataA), "other[bot]") || strings.Contains(string(dataB), "claude-dev[bot]") {
-		t.Errorf("a profile crossed sessions")
-	}
+	t.Fatalf("%s did not appear", path)
 }

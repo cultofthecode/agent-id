@@ -126,12 +126,15 @@ func Activate(ctx context.Context, d Deps, r Request) (Activation, error) {
 }
 
 // ensureSession creates the CLAUDE_ENV_FILE of this exec. Only the exec
-// mechanism needs one, and only a NeutralDirs that implements SessionNeutral
-// can make it.
+// mechanism needs one. A NeutralDirs that cannot make it is an error for exec:
+// without the file the developer's own CLAUDE_ENV_FILE would stay in place.
 func ensureSession(n NeutralDirs, r Request, a provider.Activator, paths NeutralPaths) (string, error) {
-	s, ok := n.(SessionNeutral)
-	if !ok || r.Mechanism != MechanismExec {
+	if r.Mechanism != MechanismExec {
 		return "", nil
+	}
+	s, ok := n.(SessionNeutral)
+	if !ok {
+		return "", failf(ErrNeutralDir, "the neutral directories cannot make a CLAUDE_ENV_FILE for this exec")
 	}
 	return s.EnsureSession(r.Parent, paths, a.NeutralCLI())
 }

@@ -76,7 +76,7 @@ The system SHALL set `ZDOTDIR`, `BASH_ENV`, and `CLAUDE_ENV_FILE` to private age
 - THEN `exec` removes it, and keeps a live one, an unknown name, and a symlink, and never follows a symlink
 
 ### Scenario: Planted symlink (#135)
-- WHEN a symlink, a FIFO, or an existing file is at the session file path, or a symlink is the `sessions` directory
+- WHEN the `sessions` directory is a symlink (or `createFile` meets a symlink, a FIFO, or an existing file; the session path is random, so unit tests plant these directly)
 - THEN `exec` refuses with 125 and writes nothing through it
 
 ## Requirement: Unresolved identity
