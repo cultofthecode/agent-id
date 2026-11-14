@@ -38,6 +38,10 @@ jobs:
           version: v2.15.0
       - name: go test
         run: go test ./...
+        env:
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: eyJhbGciOiJSUzI1NiJ9.eyJmYWtlIjoiY2kifQ.ZmFrZXNpZ25hdHVyZWZvcnRlc3Rz
+          ACTIONS_ID_TOKEN_REQUEST_URL: https://token.actions.invalid/fake
+          ACTIONS_RUNTIME_TOKEN: eyJhbGciOiJSUzI1NiJ9.eyJmYWtlIjoicnVudGltZSJ9.ZmFrZXNpZ25hdHVyZWZvcnRlc3Rz
       - name: go build
         run: go build ./...
       - name: release tag check tests

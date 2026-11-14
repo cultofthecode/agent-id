@@ -503,3 +503,40 @@ func TestActivateGitIdentity(t *testing.T) {
 		}
 	})
 }
+
+func TestActivateDropsCICredentialVariables(t *testing.T) {
+	testenv.Isolate(t)
+	d, _, _ := newDeps(t)
+	names := []string{
+		"ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_RUNTIME_TOKEN",
+		"ACTIONS_RESULTS_URL", "ACTIONS_CACHE_URL", "CI_JOB_TOKEN", "CI_JOB_JWT", "CI_JOB_JWT_V1", "CI_JOB_JWT_V2",
+		"BUILDKITE_AGENT_ACCESS_TOKEN", "SYSTEM_ACCESSTOKEN", "CIRCLE_OIDC_TOKEN", "CIRCLE_OIDC_TOKEN_V2",
+	}
+	parent := []string{"KEEP_ME=1"}
+	for _, n := range names {
+		parent = append(parent, n+"=eyJhbGciOiJSUzI1NiJ9.eyJmYWtlIjoxfQ.ZmFrZXNpZw")
+	}
+	act, err := Activate(context.Background(), d, request(parent...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := parseEnv(act.Env)
+	for _, n := range names {
+		if _, ok := env[n]; ok {
+			t.Errorf("%s survived", n)
+		}
+		if !slices.Contains(act.Drop, n) {
+			t.Errorf("%s is not in the drop list", n)
+		}
+	}
+	if env["KEEP_ME"] != "1" {
+		t.Errorf("an unrelated variable was removed: %v", act.Env)
+	}
+	nested, err := Activate(context.Background(), d, request(slices.Concat(act.Env, []string{"ACTIONS_RUNTIME_TOKEN=eyJhbGciOiJSUzI1NiJ9.eyJmYWtlIjoyfQ.ZmFrZXNpZw"})...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := parseEnv(nested.Env)["ACTIONS_RUNTIME_TOKEN"]; ok {
+		t.Error("ACTIONS_RUNTIME_TOKEN survived a nested activation")
+	}
+}

@@ -7,7 +7,9 @@ name: release
 # the environment "release": the owner must approve the deployment, and only
 # v* tags may deploy to it. The release job holds only the default
 # GITHUB_TOKEN. The explicit fetch below has no credentials, so it relies on
-# the repository being public.
+# the repository being public. The job "verify" runs go vet and go test first,
+# with contents: read only, so the tests never see the OIDC and runtime tokens
+# that the release job gets from id-token: write.
 #
 # The job "tap" (issue #46) runs after the release is published, for a stable
 # tag only. It is the only job that reads the secret TAP_GITHUB_TOKEN, a
@@ -26,8 +28,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: install zsh
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq zsh
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./...
+
   release:
     name: release
+    needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: release
@@ -51,10 +75,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - name: go vet
-        run: go vet ./...
-      - name: go test
-        run: go test ./...
       - name: build for this runner
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:

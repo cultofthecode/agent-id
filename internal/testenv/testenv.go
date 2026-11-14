@@ -51,8 +51,9 @@ var inheritedVariables = []string{
 const allowedGitProtocols = "file:https"
 
 // inheritedPrefixes are variable name prefixes removed from the environment
-// of an isolated test.
-var inheritedPrefixes = []string{"AGENT_ID_", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "GHAPP_"}
+// of an isolated test. ACTIONS_ covers the runner tokens of GitHub Actions
+// (ACTIONS_ID_TOKEN_REQUEST_TOKEN, ACTIONS_RUNTIME_TOKEN, ...).
+var inheritedPrefixes = []string{"AGENT_ID_", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "GHAPP_", "ACTIONS_"}
 
 // Env describes the isolated environment of one test.
 type Env struct {

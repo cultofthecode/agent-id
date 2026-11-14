@@ -61,7 +61,7 @@ func TestHandlePrintsTheBlockWithoutSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"# agent-id env 1 profile=claude", "unset FAKE_CLI_TOKEN", "export AGENT_ID_MECHANISM='env'", "export AGENT_ID_ACTIVE_PROFILE='claude'"} {
+	for _, want := range []string{"# agent-id env 1 profile=claude", "unset ACTIONS_CACHE_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN", " CI_JOB_TOKEN FAKE_CLI_TOKEN ", "export AGENT_ID_MECHANISM='env'", "export AGENT_ID_ACTIVE_PROFILE='claude'"} {
 		if !strings.Contains(block, want) {
 			t.Errorf("missing %q in\n%s", want, block)
 		}
