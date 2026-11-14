@@ -257,3 +257,31 @@ func TestCommandFlagsAndArguments(t *testing.T) {
 		t.Errorf("whoami --json: %v, %q", err, stdout.String())
 	}
 }
+
+func TestShellWarnings(t *testing.T) {
+	scan := func() diagnose.ShellState {
+		return diagnose.ShellState{Scanned: true, Found: []diagnose.ShellName{{Name: "gh", Kind: "function", File: "/home/dev/.zshrc"}}}
+	}
+	r := newRig(t, execContext)
+	r.h.Shell = scan
+	out, code := r.run(t, false)
+	if code != 0 || !strings.Contains(out, "Warning:       a start file defines a shell function named gh (/home/dev/.zshrc)\n") {
+		t.Errorf("text %q exit %d, want the warning and exit 0", out, code)
+	}
+	js, _ := r.run(t, true)
+	if !strings.Contains(js, `"warnings":["a start file defines a shell function named gh`) {
+		t.Errorf("json %q", js)
+	}
+	clean := newRig(t, execContext)
+	clean.h.Shell = func() diagnose.ShellState { return diagnose.ShellState{Scanned: true} }
+	if out, _ := clean.run(t, true); strings.Contains(out, "warnings") {
+		t.Errorf("a clean scan adds a member: %q", out)
+	}
+	outside := newRig(t, Context{})
+	called := false
+	outside.h.Shell = func() diagnose.ShellState { called = true; return diagnose.ShellState{} }
+	outside.run(t, false)
+	if called {
+		t.Error("outside an agent context whoami scanned the start files")
+	}
+}

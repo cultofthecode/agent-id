@@ -19,7 +19,10 @@ type Handler struct {
 	OpenProvider func(profile.Profile) (provider.Provider, error)
 	Tokens       TokenSource
 	Output       diagnose.Output
-	Now          func() time.Time
+	// Shell scans the start files of the shells; nil skips the scan. It runs
+	// only inside an agent context.
+	Shell diagnose.ShellScan
+	Now   func() time.Time
 }
 
 // Handle returns the bytes to print and the exit status. A non-nil error is
@@ -45,7 +48,17 @@ func (h *Handler) report(ctx context.Context) diagnose.WhoamiReport {
 		r.Token = notChecked("damaged context")
 		return r
 	}
-	return h.agentReport(ctx, r)
+	r = h.agentReport(ctx, r)
+	return h.withShellWarnings(r)
+}
+
+// withShellWarnings adds a warning for each gh or git function or alias that a
+// start file of the developer defines (#135).
+func (h *Handler) withShellWarnings(r diagnose.WhoamiReport) diagnose.WhoamiReport {
+	if h.Shell != nil {
+		r.Warnings = diagnose.ShellWarnings(h.Shell())
+	}
+	return r
 }
 
 // notChecked is the token status of a report that could not look.

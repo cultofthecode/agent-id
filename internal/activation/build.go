@@ -203,6 +203,9 @@ func checkPlan(plan Plan) error {
 // validSetName reports whether name may be set by a plan: a variable name
 // that is not owned by agent-id and not one that Build writes itself.
 func validSetName(name string) bool {
+	if name == VarUserZDotDir || name == VarUserBashEnv || name == VarUserClaudeEnvFile {
+		return true
+	}
 	return varName.MatchString(name) && !strings.HasPrefix(name, Prefix) &&
 		name != "PATH" && !strings.HasPrefix(name, "GIT_CONFIG_")
 }

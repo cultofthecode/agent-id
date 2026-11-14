@@ -64,6 +64,9 @@ func (o Output) Whoami(r WhoamiReport, asJSON bool) ([]byte, error) {
 			return nil, err
 		}
 	}
+	if err := o.guardStrings(clean.Warnings...); err != nil {
+		return nil, err
+	}
 	if !asJSON {
 		return o.finish([]byte(whoamiText(clean)))
 	}
@@ -91,6 +94,14 @@ func (o Output) cleanWhoami(r WhoamiReport) WhoamiReport {
 		details[i] = Detail{Label: o.sanitize(d.Label), Value: o.sanitize(d.Value)}
 	}
 	r.Details = details
+	warnings := make([]string, len(r.Warnings))
+	for i, w := range r.Warnings {
+		warnings[i] = o.sanitize(w)
+	}
+	r.Warnings = warnings
+	if len(warnings) == 0 {
+		r.Warnings = nil
+	}
 	return r
 }
 
@@ -118,6 +129,9 @@ func whoamiText(r WhoamiReport) string {
 	b.WriteString(whoamiLine("Token status", r.tokenLine()))
 	if r.Activation != "" {
 		b.WriteString(whoamiLine("Activation", r.Activation))
+	}
+	for _, w := range r.Warnings {
+		b.WriteString(whoamiLine("Warning", w))
 	}
 	return b.String()
 }
@@ -156,6 +170,7 @@ type whoamiAgentJSON struct {
 	Details        []jsonDetail `json:"details"`
 	Token          jsonToken    `json:"token"`
 	Activation     *string      `json:"activation"`
+	Warnings       []string     `json:"warnings,omitempty"`
 }
 
 // orNil returns nil for an empty string.
@@ -194,6 +209,7 @@ func whoamiJSON(r WhoamiReport) ([]byte, error) {
 		Details:        details,
 		Token:          token,
 		Activation:     orNil(r.Activation),
+		Warnings:       r.Warnings,
 	})
 }
 

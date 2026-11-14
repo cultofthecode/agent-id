@@ -3,6 +3,7 @@ package activation
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -131,6 +132,9 @@ func PlanFor(r Request, a provider.Activator, paths NeutralPaths) Plan {
 	}
 	for name, value := range cli.Decoys {
 		set[name] = value
+	}
+	if r.Mechanism == MechanismExec {
+		maps.Copy(set, shellHookSet(r.Parent, paths.ShellDir))
 	}
 	drop := slices.Concat(coreDrop, a.CredentialVariables())
 	return Plan{

@@ -13,12 +13,15 @@ import (
 	"github.com/cultofthecode/agent-id/internal/provider"
 )
 
-// NeutralPaths are the two agent-id-owned directories of a provider.
+// NeutralPaths are the agent-id-owned directories of a provider.
 type NeutralPaths struct {
 	// ConfigDir is the CLI's empty configuration directory.
 	ConfigDir string
 	// BinDir holds the launcher of the CLI.
 	BinDir string
+	// ShellDir holds the shell hook (#135): the zsh wrappers that ZDOTDIR
+	// names and the script that BASH_ENV names.
+	ShellDir string
 }
 
 // NeutralDirs prepares and checks the neutral directories.
@@ -77,8 +80,9 @@ func (FileNeutralDirs) Ensure(parent []string, providerName string, cli provider
 	paths := NeutralPaths{
 		ConfigDir: filepath.Join(cache, "agent-id", providerName, "cli-config"),
 		BinDir:    filepath.Join(cache, "agent-id", providerName, "neutral-bin"),
+		ShellDir:  filepath.Join(cache, "agent-id", providerName, "shell-hook"),
 	}
-	for _, dir := range []string{filepath.Join(cache, "agent-id"), filepath.Dir(paths.ConfigDir), paths.ConfigDir, paths.BinDir} {
+	for _, dir := range []string{filepath.Join(cache, "agent-id"), filepath.Dir(paths.ConfigDir), paths.ConfigDir, paths.BinDir, paths.ShellDir} {
 		if err := ensurePrivateDir(dir); err != nil {
 			return NeutralPaths{}, err
 		}
@@ -88,8 +92,13 @@ func (FileNeutralDirs) Ensure(parent []string, providerName string, cli provider
 			return NeutralPaths{}, neutralErr(paths.ConfigDir, "contains "+name, "remove it, and change CLI settings or log in only outside the agent context")
 		}
 	}
-	if err := ensureStub(filepath.Join(paths.BinDir, cli.Binary), cli.Binary); err != nil {
+	if err := ensureFile(filepath.Join(paths.BinDir, cli.Binary), LauncherScript(cli.Binary), 0o700); err != nil {
 		return NeutralPaths{}, err
+	}
+	for name, content := range ShellHookFiles(hookNames("git", cli.Binary)) {
+		if err := ensureFile(filepath.Join(paths.ShellDir, name), content, 0o600); err != nil {
+			return NeutralPaths{}, err
+		}
 	}
 	return paths, nil
 }
@@ -134,11 +143,11 @@ func ensurePrivateDir(dir string) error {
 	return nil
 }
 
-// ensureStub makes path the regular, private stub of binary, rewriting it
-// atomically when its content or mode differ, and refusing a symlink or a
-// file of another user.
-func ensureStub(path, binary string) error {
-	want := []byte(LauncherScript(binary))
+// ensureFile makes path a regular, private file with the given content and
+// mode, rewriting it atomically when its content or mode differ, and refusing
+// a symlink or a file of another user.
+func ensureFile(path, content string, mode os.FileMode) error {
+	want := []byte(content)
 	info, err := os.Lstat(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -151,21 +160,21 @@ func ensureStub(path, binary string) error {
 			return neutralErr(path, "is owned by another user", "remove it")
 		}
 		got, err := os.ReadFile(path)
-		if err == nil && bytes.Equal(got, want) && info.Mode().Perm() == 0o700 {
+		if err == nil && bytes.Equal(got, want) && info.Mode().Perm() == mode {
 			return nil
 		}
 	}
-	return writeStub(path, want)
+	return writeFile(path, want, mode)
 }
 
-func writeStub(path string, content []byte) error {
+func writeFile(path string, content []byte, mode os.FileMode) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".stub-")
 	if err != nil {
 		return failf(ErrNeutralDir, "%s: %v", path, errText(err))
 	}
 	name := tmp.Name()
 	_, werr := tmp.Write(content)
-	cerr := tmp.Chmod(0o700)
+	cerr := tmp.Chmod(mode)
 	if err := errors.Join(werr, cerr, tmp.Close()); err != nil {
 		_ = os.Remove(name)
 		return failf(ErrNeutralDir, "%s: %v", path, errText(err))

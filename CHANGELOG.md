@@ -33,6 +33,7 @@ First release. agent-id gives an AI coding agent its own GitHub App identity for
 - **Private key checks.** The App key loads only from a protected file. agent-id refuses a key file with a macOS ACL, a key in an unsafe parent directory, and a symlink or `..` path that skips a directory check (#53, #90, #94, #115, #124).
 - **Token handling.** Tokens do not appear in output, errors, or logs. The token cache uses `0600` files in a private directory (#66, #81).
 - **Signed release tags.** The release workflow refuses a tag without a valid SSH signature (#126).
+- **Shell functions and aliases.** In `exec` mode, agent-id removes shell functions and aliases named `gh` and `git` from the developer's start files. It works in zsh, in bash, and in Claude Code. `doctor` and `whoami` warn about such definitions (#135).
 - **Test isolation.** Tests run with a temporary home directory. Child processes cannot reach the network except on local ports 18000–18999 (#32, #84).
 
 ### Documentation

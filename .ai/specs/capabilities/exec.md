@@ -52,6 +52,21 @@ The system SHALL start the command only with the neutral credential baseline.
 - WHEN `cli-config` or `neutral-bin` is a symlink, is group-writable, holds `hosts.yml`, or the stub is a symlink
 - THEN the status is 125 and nothing is changed
 
+## Requirement: Shell functions and aliases do not shadow the launcher (#135)
+The system SHALL set `ZDOTDIR`, `BASH_ENV`, and `CLAUDE_ENV_FILE` to private agent-id files that run the developer's own files first and then remove every function and alias named `git` or the provider's CLI, and SHALL record the developer's own values in `AGENT_ID_USER_ZDOTDIR`, `AGENT_ID_USER_BASH_ENV`, and `AGENT_ID_USER_CLAUDE_ENV_FILE`. The `env` mechanism SHALL NOT set them. The system SHALL NOT write the developer's start files or `~/.claude`.
+
+### Scenario: Plain zsh and bash
+- WHEN a fake `.zshenv`, `.zprofile`, `.zshrc`, `.zlogin`, or a `BASH_ENV` file in an isolated `HOME` defines functions and aliases named `gh` and `git`, and `exec` starts `zsh` or `bash`
+- THEN `type gh` shows the launcher in the neutral directory, the developer's other settings (a variable, a changed `ZDOTDIR`, the `HISTFILE` directory) are unchanged, and outside `exec` the developer's definitions stay
+
+### Scenario: The order of Claude Code
+- WHEN a shell sources a snapshot that defines the functions, then `$CLAUDE_ENV_FILE`, then runs `type gh`
+- THEN `gh` is the launcher, the developer's own `CLAUDE_ENV_FILE` ran, and outside `exec` the function stays
+
+### Scenario: Nested exec
+- WHEN `exec` starts `exec` again
+- THEN the recorded `AGENT_ID_USER_*` values stay the developer's, and `gh` is the launcher
+
 ## Requirement: Unresolved identity
 The system SHALL refuse a profile that its provider reports as not ready, with the provider's hint and without any network call.
 

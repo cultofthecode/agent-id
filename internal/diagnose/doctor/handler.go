@@ -24,8 +24,10 @@ type Handler struct {
 	Git          Git
 	CacheDir     func() (string, error)
 	Environ      func() []string
-	Output       diagnose.Output
-	Now          func() time.Time
+	// Shell scans the start files of the shells; nil skips the scan.
+	Shell  diagnose.ShellScan
+	Output diagnose.Output
+	Now    func() time.Time
 }
 
 // Handle gathers the snapshot, runs the checks, and returns the rendered
@@ -62,6 +64,9 @@ func (h *Handler) gather(ctx context.Context, name string) diagnose.Snapshot {
 	}
 	h.gatherGit(ctx, &snap, prov, tok)
 	h.gatherEnv(&snap)
+	if h.Shell != nil {
+		snap.Shell = h.Shell()
+	}
 	return snap
 }
 

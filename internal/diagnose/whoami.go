@@ -58,6 +58,9 @@ type WhoamiReport struct {
 	Details     []Detail
 	Token       WhoamiToken
 	Activation  string
+	// Warnings are problems that do not change the exit status, for
+	// example a shell function named like the provider's CLI.
+	Warnings []string
 }
 
 // Detail is one provider-specific line of whoami.
