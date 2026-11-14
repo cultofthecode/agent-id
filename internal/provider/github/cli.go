@@ -6,6 +6,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/cultofthecode/agent-id/internal/provider"
 )
@@ -117,6 +118,9 @@ func checkRepo(c ghContext, args []string) error {
 		if len(rest) > 0 && !strings.Contains(rest[0], "/") && !schemePattern.MatchString(rest[0]) {
 			return refuseMe(c)
 		}
+		if len(rest) > 0 {
+			return checkRepoValue(c, rest[0])
+		}
 	}
 	return nil
 }
@@ -151,7 +155,10 @@ func checkAPI(c ghContext, args []string) error {
 	return nil
 }
 
-// positionals returns the arguments that are no flag and no flag value.
+// positionals returns the arguments that are no flag and no flag value. A
+// cluster of short flags such as -iX consumes the next argument when it ends
+// in a flag that takes a value, and holds its value when text follows that
+// flag.
 func positionals(args []string) []string {
 	var out []string
 	for i := 0; i < len(args); i++ {
@@ -162,12 +169,27 @@ func positionals(args []string) []string {
 			return out
 		case valueFlags[a]:
 			i++
+		case shortCluster.MatchString(a) && !strings.HasPrefix(a, "--"):
+			if clusterTakesNext(a) {
+				i++
+			}
 		case strings.HasPrefix(a, "-"):
 		default:
 			out = append(out, a)
 		}
 	}
 	return out
+}
+
+// clusterTakesNext reports whether the short flags in cluster end in a flag
+// that takes its value from the next argument.
+func clusterTakesNext(cluster string) bool {
+	for j := 1; j < len(cluster); j++ {
+		if valueFlags["-"+cluster[j:j+1]] {
+			return j == len(cluster)-1
+		}
+	}
+	return false
 }
 
 func checkMe(c ghContext, args []string) error {
@@ -182,8 +204,18 @@ func checkMe(c ghContext, args []string) error {
 				return refuseMe(c)
 			}
 		}
+		for _, word := range strings.FieldsFunc(strings.ToLower(v), isQualifierBreak) {
+			if strings.HasSuffix(strings.Trim(strings.ReplaceAll(word, "\"", ""), "'"), ":@me") {
+				return refuseMe(c)
+			}
+		}
 	}
 	return nil
+}
+
+// isQualifierBreak splits a search query into its qualifiers.
+func isQualifierBreak(r rune) bool {
+	return r == ',' || unicode.IsSpace(r)
 }
 
 func checkHosts(c ghContext, args, parent []string) error {
@@ -196,6 +228,12 @@ func checkHosts(c ghContext, args, parent []string) error {
 	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		if v, ok := sourceFlagValue(args, i); ok {
+			if err := checkRepoValue(c, v); err != nil {
+				return err
+			}
+			continue
+		}
 		if flag, v, ok := hostFlagValue(args, i); ok {
 			if flag == "--hostname" {
 				if err := checkHostName(c, v); err != nil {
@@ -211,6 +249,26 @@ func checkHosts(c ghContext, args, parent []string) error {
 		}
 	}
 	return nil
+}
+
+// sourceFlagValue returns the value of --source, and of -s for "repo sync",
+// in the separate, "=", or attached form. Both name a repository.
+func sourceFlagValue(args []string, i int) (string, bool) {
+	a := args[i]
+	if v, found := strings.CutPrefix(a, "--source="); found {
+		return v, true
+	}
+	short := len(args) > 1 && args[0] == "repo" && args[1] == "sync"
+	if a == "--source" || short && a == "-s" {
+		if i+1 < len(args) {
+			return args[i+1], true
+		}
+		return "", false
+	}
+	if v, found := strings.CutPrefix(a, "-s"); found && short && !strings.HasPrefix(a, "--") && v != "" {
+		return strings.TrimPrefix(v, "="), true
+	}
+	return "", false
 }
 
 // hostFlagValue returns the flag and its value when args[i] is --hostname,
