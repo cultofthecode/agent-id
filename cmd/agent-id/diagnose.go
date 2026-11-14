@@ -21,6 +21,7 @@ import (
 // registration and the provider opener that the composition root supplies.
 func diagnosticCommands(registry profile.Registration, openProvider func(profile.Profile) (provider.Provider, error)) []*cobra.Command {
 	home, _ := os.UserHomeDir()
+	shellScan := diagnose.ScanShellFiles(os.Environ(), []string{"git", "gh"})
 	output := diagnose.Output{Patterns: diagnose.NewPatterns(registry.TokenPrefixes), Home: home}
 	who := &whoami.Handler{
 		ReadContext: func() whoami.Context { return readContext(os.LookupEnv) },
@@ -34,6 +35,7 @@ func diagnosticCommands(registry profile.Registration, openProvider func(profile
 		OpenProvider: openProvider,
 		Tokens:       tokenManager{},
 		Output:       output,
+		Shell:        shellScan,
 	}
 	doc := &doctor.Handler{
 		OpenStore: func() (doctor.Store, error) {
@@ -49,6 +51,7 @@ func diagnosticCommands(registry profile.Registration, openProvider func(profile
 		CacheDir:     func() (string, error) { return token.Dir(os.Getenv) },
 		Environ:      os.Environ,
 		Output:       output,
+		Shell:        shellScan,
 	}
 	return []*cobra.Command{whoami.NewCommand(who), doctor.NewCommand(doc)}
 }

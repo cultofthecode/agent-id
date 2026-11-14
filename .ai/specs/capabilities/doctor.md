@@ -31,6 +31,13 @@ The system SHALL refresh the cached `identity` of the profile when the host repo
 - WHEN `VerifyIdentity` returns a refresh
 - THEN only the `identity` member of that profile changes and every other profile is unchanged (compared after parsing); a write error is `warn` and the other checks continue; a rate-limited lookup is `warn` with exit 0
 
+## Requirement: Shell definitions of git and gh (#135)
+The system SHALL scan the start files of zsh and bash, read-only and without starting a shell, and report a `warn` result of `context.shell` for each function or alias named `git` or `gh` that a file defines, with the file as its source, and an `ok` result when none exists.
+
+### Scenario: A start file defines gh
+- WHEN a fake `.zshrc` in an isolated `HOME` defines `gh() { … }` and `alias git=hub`
+- THEN `doctor` prints two warnings, one for each name, and does not print the home directory in full
+
 ## Requirement: Exit status
 The system SHALL exit with 0 when no check failed, 1 when at least one failed, 2 on a usage error (missing `--profile`, unknown flag, extra argument), and 3 when the output was withheld.
 

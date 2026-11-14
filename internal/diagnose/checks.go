@@ -44,6 +44,7 @@ type Snapshot struct {
 	Repo     RepoState
 	Git      GitState
 	Env      EnvState
+	Shell    ShellState
 }
 
 // ConfigState is the outcome of loading the configuration and resolving the
@@ -344,7 +345,17 @@ func hostOfRepo(repo string) string {
 	return ""
 }
 
-func checkShell(Snapshot) []Result {
+func checkShell(s Snapshot) []Result {
+	if len(s.Shell.Found) > 0 {
+		var results []Result
+		for _, f := range s.Shell.Found {
+			results = append(results, Result{ID: "context.shell", Status: StatusWarn, Title: "a shell " + f.Kind + " named " + f.Name + " is defined in a start file", Source: f.File, Fix: "agent-id exec removes it in bash and zsh and in Claude Code before the agent runs a command; in another agent or shell, remove the " + f.Kind + " or start the agent from a shell that skips this file"})
+		}
+		return results
+	}
+	if s.Shell.Scanned {
+		return []Result{{ID: "context.shell", Status: StatusOK, Title: "no start file of bash or zsh defines a function or alias named git or gh", Detail: "the scan reads the start files only and follows no source line"}}
+	}
 	return []Result{{ID: "context.shell", Status: StatusInfo, Title: "shell functions and aliases named git or gh are invisible to a child process", Fix: "run `type git gh` in the agent's shell to see which ones it gets"}}
 }
 

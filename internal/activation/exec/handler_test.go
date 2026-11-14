@@ -137,3 +137,7 @@ func TestHandleFailures(t *testing.T) {
 		})
 	}
 }
+
+func (n neutral) EnsureSession([]string, activation.NeutralPaths, provider.NeutralCLI) (string, error) {
+	return n.dir + "/claude-env.sh", nil
+}

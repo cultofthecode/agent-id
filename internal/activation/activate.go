@@ -3,6 +3,7 @@ package activation
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -100,6 +101,9 @@ func Activate(ctx context.Context, d Deps, r Request) (Activation, error) {
 	if err != nil {
 		return Activation{}, err
 	}
+	if paths.ClaudeEnvFile, err = ensureSession(d.Neutral, r, a, paths); err != nil {
+		return Activation{}, err
+	}
 	plan := PlanFor(r, a, paths)
 	plan = withGit(plan, git)
 	plan, err = withTransport(plan, a)
@@ -121,6 +125,20 @@ func Activate(ctx context.Context, d Deps, r Request) (Activation, error) {
 	}, nil
 }
 
+// ensureSession creates the CLAUDE_ENV_FILE of this exec. Only the exec
+// mechanism needs one. A NeutralDirs that cannot make it is an error for exec:
+// without the file the developer's own CLAUDE_ENV_FILE would stay in place.
+func ensureSession(n NeutralDirs, r Request, a provider.Activator, paths NeutralPaths) (string, error) {
+	if r.Mechanism != MechanismExec {
+		return "", nil
+	}
+	s, ok := n.(SessionNeutral)
+	if !ok {
+		return "", failf(ErrNeutralDir, "the neutral directories cannot make a CLAUDE_ENV_FILE for this exec")
+	}
+	return s.EnsureSession(r.Parent, paths, a.NeutralCLI())
+}
+
 // PlanFor returns the plan of #20: the context, the drop list, and the
 // neutral credential baseline (#68).
 func PlanFor(r Request, a provider.Activator, paths NeutralPaths) Plan {
@@ -131,6 +149,9 @@ func PlanFor(r Request, a provider.Activator, paths NeutralPaths) Plan {
 	}
 	for name, value := range cli.Decoys {
 		set[name] = value
+	}
+	if r.Mechanism == MechanismExec {
+		maps.Copy(set, shellHookSet(r.Parent, paths.ShellDir, paths.ClaudeEnvFile))
 	}
 	drop := slices.Concat(coreDrop, a.CredentialVariables())
 	return Plan{

@@ -496,7 +496,8 @@ func TestExecNesting(t *testing.T) {
 	norm := func(s string) string {
 		var keep []string
 		for _, l := range strings.Split(s, "\n") {
-			if !strings.HasPrefix(l, "AGENT_ID_MECHANISM=") && !strings.HasPrefix(l, "_=") {
+			if !strings.HasPrefix(l, "AGENT_ID_MECHANISM=") && !strings.HasPrefix(l, "_=") &&
+				!strings.HasPrefix(l, "CLAUDE_ENV_FILE=") && !strings.HasPrefix(l, "AGENT_ID_USER_CLAUDE_ENV_FILE=") {
 				keep = append(keep, l)
 			}
 		}

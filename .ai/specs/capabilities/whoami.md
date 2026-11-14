@@ -34,4 +34,7 @@ The system SHALL report a token that cannot be obtained as `unavailable (<class>
 ## Requirement: Damaged contexts and missing profiles
 The system SHALL report `agent (damaged: <reason>)` or `agent (incompatible context version <v>)` with `Token status: not checked`, and a profile that the configuration lacks as `<name> (not found in the configuration)`, each with exit status 1 and without resolving a profile or minting a token for a damaged context.
 
+## Requirement: Shell definition warnings (#135)
+The system SHALL, inside an agent context only, add a `Warning` line to the text and a `warnings` member to the JSON for each function or alias named `git` or `gh` that a start file of zsh or bash defines, and SHALL NOT change the exit status. Outside an agent context it SHALL NOT scan.
+
 Not delivered yet: the `Describe`-based identity line shows the cached identity; a refresh happens only in `doctor`.

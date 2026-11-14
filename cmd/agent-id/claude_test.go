@@ -115,7 +115,8 @@ func TestEnvEvalEqualsExec(t *testing.T) {
 			if a["AGENT_ID_MECHANISM"] != "exec" || b["AGENT_ID_MECHANISM"] != "env" {
 				t.Fatalf("mechanisms %q %q", a["AGENT_ID_MECHANISM"], b["AGENT_ID_MECHANISM"])
 			}
-			for _, n := range []string{"AGENT_ID_MECHANISM", "PWD", "SHLVL", "_", "OLDPWD"} {
+			execOnly := []string{"ZDOTDIR", "BASH_ENV", "CLAUDE_ENV_FILE", "AGENT_ID_USER_ZDOTDIR", "AGENT_ID_USER_BASH_ENV", "AGENT_ID_USER_CLAUDE_ENV_FILE", "AGENT_ID_SET_NAMES"}
+			for _, n := range append(execOnly, "AGENT_ID_MECHANISM", "PWD", "SHLVL", "_", "OLDPWD") {
 				delete(a, n)
 				delete(b, n)
 			}
