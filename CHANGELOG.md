@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ## [Unreleased]
 
-## [0.1.0] - TBD
+## [0.1.0] - 2026-11-14
 
 First release. agent-id gives an AI coding agent its own GitHub App identity for one process and its descendants. It supports GitHub.com, macOS and Linux, and Bash and Zsh. Local mode is not a security boundary.
 
