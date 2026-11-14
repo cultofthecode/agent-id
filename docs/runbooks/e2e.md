@@ -16,7 +16,7 @@ The run also fails when a command output holds a token or key shape. `testenv.Ma
 
 The git steps always run. They need the credential helper from #22 (PR #103, on `main`).
 
-The `gh` steps (`gh pr create`, `gh pr view`, `gh api`) need the `gh` token injection (#23, PR #104). Until #104 merges, run without `AGENT_ID_E2E_GH`. The PR subtest then skips. When #104 merges, set `AGENT_ID_E2E_GH=1`.
+The `gh` steps (`gh pr create`, `gh pr view`, `gh api`) need the `gh` token injection (#23, PR #104, on `main`). Set `AGENT_ID_E2E_GH=1` to run them. Without it, the PR subtest skips.
 
 The test fetches `main` from the remote as the bot and bases its commits on it. The remote `main` must exist, so that `gh pr create` finds a common history.
 
@@ -30,7 +30,7 @@ The test does not drive a Claude Code session or wait for a token to expire. Do 
 2. In terminal A, run `git config user.name` and `git log -1 --format=%an`. Expect your personal identity.
 3. In terminal B, start Claude Code with the `SessionStart` hook that runs `agent-id claude-code session-start --profile <name>`. Ask it to run `agent-id whoami`, then to commit a file. Expect the bot as author and committer, and no signature.
 4. In terminal A, run `git log -1 --format='%an|%G?'` and `git config user.name` again. Expect your personal identity and no bot variable.
-5. Run `agent-id env --profile <name>` in a plain shell and check that the block holds no token.
+5. Run `agent-id env --profile <name> --shell zsh` (or `--shell bash`) in a plain shell. Check that the block holds no token.
 
 ### Repeat after token expiry
 
@@ -113,7 +113,7 @@ Remove `$TMPDIR/agent-id/expiry` when you finish. Attach the E1 and E2 values an
 - The test App `agent-id-e2e-bot`, installed only on that repository. App ID `5746535`. Installation ID `181640369`. Both values date from 2026-11-13. Check them in the App settings when the run fails with "installation not found".
 - The App private key as a file on this machine. The file must have mode `0600` and belong to you.
 - The default branch `main` exists in the repository. The App has Contents and Pull requests write permission.
-- The commit `HEAD` of your checkout contains #22 (PR #103), #26 (PR #98), and the setup and exec slices.
+- The commit `HEAD` of your checkout contains #22 (PR #103), #23 (PR #104), #26 (PR #98), and the setup and exec slices.
 - `ssh-keygen` on `PATH`. The test makes a throwaway signing key with it.
 
 Never put the key in the repository. Never paste it in a terminal, a PR, or an issue.
@@ -128,7 +128,7 @@ Never put the key in the repository. Never paste it in a terminal, a PR, or an i
 | `AGENT_ID_E2E_INSTALLATION_ID` | `181640369` | yes |
 | `AGENT_ID_E2E_REPO_URL` | `https://github.com/cultofthecode/agent-id-e2e` | yes |
 | `AGENT_ID_E2E_BOT_LOGIN` | `agent-id-e2e-bot[bot]` | yes |
-| `AGENT_ID_E2E_GH` | `1` enables the `gh` steps (needs #23, PR #104). | no |
+| `AGENT_ID_E2E_GH` | `1` enables the `gh` steps. The `gh` token injection (#23, PR #104) is on `main`. | no |
 
 The test removes every other `AGENT_ID_*`, `GH_TOKEN`, and `GITHUB_TOKEN` value from its children. It builds its own `HOME`, `XDG_*`, `GIT_CONFIG_GLOBAL`, and `GH_CONFIG_DIR` under `$TMPDIR/agent-id/`. It never reads your `~/.gitconfig` or your `gh` login.
 
@@ -143,10 +143,11 @@ AGENT_ID_E2E_APP_ID=5746535 \
 AGENT_ID_E2E_INSTALLATION_ID=181640369 \
 AGENT_ID_E2E_REPO_URL=https://github.com/cultofthecode/agent-id-e2e \
 AGENT_ID_E2E_BOT_LOGIN='agent-id-e2e-bot[bot]' \
+AGENT_ID_E2E_GH=1 \
 go test -tags e2e -count=1 -v ./e2e/
 ```
 
-Add `AGENT_ID_E2E_GH=1` for the `gh` steps.
+The command sets `AGENT_ID_E2E_GH=1`, so the `gh` steps run. To skip them, remove that line. The PR subtest then skips.
 
 Without `-tags e2e`, Go compiles no test of this package. Without `AGENT_ID_E2E=1`, the test skips. The test also fails at once when `CI` or `GITHUB_ACTIONS` is set.
 
