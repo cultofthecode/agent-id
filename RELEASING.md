@@ -26,7 +26,7 @@ See "Verifying a release (user)" below for the full check.
 The workflow refuses to publish, before anything is built, unless `.github/scripts/check-release-tag.sh` accepts the tag:
 
 - the tag is SemVer `vMAJOR.MINOR.PATCH` or `vMAJOR.MINOR.PATCH-PRERELEASE` (a pre-release tag gives a GitHub pre-release);
-- the tag is annotated (`git tag -a`; a signed tag `git tag -s` is annotated too);
+- the tag is annotated and carries a valid SSH signature (`git tag -s`) by a key listed in `.github/allowed_signers` (`git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=… verify-tag`). The script reads that file from `origin/main`, never from the tagged commit. An unsigned tag, an invalid signature, or an unknown signer fails the check;
 - the tagged commit is on `main`.
 
 It then runs `go vet` and `go test`, builds the binary for the runner and checks that `--version` reports the tag, and only then runs GoReleaser, pinned to the pushed tag (`GORELEASER_CURRENT_TAG`). GoReleaser creates a draft release; the workflow publishes it only after the provenance attestation succeeds. If the attestation fails, the draft stays unpublished: re-run the job, or delete the draft.
@@ -43,7 +43,13 @@ The workflow fetches the tag without credentials, so it assumes the repository i
 ## Cutting a release (admin)
 
 1. Make sure `main` is green, and run the end-to-end tests of `SDLC.md` (Validation gate) on the commit to tag.
-2. An admin tags it: `git tag -s vX.Y.Z -m vX.Y.Z <commit>` (or `-a`), then `git push origin vX.Y.Z`.
+2. An admin signs and tags it: `git tag -s vX.Y.Z -m vX.Y.Z <commit>`, then `git push origin vX.Y.Z`. Git needs `gpg.format=ssh` and `user.signingkey` set to the SSH key whose public half is in `.github/allowed_signers`. The tagger e-mail must equal the e-mail on that line. An annotated tag without a signature (`-a`) is refused.
+   Before the push, verify the signature locally:
+   ```sh
+   git show origin/main:.github/allowed_signers > "$TMPDIR/allowed_signers"
+   git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile="$TMPDIR/allowed_signers" verify-tag vX.Y.Z
+   ```
+   The command prints `Good "git" signature` and exits 0. Any other result means the tag must not be pushed. Delete the local tag and sign it again.
 3. The `release` workflow waits for approval of the deployment to the environment `release`. The same owner, who pushed the tag as the admin, approves it after checking that the tag is the intended one and that its commit is on `main`. Approval is the normal path; an admin bypass is not.
 4. Watch the workflow; check the release page and verify one archive as below.
 
@@ -94,6 +100,8 @@ git merge-base --is-ancestor <commit> origin/main && echo "on main"
 ```
 
 Do not use a release whose commit is not an ancestor of `main`.
+
+To add or rotate a signer, change `.github/allowed_signers` with a reviewed PR to `main`. The file holds public keys only. Never add a private key.
 
 ## Testing the pipeline locally
 
