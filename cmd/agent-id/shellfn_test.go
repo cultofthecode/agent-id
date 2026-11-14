@@ -215,3 +215,74 @@ func TestDoctorWarnsAboutAShellFunctionInAStartFile(t *testing.T) {
 		t.Errorf("whoami inside exec lacks the warning: %q (%s)", agent.stdout, agent.stderr)
 	}
 }
+
+func TestExecNestedSessionRunsTheOuterFile(t *testing.T) {
+	needShell(t, "bash")
+	f := newExecFixture(t)
+	snapshot := filepath.Join(f.env.Home, "snapshot.sh")
+	writeRC(t, f.env.Home, map[string]string{"snapshot.sh": fakeRC})
+	inner := `. ` + snapshot + `; . "$CLAUDE_ENV_FILE"; echo "outer=$OUTERLINE"; type gh`
+	outer := `printf 'export OUTERLINE=1\n' >> "$CLAUDE_ENV_FILE"; "$0" exec --profile claude -- bash -c '` + inner + `'`
+	r := f.run("exec", "--profile", "claude", "--", "bash", "-c", outer, f.binary)
+	if r.code != 0 {
+		t.Fatalf("exit %d: %s", r.code, r.stderr)
+	}
+	if !strings.Contains(r.stdout, "outer=1") || strings.Contains(r.stdout, "function") || !strings.Contains(r.stdout, "neutral-bin/gh") {
+		t.Errorf("nested exec: %q", r.stdout)
+	}
+}
+
+func TestExecSessionsDoNotShareTheClaudeEnvFile(t *testing.T) {
+	needShell(t, "bash")
+	f := newExecFixture(t)
+	script := `printf 'export LEAK_%s=1\n' "$1" >> "$CLAUDE_ENV_FILE"; printf '%s\n' "$CLAUDE_ENV_FILE"`
+	a := f.run("exec", "--profile", "claude", "--", "bash", "-c", script, "bash", "A")
+	pa := strings.TrimSpace(a.stdout)
+	dataA, _ := os.ReadFile(pa)
+	b := f.run("exec", "--profile", "other", "--", "bash", "-c", script, "bash", "B")
+	pb := strings.TrimSpace(b.stdout)
+	if a.code != 0 || b.code != 0 || pa == "" || pa == pb {
+		t.Fatalf("paths %q %q, exits %d %d: %s%s", pa, pb, a.code, b.code, a.stderr, b.stderr)
+	}
+	dataB, _ := os.ReadFile(pb)
+	if _, err := os.Stat(pa); err == nil {
+		t.Error("the file of the finished session A is still there after the start of B")
+	}
+	if !strings.Contains(string(dataA), "LEAK_A") || strings.Contains(string(dataA), "LEAK_B") || strings.Contains(string(dataB), "LEAK_A") {
+		t.Errorf("appended lines crossed sessions:\nA:\n%s\nB:\n%s", dataA, dataB)
+	}
+}
+
+func TestSessionStartHookWithTwoProfilesInTwoExecSessions(t *testing.T) {
+	needShell(t, "bash")
+	f := newHookFixture(t)
+	f.workdir = f.repo
+	hook := func(profile, source string) (string, execRun) {
+		f.stdin = hookJSON(f, source)
+		r := f.run("exec", "--profile", profile, "--", "sh", "-c",
+			`printf 'PATH=%s\n' "$CLAUDE_ENV_FILE" >&2; "$0" claude-code session-start --profile "$1"`, f.binary, profile)
+		path := ""
+		for _, line := range strings.Split(r.stderr, "\n") {
+			if p, ok := strings.CutPrefix(line, "PATH="); ok {
+				path = p
+			}
+		}
+		return path, r
+	}
+	pa, ra := hook("claude", "startup")
+	pb, rb := hook("other", "startup")
+	if ra.code != 0 || rb.code != 0 || pa == "" || pa == pb {
+		t.Fatalf("A %q %+v, B %q %+v", pa, ra, pb, rb)
+	}
+	if _, r := hook("claude", "resume"); r.code != 0 {
+		t.Fatalf("resume in session A: %+v", r)
+	}
+	dataA, _ := os.ReadFile(pa)
+	dataB, _ := os.ReadFile(pb)
+	if strings.Contains(string(dataA), "exit 125") || strings.Contains(string(dataB), "exit 125") {
+		t.Errorf("a refusal line reached a session:\nA:\n%s\nB:\n%s", dataA, dataB)
+	}
+	if strings.Contains(string(dataA), "other[bot]") || strings.Contains(string(dataB), "claude-dev[bot]") {
+		t.Errorf("a profile crossed sessions")
+	}
+}

@@ -101,6 +101,9 @@ func Activate(ctx context.Context, d Deps, r Request) (Activation, error) {
 	if err != nil {
 		return Activation{}, err
 	}
+	if paths.ClaudeEnvFile, err = ensureSession(d.Neutral, r, a, paths); err != nil {
+		return Activation{}, err
+	}
 	plan := PlanFor(r, a, paths)
 	plan = withGit(plan, git)
 	plan, err = withTransport(plan, a)
@@ -122,6 +125,17 @@ func Activate(ctx context.Context, d Deps, r Request) (Activation, error) {
 	}, nil
 }
 
+// ensureSession creates the CLAUDE_ENV_FILE of this exec. Only the exec
+// mechanism needs one, and only a NeutralDirs that implements SessionNeutral
+// can make it.
+func ensureSession(n NeutralDirs, r Request, a provider.Activator, paths NeutralPaths) (string, error) {
+	s, ok := n.(SessionNeutral)
+	if !ok || r.Mechanism != MechanismExec {
+		return "", nil
+	}
+	return s.EnsureSession(r.Parent, paths, a.NeutralCLI())
+}
+
 // PlanFor returns the plan of #20: the context, the drop list, and the
 // neutral credential baseline (#68).
 func PlanFor(r Request, a provider.Activator, paths NeutralPaths) Plan {
@@ -134,7 +148,7 @@ func PlanFor(r Request, a provider.Activator, paths NeutralPaths) Plan {
 		set[name] = value
 	}
 	if r.Mechanism == MechanismExec {
-		maps.Copy(set, shellHookSet(r.Parent, paths.ShellDir))
+		maps.Copy(set, shellHookSet(r.Parent, paths.ShellDir, paths.ClaudeEnvFile))
 	}
 	drop := slices.Concat(coreDrop, a.CredentialVariables())
 	return Plan{

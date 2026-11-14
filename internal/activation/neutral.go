@@ -2,13 +2,18 @@ package activation
 
 import (
 	"bytes"
+	"crypto/rand"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/cultofthecode/agent-id/internal/provider"
 )
@@ -22,6 +27,15 @@ type NeutralPaths struct {
 	// ShellDir holds the shell hook (#135): the zsh wrappers that ZDOTDIR
 	// names and the script that BASH_ENV names.
 	ShellDir string
+	// ClaudeEnvFile is the CLAUDE_ENV_FILE of this exec: a file of its own in
+	// ShellDir/sessions/<pid>.<random>/. Ensure leaves it empty. Only
+	// SessionNeutral.EnsureSession fills it, for the exec mechanism.
+	ClaudeEnvFile string
+}
+
+// SessionNeutral is the part of NeutralDirs that makes the per-exec files.
+type SessionNeutral interface {
+	EnsureSession(parent []string, paths NeutralPaths, cli provider.NeutralCLI) (string, error)
 }
 
 // NeutralDirs prepares and checks the neutral directories.
@@ -145,26 +159,60 @@ func ensurePrivateDir(dir string) error {
 
 // ensureFile makes path a regular, private file with the given content and
 // mode, rewriting it atomically when its content or mode differ, and refusing
-// a symlink or a file of another user.
+// a symlink or a file of another user. It opens the file without following a
+// symlink and holds the same exclusive flock as the SessionStart hook (#98)
+// from the read to the rename, so an append cannot fall between them.
 func ensureFile(path, content string, mode os.FileMode) error {
 	want := []byte(content)
-	info, err := os.Lstat(path)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-	case err != nil:
+	f, err := openLocked(path)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		return writeFile(path, want, mode)
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
 		return failf(ErrNeutralDir, "%s: %v", path, errText(err))
-	case !info.Mode().IsRegular():
-		return neutralErr(path, "is a symlink or not a regular file", "remove it")
-	default:
-		if st, ok := info.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != os.Getuid() {
-			return neutralErr(path, "is owned by another user", "remove it")
-		}
-		got, err := os.ReadFile(path)
-		if err == nil && bytes.Equal(got, want) && info.Mode().Perm() == mode {
-			return nil
-		}
+	}
+	got, err := io.ReadAll(f)
+	if err == nil && bytes.Equal(got, want) && info.Mode().Perm() == mode {
+		return nil
 	}
 	return writeFile(path, want, mode)
+}
+
+// openLocked opens an existing path for reading, locked, and checks the
+// opened descriptor. It returns nil without an error when path is missing.
+func openLocked(path string) (*os.File, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil, nil
+	case errors.Is(err, syscall.ELOOP):
+		return nil, neutralErr(path, "is a symlink or not a regular file", "remove it")
+	case err != nil:
+		return nil, failf(ErrNeutralDir, "%s: %v", path, errText(err))
+	}
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, failf(ErrNeutralDir, "%s: %v", path, errText(err))
+	}
+	if !info.Mode().IsRegular() {
+		_ = f.Close()
+		return nil, neutralErr(path, "is a symlink or not a regular file", "remove it")
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != os.Getuid() {
+		_ = f.Close()
+		return nil, neutralErr(path, "is owned by another user", "remove it")
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		_ = f.Close()
+		return nil, failf(ErrNeutralDir, "%s: cannot lock: %v", path, err)
+	}
+	return f, nil
 }
 
 func writeFile(path string, content []byte, mode os.FileMode) error {
@@ -184,4 +232,116 @@ func writeFile(path string, content []byte, mode os.FileMode) error {
 		return failf(ErrNeutralDir, "%s: %v", path, errText(err))
 	}
 	return nil
+}
+
+// sessionMaxAge is the age after which the next exec removes a session
+// directory even when its pid is alive, because the system can reuse a pid.
+// A session that runs longer than this loses its CLAUDE_ENV_FILE.
+const sessionMaxAge = 30 * 24 * time.Hour
+
+// EnsureSession implements SessionNeutral. It removes the stale session
+// directories, makes a new private directory sessions/<pid>.<random>/ and
+// writes the CLAUDE_ENV_FILE script of this exec into it, and returns the
+// path of the script. exec replaces its own process and cannot remove the
+// directory at exit, so the next exec does it.
+func (FileNeutralDirs) EnsureSession(parent []string, paths NeutralPaths, cli provider.NeutralCLI) (string, error) {
+	if !binaryName.MatchString(cli.Binary) {
+		return "", failf(ErrNeutralDir, "the provider's CLI is not a plain identifier")
+	}
+	sessions := filepath.Join(paths.ShellDir, sessionsDir)
+	if err := ensurePrivateDir(paths.ShellDir); err != nil {
+		return "", err
+	}
+	if err := ensurePrivateDir(sessions); err != nil {
+		return "", err
+	}
+	sweepSessions(sessions, time.Now(), pidAlive)
+	dir, err := newSessionDir(sessions)
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, claudeEnvFile)
+	script := ClaudeEnvScript(userClaudeEnvFile(parent, paths.ShellDir), hookNames("git", cli.Binary))
+	if err := createFile(path, script); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", err
+	}
+	return path, nil
+}
+
+func newSessionDir(sessions string) (string, error) {
+	for range 8 {
+		var b [8]byte
+		if _, err := rand.Read(b[:]); err != nil {
+			return "", failf(ErrNeutralDir, "%s: %v", sessions, err)
+		}
+		dir := filepath.Join(sessions, fmt.Sprintf("%d.%x", os.Getpid(), b))
+		if err := os.Mkdir(dir, 0o700); errors.Is(err, fs.ErrExist) {
+			continue
+		} else if err != nil {
+			return "", failf(ErrNeutralDir, "%s: %v", dir, errText(err))
+		}
+		if err := ensurePrivateDir(dir); err != nil {
+			_ = os.RemoveAll(dir)
+			return "", err
+		}
+		return dir, nil
+	}
+	return "", failf(ErrNeutralDir, "%s: cannot find an unused session name", sessions)
+}
+
+// createFile creates path as a new private file, never following a symlink
+// and never reusing an existing file, and writes content under the lock.
+func createFile(path, content string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		if errors.Is(err, fs.ErrExist) || errors.Is(err, syscall.ELOOP) {
+			return neutralErr(path, "exists already (a symlink or a file)", "remove it")
+		}
+		return failf(ErrNeutralDir, "%s: %v", path, errText(err))
+	}
+	lerr := syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+	_, werr := f.WriteString(content)
+	if err := errors.Join(lerr, werr, f.Close()); err != nil {
+		_ = os.Remove(path)
+		return failf(ErrNeutralDir, "%s: %v", path, errText(err))
+	}
+	return nil
+}
+
+// sweepSessions removes the session directories of dead processes and the
+// ones older than sessionMaxAge. It removes only real directories of the
+// current user whose name is <pid>.<random>, and never follows a symlink. A
+// failure leaves the directory for the next exec.
+func sweepSessions(sessions string, now time.Time, alive func(pid int) bool) {
+	entries, err := os.ReadDir(sessions)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		path := filepath.Join(sessions, e.Name())
+		info, err := os.Lstat(path)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		if st, ok := info.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != os.Getuid() {
+			continue
+		}
+		pid, ok := sessionPid(e.Name())
+		if !ok || (alive(pid) && now.Sub(info.ModTime()) < sessionMaxAge) {
+			continue
+		}
+		_ = os.RemoveAll(path)
+	}
+}
+
+func sessionPid(name string) (int, bool) {
+	head, _, ok := strings.Cut(name, ".")
+	pid, err := strconv.Atoi(head)
+	return pid, ok && err == nil && pid > 0
+}
+
+func pidAlive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
