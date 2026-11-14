@@ -90,6 +90,7 @@ Deleting a key in GitHub does not revoke installation tokens already minted with
 - `AGENTS.md`: project overview and rules for agents, including mandatory test isolation
 - `ARCHITECTURE.md`: system structure and decisions
 - `SDLC.md`: how work moves from an issue to a merged PR
+- `CHANGELOG.md`: what changed in each release
 - Backlog: https://github.com/cultofthecode/agent-id/issues
 
 ## License
