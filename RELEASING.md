@@ -43,6 +43,7 @@ The workflow fetches the tag without credentials, so it assumes the repository i
 ## Cutting a release (admin)
 
 1. Make sure `main` is green, and run the end-to-end tests of `SDLC.md` (Validation gate) on the commit to tag.
+   Move the entries of `Unreleased` in `CHANGELOG.md` to a section `[X.Y.Z] - <date>` in a PR before you tag.
 2. An admin signs and tags it: `git tag -s vX.Y.Z -m vX.Y.Z <commit>`, then `git push origin vX.Y.Z`. Git needs `gpg.format=ssh` and `user.signingkey` set to the SSH key whose public half is in `.github/allowed_signers`. The tagger e-mail must equal the e-mail on that line. An annotated tag without a signature (`-a`) is refused.
    Before the push, verify the signature locally:
    ```sh
