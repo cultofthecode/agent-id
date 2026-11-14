@@ -20,6 +20,8 @@ func TestIsolatePointsEverythingIntoTheTestRoot(t *testing.T) {
 	t.Setenv("GIT_CONFIG_COUNT", "1")
 	t.Setenv("GIT_CONFIG_KEY_0", "user.name")
 	t.Setenv("SSH_AUTH_SOCK", "/tmp/agent.sock")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "eyJhbGciOiJSUzI1NiJ9.eyJmYWtlIjoxfQ.ZmFrZQ")
+	t.Setenv("ACTIONS_RUNTIME_TOKEN", "fake-runtime")
 	env := Isolate(t)
 	if !strings.HasPrefix(env.Root, base+string(filepath.Separator)) {
 		t.Fatalf("root %s is not under %s", env.Root, base)
@@ -29,7 +31,7 @@ func TestIsolatePointsEverythingIntoTheTestRoot(t *testing.T) {
 			t.Errorf("%s = %q, want a path under %s", name, got, env.Root)
 		}
 	}
-	for _, name := range []string{"GH_TOKEN", "GITHUB_TOKEN", "AGENT_ID_PROFILE", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "SSH_AUTH_SOCK"} {
+	for _, name := range []string{"GH_TOKEN", "GITHUB_TOKEN", "AGENT_ID_PROFILE", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "SSH_AUTH_SOCK", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ACTIONS_RUNTIME_TOKEN"} {
 		if value, ok := os.LookupEnv(name); ok {
 			t.Errorf("%s is still set to %q", name, value)
 		}

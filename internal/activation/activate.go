@@ -60,6 +60,18 @@ type Activation struct {
 // use to answer for the developer.
 var coreDrop = []string{"GIT_ASKPASS", "SSH_ASKPASS"}
 
+// ciDrop are the credential variables of CI runners. A CI job hands them to
+// its own steps so that a step can mint an OIDC token or reach the runner
+// services; an agent must not be able to do that with the identity of the
+// job (OQ3 of the exec spec).
+var ciDrop = []string{
+	"ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_RUNTIME_TOKEN",
+	"ACTIONS_RESULTS_URL", "ACTIONS_CACHE_URL",
+	"CI_JOB_TOKEN", "CI_JOB_JWT", "CI_JOB_JWT_V1", "CI_JOB_JWT_V2",
+	"BUILDKITE_AGENT_ACCESS_TOKEN", "SYSTEM_ACCESSTOKEN",
+	"CIRCLE_OIDC_TOKEN", "CIRCLE_OIDC_TOKEN_V2",
+}
+
 // Activate runs the activation pipeline in its fixed order: the profile name,
 // the inherited context and nesting, the profile and its readiness, the
 // inherited Git configuration, the neutral directories, the child
@@ -153,7 +165,7 @@ func PlanFor(r Request, a provider.Activator, paths NeutralPaths) Plan {
 	if r.Mechanism == MechanismExec {
 		maps.Copy(set, shellHookSet(r.Parent, paths.ShellDir, paths.ClaudeEnvFile))
 	}
-	drop := slices.Concat(coreDrop, a.CredentialVariables())
+	drop := slices.Concat(coreDrop, ciDrop, a.CredentialVariables())
 	return Plan{
 		Profile:   r.Profile,
 		Mechanism: r.Mechanism,

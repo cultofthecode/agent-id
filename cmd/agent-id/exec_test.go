@@ -519,6 +519,37 @@ func TestExecNesting(t *testing.T) {
 	}
 }
 
+func TestExecDropsCIRunnerCredentials(t *testing.T) {
+	f := newExecFixture(t)
+	jwt := "eyJhbGciOiJSUzI1NiJ9.eyJmYWtlIjoiZXhlYyJ9.ZmFrZXNpZ25hdHVyZQ"
+	names := []string{
+		"ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_RUNTIME_TOKEN",
+		"ACTIONS_RESULTS_URL", "ACTIONS_CACHE_URL", "CI_JOB_TOKEN", "CI_JOB_JWT", "CI_JOB_JWT_V1", "CI_JOB_JWT_V2",
+		"BUILDKITE_AGENT_ACCESS_TOKEN", "SYSTEM_ACCESSTOKEN", "CIRCLE_OIDC_TOKEN", "CIRCLE_OIDC_TOKEN_V2",
+	}
+	for _, n := range names {
+		f.extra = append(f.extra, n+"="+jwt)
+	}
+	nested := []string{"exec", "--profile", "claude", "--", f.binary, "exec", "--profile", "claude", "--", "env"}
+	for name, args := range map[string][]string{
+		"exec":   {"exec", "--profile", "claude", "--", "env"},
+		"nested": nested,
+	} {
+		r := f.run(args...)
+		if r.code != 0 {
+			t.Fatalf("%s: code %d: %s", name, r.code, r.stderr)
+		}
+		if strings.Contains(r.stdout, jwt) {
+			t.Errorf("%s: the child saw a runner token value", name)
+		}
+		for _, n := range names {
+			if strings.Contains("\n"+r.stdout, "\n"+n+"=") {
+				t.Errorf("%s: the child environment has %s", name, n)
+			}
+		}
+	}
+}
+
 func TestExecLeavesTheParentAlone(t *testing.T) {
 	f := newExecFixture(t)
 	before := os.Environ()
