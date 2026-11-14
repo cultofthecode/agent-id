@@ -34,6 +34,7 @@ type surfaces struct {
 	execs   []string
 	realDir string
 	binDir  string
+	cfgDir  string
 }
 
 type recordingExec struct{ s *surfaces }
@@ -49,7 +50,8 @@ func newSurfaces(t *testing.T) *surfaces {
 	root := t.TempDir()
 	s.realDir = filepath.Join(root, "real")
 	s.binDir = filepath.Join(root, "neutral-bin")
-	for _, d := range []string{s.realDir, s.binDir} {
+	s.cfgDir = filepath.Join(root, "neutral-config")
+	for _, d := range []string{s.realDir, s.binDir, s.cfgDir} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -88,7 +90,7 @@ func (s *surfaces) shim(base string) *cliint.Handler {
 		Profile:     func([]string) (string, error) { return "claude", nil },
 		Activator:   func(string) (provider.Activator, error) { return a, nil },
 		Provider:    func(string) (provider.Provider, error) { return s.provider(base) },
-		NeutralDirs: func([]string, provider.Activator) (string, string, error) { return s.t.TempDir(), s.binDir, nil },
+		NeutralDirs: func([]string, provider.Activator) (string, string, error) { return s.cfgDir, s.binDir, nil },
 		Tokens:      s.manager(),
 		Execer:      recordingExec{s},
 	}
